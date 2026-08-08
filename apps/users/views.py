@@ -30,7 +30,7 @@ def register(request):
             subject = 'Подтверждение регистрации на WowLance'
             message = render_to_string('users/activation_email.html', {
                 'user': user,
-                'domain': f"http://{current_site.domain}",
+                'domain': current_site.domain,
                 'uid': urlsafe_base64_encode(force_bytes(user.pk)),
                 'token': account_activation_token.make_token(user),
             })
