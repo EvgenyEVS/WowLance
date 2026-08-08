@@ -1,33 +1,124 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Подтверждение регистрации на WowLance</title>
     <style>
-        body { font-family: Arial, sans-serif; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 30px 20px;
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+        .header {
+            text-align: center;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #4CAF50;
+        }
+        .header h1 {
+            color: #1a1a2e;
+            font-size: 28px;
+            margin: 0;
+        }
+        .header .logo {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .content {
+            padding: 25px 0;
+            color: #333333;
+            line-height: 1.6;
+        }
+        .content p {
+            margin: 15px 0;
+        }
+        .button-container {
+            text-align: center;
+            margin: 30px 0;
+        }
         .button {
             background: #4CAF50;
-            color: white;
-            padding: 12px 24px;
+            color: white !important;
+            padding: 14px 32px;
             text-decoration: none;
-            border-radius: 4px;
+            border-radius: 6px;
             display: inline-block;
+            font-weight: 600;
+            font-size: 16px;
+            transition: background 0.3s;
+        }
+        .button:hover {
+            background: #45a049;
+        }
+        .code-block {
+            background: #f5f7fa;
+            padding: 12px 16px;
+            border-radius: 6px;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 14px;
+            color: #1a1a2e;
+            border: 1px solid #e0e0e0;
+            margin: 10px 0;
+        }
+        .footer {
+            text-align: center;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 13px;
+            color: #888888;
+        }
+        .footer a {
+            color: #4CAF50;
+            text-decoration: none;
         }
     </style>
 </head>
 <body>
 <div class="container">
-    <h1>Добро пожаловать на WowLance!</h1>
-    <p>Привет, {{ user.email }}!</p>
-    <p>Для активации вашего аккаунта перейдите по ссылке:</p>
-    <p>
-        <a href="https://{{ domain }}{% url 'users:activate' uidb64=uid token=token %}" class="button">
-            Активировать аккаунт
-        </a>
-    </p>
-    <p>Или скопируйте ссылку в браузер:</p>
-    <p><code>https://{{ domain }}{% url 'users:activate' uidb64=uid token=token %}</code></p>
-    <p>Ссылка действительна в течение 24 часов.</p>
-    <p>С уважением,<br>Команда WowLance</p>
+    <div class="header">
+        <h1>Добро пожаловать на <span class="logo">WowLance</span>!</h1>
+    </div>
+
+    <div class="content">
+        <p><strong>Привет, {{ user.email }}!</strong></p>
+
+        <p>Спасибо за регистрацию на платформе WowLance.</p>
+
+        <p>Для активации вашего аккаунта и начала работы нажмите на кнопку ниже:</p>
+
+        <div class="button-container">
+            <a href="{{ domain }}{% url 'users:activate' uidb64=uid token=token %}" class="button">
+                Активировать аккаунт
+            </a>
+        </div>
+
+        <p>Если кнопка не работает, скопируйте ссылку в браузер:</p>
+
+        <div class="code-block">
+            {{ domain }}{% url 'users:activate' uidb64=uid token=token %}
+        </div>
+
+        <p><strong>Ссылка действительна в течение 24 часов.</strong></p>
+
+        <p>Если вы не регистрировались на WowLance, просто проигнорируйте это письмо.</p>
+    </div>
+
+    <div class="footer">
+        <p>С уважением,<br>Команда <a href="{{ domain }}">WowLance</a></p>
+        <p style="font-size: 12px; color: #aaa;">
+            Это автоматическое письмо. Пожалуйста, не отвечайте на него.
+        </p>
+    </div>
 </div>
 </body>
 </html>

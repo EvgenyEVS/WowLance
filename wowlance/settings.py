@@ -135,6 +135,9 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 LOGIN_URL = '/login/'
 
+DEFAULT_CHARSET = 'utf-8'
+EMAIL_USE_LOCALTIME = False
+
 #EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 #EMAIL_HOST = 'smtp.yandex.ru'
 #EMAIL_PORT = 465

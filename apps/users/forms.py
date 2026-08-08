@@ -8,16 +8,8 @@ User = get_user_model()
 
 class RegistrationForm(UserCreationForm):
     """
-    Форма регистрации с выбором роли
+    Форма регистрации
     """
-    role = forms.ChoiceField(
-        choices=[
-            ('director', 'Я директор — хочу нанять команду'),
-            ('freelancer', 'Я фрилансер — хочу найти работу'),
-        ],
-        widget=forms.RadioSelect,
-        label=_('Выберите вашу роль')
-    )
 
     email = forms.EmailField(
         label=_('Email'),

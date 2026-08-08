@@ -1,5 +1,4 @@
 {% extends 'base.html' %}
-{% load static %}
 
 {% block title %}Регистрация{% endblock %}
 
@@ -7,7 +6,14 @@
 <div class="auth-container">
     <div class="auth-box">
         <h1>Регистрация на WowLance</h1>
-        <p class="subtitle">Выберите вашу роль и начните работу</p>
+
+        {% if request.GET.role == 'director' %}
+        <p class="subtitle">Вы регистрируетесь как <strong>Директор</strong></p>
+        {% elif request.GET.role == 'freelancer' %}
+        <p class="subtitle">Вы регистрируетесь как <strong>Фрилансер</strong></p>
+        {% else %}
+        <p class="subtitle">Пожалуйста, выберите роль на главной странице</p>
+        {% endif %}
 
         <form method="post" class="auth-form">
             {% csrf_token %}
@@ -36,10 +42,8 @@
                 {% endif %}
             </div>
 
-            <div class="form-group role-select">
-                <label>Выберите вашу роль:</label>
-                {{ form.role }}
-            </div>
+            <!-- Скрытое поле с ролью -->
+            <input type="hidden" name="role" value="{{ request.GET.role }}">
 
             <button type="submit" class="btn btn-primary btn-block">
                 Зарегистрироваться
@@ -48,6 +52,10 @@
 
         <p class="auth-footer">
             Уже есть аккаунт? <a href="{% url 'users:login' %}">Войти</a>
+        </p>
+
+        <p class="auth-footer">
+            <a href="{% url 'core:home' %}">← Вернуться на главную</a>
         </p>
     </div>
 </div>

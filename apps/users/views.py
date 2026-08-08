@@ -6,7 +6,7 @@ from django.contrib.sites.shortcuts import get_current_site
 from django.template.loader import render_to_string
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
 from .forms import RegistrationForm, LoginForm
 from .tokens import account_activation_token
@@ -15,40 +15,71 @@ User = get_user_model()
 
 
 def register(request):
-    """
-    Регистрация нового пользователя
-    """
     if request.method == 'POST':
         form = RegistrationForm(request.POST)
         if form.is_valid():
             user = form.save(commit=False)
-            user.is_active = False  # Ждём подтверждения email
+            user.is_active = False
+
+            role = request.POST.get('role', 'freelancer')
+            if role in ['director', 'freelancer']:
+                user.role = role
+
             user.save()
 
-            # Отправляем письмо с подтверждением
             current_site = get_current_site(request)
+            domain = f"http://{current_site.domain}"
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = account_activation_token.make_token(user)
+
             subject = 'Подтверждение регистрации на WowLance'
-            message = render_to_string('users/activation_email.html', {
+
+            # HTML-версия
+            html_message = render_to_string('users/activation_email.html', {
                 'user': user,
-                'domain': current_site.domain,
-                'uid': urlsafe_base64_encode(force_bytes(user.pk)),
-                'token': account_activation_token.make_token(user),
+                'domain': domain,
+                'uid': uid,
+                'token': token,
             })
-            send_mail(
+
+            # Текстовая версия (без HTML)
+            text_message = f"""
+Добро пожаловать на WowLance!
+
+Привет, {user.email}!
+
+Для активации аккаунта перейдите по ссылке:
+{domain}/activate/{uid}/{token}/
+
+Ссылка действительна в течение 24 часов.
+
+С уважением,
+Команда WowLance
+"""
+
+            # Отправляем письмо
+            msg = EmailMultiAlternatives(
                 subject,
-                message,
+                text_message,
                 settings.DEFAULT_FROM_EMAIL,
                 [user.email],
-                fail_silently=False,
             )
+            msg.attach_alternative(html_message, "text/html")
+            msg.send()
 
-            messages.success(request,
-                             'Регистрация успешна! На ваш email отправлено письмо с подтверждением.')
+            messages.success(
+                request,
+                'Регистрация успешна! На ваш email отправлено письмо с подтверждением.'
+            )
             return redirect('users:login')
     else:
         form = RegistrationForm()
 
-    return render(request, 'users/register.html', {'form': form})
+    role = request.GET.get('role', '')
+    return render(request, 'users/register.html', {
+        'form': form,
+        'selected_role': role,
+    })
 
 
 def activate(request, uidb64, token):
@@ -86,7 +117,8 @@ def login_view(request):
             if user is not None:
                 login(request, user)
                 messages.success(request, f'Добро пожаловать, {user.email}!')
-                return redirect('core:home')
+                next_url = request.GET.get('next', 'core:home')
+                return redirect(next_url)
         messages.error(request, 'Неверный email или пароль.')
     else:
         form = LoginForm()
