@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ profile.full_name }} — профиль фрилансера{% endblock %}
+
+{% block content %}
+<div class="profile-container">
+    <div class="profile-header">
+        <h1>{{ profile.full_name }}</h1>
+        <div class="profile-badges">
+            {% if profile.is_verified %}
+            <span class="badge verified">✅ Верифицирован</span>
+            {% endif %}
+            {% if profile.is_available %}
+            <span class="badge available">🟢 Доступен</span>
+            {% else %}
+            <span class="badge unavailable">🔴 Недоступен</span>
+            {% endif %}
+            <span class="badge rating">⭐ {{ profile.rating }}</span>
+        </div>
+        {% if is_owner %}
+        <a href="{% url 'profiles:edit' %}" class="btn btn-primary">Редактировать профиль</a>
+        {% endif %}
+    </div>
+
+    <div class="profile-body">
+        <div class="profile-info">
+            <div class="info-block">
+                <h3>Основная информация</h3>
+                <p><strong>Страна:</strong> {{ profile.country|default:"Не указано" }}</p>
+                <p><strong>Опыт:</strong> {{ profile.experience_years }} лет</p>
+                <p><strong>Проектов:</strong> {{ profile.experience_projects }}</p>
+            </div>
+
+            <div class="info-block">
+                <h3>Навыки</h3>
+                {% if profile.skills_list %}
+                <ul class="skills-list">
+                    {% for skill in profile.skills_list %}
+                    <li class="skill-tag">{{ skill }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty">Навыки не указаны</p>
+                {% endif %}
+            </div>
+
+            <div class="info-block">
+                <h3>Ключевые преимущества</h3>
+                {% if profile.advantages_list %}
+                <ul class="advantages-list">
+                    {% for advantage in profile.advantages_list %}
+                    <li>{{ advantage }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty">Преимущества не указаны</p>
+                {% endif %}
+            </div>
+
+            <div class="info-block">
+                <h3>Языки</h3>
+                {% if profile.languages %}
+                <ul class="languages-list">
+                    {% for lang in profile.languages %}
+                    <li>{{ lang.language }} — {{ lang.level }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty">Языки не указаны</p>
+                {% endif %}
+            </div>
+
+            <div class="info-block">
+                <h3>Ссылки</h3>
+                {% if profile.linkedin_url %}
+                <p><a href="{{ profile.linkedin_url }}" target="_blank">LinkedIn</a></p>
+                {% endif %}
+                {% if profile.video_url %}
+                <p><a href="{{ profile.video_url }}" target="_blank">Видеопрезентация</a></p>
+                {% endif %}
+                {% if not profile.linkedin_url and not profile.video_url %}
+                <p class="empty">Ссылки не добавлены</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="profile-portfolio">
+            <h3>Портфолио</h3>
+            {% if portfolio %}
+            <ul class="portfolio-list">
+                {% for file in portfolio %}
+                <li>
+                    <a href="{{ file.file.url }}" target="_blank">{{ file.file_name }}</a>
+                    <span class="file-size">({{ file.file_size|filesizeformat }})</span>
+                    {% if is_owner %}
+                    <a href="{% url 'profiles:portfolio_delete' file.id %}"
+                       class="btn-delete"
+                       onclick="return confirm('Удалить файл?')">✕</a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty">Файлы не загружены</p>
+            {% endif %}
+
+            {% if is_owner %}
+            <div class="upload-form">
+                <h4>Загрузить новый файл</h4>
+                <form method="post" enctype="multipart/form-data"
+                      action="{% url 'profiles:portfolio_upload' %}">
+                    {% csrf_token %}
+                    <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" required>
+                    <button type="submit" class="btn btn-primary">Загрузить</button>
+                </form>
+                <small>Разрешены: PDF, PNG, JPG, JPEG, DOC, DOCX (до 10 МБ)</small>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

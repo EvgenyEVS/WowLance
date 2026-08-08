@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block title %}Редактирование профиля{% endblock %}
+
+{% block content %}
+<div class="profile-edit-container">
+    <h1>Редактирование профиля</h1>
+
+    <form method="post" class="profile-form">
+        {% csrf_token %}
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="{{ form.first_name.id_for_label }}">Имя</label>
+                {{ form.first_name }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.last_name.id_for_label }}">Фамилия</label>
+                {{ form.last_name }}
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.country.id_for_label }}">Страна проживания</label>
+            {{ form.country }}
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="{{ form.experience_years.id_for_label }}">Опыт (лет)</label>
+                {{ form.experience_years }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.experience_projects.id_for_label }}">Количество проектов</label>
+                {{ form.experience_projects }}
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.skills.id_for_label }}">Навыки и методы продаж</label>
+            {{ form.skills }}
+            <small class="help-text">Введите список навыков в формате JSON: ["Навык 1", "Навык 2", "Навык 3"]</small>
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.key_advantages.id_for_label }}">Ключевые преимущества (макс. 3)</label>
+            {{ form.key_advantages }}
+            <small class="help-text">Пример: ["закрыл 100 сделок", "конверсия 35%"]</small>
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.languages.id_for_label }}">Владение языками</label>
+            {{ form.languages }}
+            <small class="help-text">Пример: [{"language": "Английский", "level": "B2"}]</small>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="{{ form.linkedin_url.id_for_label }}">Ссылка на LinkedIn</label>
+                {{ form.linkedin_url }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.video_url.id_for_label }}">Ссылка на видеопрезентацию</label>
+                {{ form.video_url }}
+            </div>
+        </div>
+
+        <div class="form-group checkbox">
+            <label>
+                {{ form.is_available }} Доступен для заказов
+            </label>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Сохранить профиль</button>
+            <a href="{% url 'profiles:detail' user.id %}" class="btn btn-secondary">Отмена</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
