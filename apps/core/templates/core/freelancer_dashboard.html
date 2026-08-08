@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+
+{% block title %}Дашборд фрилансера{% endblock %}
+
+{% block content %}
+<div class="dashboard freelancer">
+    <h1>Привет, {{ user.email }}! 👋</h1>
+
+    <div class="features">
+        <div class="feature-card">
+            <h3>🚀 Найди заказы</h3>
+            <p>Просматривай проекты, которые подходят под твои навыки</p>
+            <a href="#" class="btn btn-primary">Перейти к заказам</a>
+        </div>
+        <div class="feature-card">
+            <h3>📊 Расти рейтинг</h3>
+            <p>Выполняй задачи, получай отзывы и повышай свой уровень</p>
+        </div>
+        <div class="feature-card">
+            <h3>💰 Зарабатывай</h3>
+            <p>Получай оплату за подтверждённые проекты</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

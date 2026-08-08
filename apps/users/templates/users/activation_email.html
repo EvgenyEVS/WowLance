@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 4px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Добро пожаловать на WowLance!</h1>
+    <p>Привет, {{ user.email }}!</p>
+    <p>Для активации вашего аккаунта перейдите по ссылке:</p>
+    <p>
+        <a href="https://{{ domain }}{% url 'users:activate' uidb64=uid token=token %}" class="button">
+            Активировать аккаунт
+        </a>
+    </p>
+    <p>Или скопируйте ссылку в браузер:</p>
+    <p><code>https://{{ domain }}{% url 'users:activate' uidb64=uid token=token %}</code></p>
+    <p>Ссылка действительна в течение 24 часов.</p>
+    <p>С уважением,<br>Команда WowLance</p>
+</div>
+</body>
+</html>
