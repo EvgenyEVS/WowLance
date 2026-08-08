@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block title %}Вход{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-box">
+        <h1>Вход в WowLance</h1>
+        <p class="subtitle">Войдите, чтобы продолжить работу</p>
+
+        <form method="post" class="auth-form">
+            {% csrf_token %}
+
+            <div class="form-group">
+                <label for="{{ form.username.id_for_label }}">Email</label>
+                {{ form.username }}
+            </div>
+
+            <div class="form-group">
+                <label for="{{ form.password.id_for_label }}">Пароль</label>
+                {{ form.password }}
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">
+                Войти
+            </button>
+        </form>
+
+        <p class="auth-footer">
+            Нет аккаунта? <a href="{% url 'users:register' %}">Зарегистрироваться</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

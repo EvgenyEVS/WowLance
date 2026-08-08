@@ -1,0 +1,229 @@
+/* Общие стили */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #f5f7fa;
+    color: #333;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Шапка */
+.navbar {
+    background: #1a1a2e;
+    color: white;
+    padding: 15px 0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.navbar .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.navbar .logo {
+    font-size: 24px;
+    font-weight: bold;
+    color: #4CAF50;
+    text-decoration: none;
+}
+
+.nav-menu a {
+    color: white;
+    text-decoration: none;
+    margin-left: 20px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    transition: background 0.3s;
+}
+
+.nav-menu a:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.user-role {
+    color: #aaa;
+    margin-left: 15px;
+    font-size: 14px;
+}
+
+/* Auth формы */
+.auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 70vh;
+}
+
+.auth-box {
+    background: white;
+    padding: 40px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    width: 100%;
+    max-width: 450px;
+}
+
+.auth-box h1 {
+    font-size: 28px;
+    margin-bottom: 8px;
+    color: #1a1a2e;
+}
+
+.auth-box .subtitle {
+    color: #777;
+    margin-bottom: 30px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #444;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 16px;
+    transition: border 0.3s;
+}
+
+.form-group input:focus {
+    border-color: #4CAF50;
+    outline: none;
+}
+
+.role-select {
+    margin-top: 10px;
+}
+
+.role-select label {
+    margin-bottom: 10px;
+}
+
+.role-select input[type="radio"] {
+    width: auto;
+    margin-right: 10px;
+}
+
+.role-select label:not(:first-of-type) {
+    font-weight: 400;
+    display: block;
+    margin-bottom: 10px;
+}
+
+/* Кнопки */
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.3s;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.btn-primary {
+    background: #4CAF50;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #45a049;
+}
+
+.btn-block {
+    width: 100%;
+}
+
+.auth-footer {
+    margin-top: 20px;
+    text-align: center;
+    color: #666;
+}
+
+.auth-footer a {
+    color: #4CAF50;
+    text-decoration: none;
+}
+
+/* Сообщения */
+.alert {
+    padding: 12px 20px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+.alert-success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.alert-error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.alert-info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.error {
+    color: #dc3545;
+    font-size: 14px;
+    margin-top: 4px;
+}
+
+/* Подвал */
+footer {
+    background: #1a1a2e;
+    color: #aaa;
+    text-align: center;
+    padding: 20px 0;
+    margin-top: auto;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .navbar .container {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .nav-menu {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .auth-box {
+        padding: 20px;
+    }
+}

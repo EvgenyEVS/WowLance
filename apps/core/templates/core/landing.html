@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block title %}WowLance — платформа продаж{% endblock %}
+
+{% block content %}
+<div class="landing">
+    <h1>WowLance — Продажи за 1 клик</h1>
+    <p>Платформа для быстрого запуска продаж</p>
+
+    <div class="role-selector">
+        <a href="{% url 'users:register' %}?role=director" class="btn btn-primary">
+            Я директор — нанять команду
+        </a>
+        <a href="{% url 'users:register' %}?role=freelancer" class="btn btn-secondary">
+            Я фрилансер — найти работу
+        </a>
+    </div>
+</div>
+{% endblock %}

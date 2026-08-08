@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WowLance — {% block title %}Платформа продаж{% endblock %}</title>
+    <!-- Подключаем HTMX -->
+    <script src="https://unpkg.com/htmx.org@2.0.2" defer></script>
+    <!-- Подключаем CSS -->
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+<!-- Шапка -->
+<header>
+    <nav class="navbar">
+        <div class="container">
+            <a href="{% url 'core:home' %}" class="logo">WowLance</a>
+            <div class="nav-menu">
+                {% if user.is_authenticated %}
+                {% if user.role == 'director' %}
+                <a href="{% url 'core:home' %}">Дашборд</a>
+                <a href="#">Проекты</a>
+                {% elif user.role == 'freelancer' %}
+                <a href="{% url 'core:home' %}">Дашборд</a>
+                <a href="#">Поиск</a>
+                {% endif %}
+                <span class="user-role">| {{ user.get_role_display }}</span>
+                <a href="{% url 'users:logout' %}">Выйти</a>
+                {% else %}
+                <a href="{% url 'users:login' %}">Войти</a>
+                <a href="{% url 'users:register' %}">Регистрация</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+</header>
+
+<!-- Сообщения (flash) -->
+{% if messages %}
+<div class="container">
+    {% for message in messages %}
+    <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Основной контент -->
+<main>
+    <div class="container">
+        {% block content %}
+        {% endblock %}
+    </div>
+</main>
+
+<!-- Подвал -->
+<footer>
+    <div class="container">
+        <p>&copy; 2026 WowLance. Все права защищены.</p>
+    </div>
+</footer>
+
+{% block extra_js %}{% endblock %}
+</body>
+</html>
