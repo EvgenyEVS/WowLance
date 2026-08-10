@@ -19,9 +19,9 @@
             <a href="{% url 'profiles:portfolio' user.id %}" class="btn btn-primary">Открыть портфолио</a>
         </div>
         <div class="feature-card">
-            <h3>Заказы</h3>
-            <p>Лента заказов появится после запуска комнат проектов</p>
-            <a href="{% url 'profiles:catalog' %}" class="btn btn-secondary">Смотреть коллег</a>
+            <h3>Мои комнаты</h3>
+            <p>Проекты, куда вас добавили — вводные, документы и готовность</p>
+            <a href="{% url 'rooms:project_list' %}" class="btn btn-primary">Открыть проекты</a>
         </div>
     </div>
 </div>

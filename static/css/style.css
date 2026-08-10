@@ -348,3 +348,82 @@ footer {
         grid-template-columns: 1fr;
     }
 }
+/* Комнаты / проекты */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin: 20px 0;
+}
+
+.room-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 8px;
+}
+
+.room-tabs a {
+    text-decoration: none;
+    color: #555;
+    padding: 8px 12px;
+    border-radius: 6px 6px 0 0;
+}
+
+.room-tabs a.active {
+    background: #1a1a2e;
+    color: #fff;
+}
+
+.sla-banner {
+    background: #fff3cd;
+    color: #856404;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+.room-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.info-block {
+    background: #fff;
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    margin-bottom: 16px;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.data-table th,
+.data-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
+
+.data-table th {
+    background: #f5f7fa;
+    font-size: 13px;
+}
+
+.upload-form {
+    background: #fff;
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+    margin-top: 16px;
+}
