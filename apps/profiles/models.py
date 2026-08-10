@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
@@ -7,84 +9,105 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 class FreelancerProfile(models.Model):
     """
     Профиль фрилансера. Связь 1:1 с User.
+    Имя/фамилия — только в User (без дублирования).
     """
+
+    class Level(models.TextChoices):
+        JUNIOR = 'junior', _('Junior')
+        MIDDLE = 'middle', _('Middle')
+        SENIOR = 'senior', _('Senior')
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='profile',
-        verbose_name=_('Пользователь')
+        related_name='freelancer_profile',
+        verbose_name=_('Пользователь'),
     )
 
-    # Основная информация
-    first_name = models.CharField(max_length=50, verbose_name=_('Имя'))
-    last_name = models.CharField(max_length=50, verbose_name=_('Фамилия'))
     country = models.CharField(
         max_length=100,
         blank=True,
-        verbose_name=_('Страна проживания')
+        verbose_name=_('Страна проживания'),
+    )
+    level = models.CharField(
+        max_length=20,
+        choices=Level.choices,
+        default=Level.MIDDLE,
+        verbose_name=_('Уровень'),
     )
     experience_years = models.PositiveIntegerField(
         default=0,
-        verbose_name=_('Опыт (лет)')
+        verbose_name=_('Опыт (лет)'),
     )
     experience_projects = models.PositiveIntegerField(
         default=0,
-        verbose_name=_('Опыт (проектов)')
+        verbose_name=_('Опыт (проектов)'),
     )
 
-    # Языки (хранятся в JSON)
     languages = models.JSONField(
         default=list,
         blank=True,
         verbose_name=_('Владение языками'),
-        help_text='Формат: [{"language": "Английский", "level": "B2"}]'
+        help_text='Формат: [{"language": "Английский", "level": "B2"}]',
     )
-
-    # Ключевые преимущества (максимум 3)
     key_advantages = models.JSONField(
         default=list,
         blank=True,
         verbose_name=_('Ключевые преимущества'),
-        help_text='Максимум 3 преимущества'
+        help_text='Максимум 3 преимущества',
     )
-
-    # Навыки и методы продаж
     skills = models.JSONField(
         default=list,
         blank=True,
         verbose_name=_('Навыки и методы продаж'),
-        help_text='Например: ["Холодные звонки", "SPIN", "Salesforce"]'
+        help_text='Например: ["Холодные звонки", "SPIN", "Salesforce"]',
+    )
+    portfolio_links = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_('Ссылки на портфолио'),
+        help_text='Например: ["https://linkedin.com/in/...", "https://drive.google.com/..."]',
     )
 
-    # Социальные сети
     linkedin_url = models.URLField(
         blank=True,
-        verbose_name=_('LinkedIn')
+        verbose_name=_('LinkedIn'),
     )
     video_url = models.URLField(
         blank=True,
         verbose_name=_('Видеопрезентация'),
-        help_text='Ссылка на YouTube или Vimeo (до 40 секунд)'
+        help_text='Ссылка на YouTube или Vimeo (до 40 секунд)',
     )
 
-    # Рейтинг и верификация
     rating = models.DecimalField(
         max_digits=3,
         decimal_places=2,
         default=0.00,
         validators=[MinValueValidator(0), MaxValueValidator(5)],
-        verbose_name=_('Рейтинг')
+        verbose_name=_('Рейтинг'),
+    )
+    acceptance_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        verbose_name=_('Процент принятых отчётов'),
+        help_text='0–100%',
     )
     is_verified = models.BooleanField(
         default=False,
-        verbose_name=_('Верифицирован')
+        verbose_name=_('Верифицирован'),
     )
     is_available = models.BooleanField(
         default=True,
-        verbose_name=_('Доступен для заказов')
+        verbose_name=_('Доступен для заказов'),
     )
 
-    # Системные поля
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Создан'))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_('Обновлён'))
 
@@ -93,64 +116,138 @@ class FreelancerProfile(models.Model):
         verbose_name_plural = _('Профили фрилансеров')
         indexes = [
             models.Index(fields=['rating']),
+            models.Index(fields=['level']),
             models.Index(fields=['is_verified']),
             models.Index(fields=['is_available']),
             models.Index(fields=['country']),
         ]
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name}"
+        return self.full_name
 
     @property
     def full_name(self):
-        return f"{self.first_name} {self.last_name}"
+        return self.user.full_name
 
     @property
     def skills_list(self):
-        """Возвращает список навыков"""
         return self.skills if isinstance(self.skills, list) else []
 
     @property
     def advantages_list(self):
-        """Возвращает список преимуществ"""
         return self.key_advantages if isinstance(self.key_advantages, list) else []
 
+    @property
+    def portfolio_links_list(self):
+        return self.portfolio_links if isinstance(self.portfolio_links, list) else []
 
-class PortfolioFile(models.Model):
+
+class Portfolio(models.Model):
     """
-    Файлы портфолио (резюме, сертификаты, примеры работ)
+    Портфолио фрилансера — контейнер для работ, файлов и ссылок.
     """
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='portfolio_files',
-        verbose_name=_('Пользователь')
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
     )
+    profile = models.OneToOneField(
+        FreelancerProfile,
+        on_delete=models.CASCADE,
+        related_name='portfolio',
+        verbose_name=_('Профиль'),
+    )
+    title = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name=_('Заголовок'),
+        help_text='Например: «Кейсы B2B-продаж»',
+    )
+    description = models.TextField(
+        blank=True,
+        verbose_name=_('Описание'),
+    )
+    is_public = models.BooleanField(
+        default=True,
+        verbose_name=_('Публичное'),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Создан'))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_('Обновлён'))
+
+    class Meta:
+        verbose_name = _('Портфолио')
+        verbose_name_plural = _('Портфолио')
+
+    def __str__(self):
+        return self.title or f'Портфолио {self.profile.full_name}'
+
+
+class PortfolioItem(models.Model):
+    """
+    Элемент портфолио: файл, внешняя ссылка или кейс.
+    """
+
+    class ItemType(models.TextChoices):
+        FILE = 'file', _('Файл')
+        LINK = 'link', _('Ссылка')
+        CASE = 'case', _('Кейс')
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+    portfolio = models.ForeignKey(
+        Portfolio,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name=_('Портфолио'),
+    )
+    item_type = models.CharField(
+        max_length=10,
+        choices=ItemType.choices,
+        default=ItemType.FILE,
+        verbose_name=_('Тип'),
+    )
+    title = models.CharField(max_length=255, verbose_name=_('Название'))
+    description = models.TextField(blank=True, verbose_name=_('Описание'))
     file = models.FileField(
         upload_to='portfolio/%Y/%m/%d/',
-        verbose_name=_('Файл')
-    )
-    file_name = models.CharField(
-        max_length=255,
-        verbose_name=_('Название файла')
+        blank=True,
+        null=True,
+        verbose_name=_('Файл'),
     )
     file_size = models.PositiveIntegerField(
-        verbose_name=_('Размер (байты)')
+        default=0,
+        verbose_name=_('Размер (байты)'),
     )
-    uploaded_at = models.DateTimeField(
+    url = models.URLField(
+        blank=True,
+        verbose_name=_('URL'),
+    )
+    sort_order = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_('Порядок'),
+    )
+    is_public = models.BooleanField(
+        default=True,
+        verbose_name=_('Публичный'),
+    )
+    created_at = models.DateTimeField(
         auto_now_add=True,
-        verbose_name=_('Дата загрузки')
+        verbose_name=_('Дата добавления'),
     )
 
     class Meta:
-        verbose_name = _('Файл портфолио')
-        verbose_name_plural = _('Файлы портфолио')
-        ordering = ['-uploaded_at']
+        verbose_name = _('Элемент портфолио')
+        verbose_name_plural = _('Элементы портфолио')
+        ordering = ['sort_order', '-created_at']
 
     def __str__(self):
-        return self.file_name
+        return self.title
 
     def delete(self, *args, **kwargs):
-        """Удаляем файл из хранилища при удалении записи"""
-        self.file.delete(save=False)
+        if self.file:
+            self.file.delete(save=False)
         super().delete(*args, **kwargs)

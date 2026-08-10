@@ -13,16 +13,24 @@
             <div class="form-group">
                 <label for="{{ form.first_name.id_for_label }}">Имя</label>
                 {{ form.first_name }}
+                {% if form.first_name.errors %}<div class="error">{{ form.first_name.errors }}</div>{% endif %}
             </div>
             <div class="form-group">
                 <label for="{{ form.last_name.id_for_label }}">Фамилия</label>
                 {{ form.last_name }}
+                {% if form.last_name.errors %}<div class="error">{{ form.last_name.errors }}</div>{% endif %}
             </div>
         </div>
 
-        <div class="form-group">
-            <label for="{{ form.country.id_for_label }}">Страна проживания</label>
-            {{ form.country }}
+        <div class="form-row">
+            <div class="form-group">
+                <label for="{{ form.country.id_for_label }}">Страна проживания</label>
+                {{ form.country }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.level.id_for_label }}">Уровень</label>
+                {{ form.level }}
+            </div>
         </div>
 
         <div class="form-row">
@@ -39,28 +47,38 @@
         <div class="form-group">
             <label for="{{ form.skills.id_for_label }}">Навыки и методы продаж</label>
             {{ form.skills }}
-            <small class="help-text">Введите список навыков в формате JSON: ["Навык 1", "Навык 2", "Навык 3"]</small>
+            {% if form.skills.help_text %}<small class="help-text">{{ form.skills.help_text }}</small>{% endif %}
+            {% if form.skills.errors %}<div class="error">{{ form.skills.errors }}</div>{% endif %}
         </div>
 
         <div class="form-group">
-            <label for="{{ form.key_advantages.id_for_label }}">Ключевые преимущества (макс. 3)</label>
+            <label for="{{ form.key_advantages.id_for_label }}">Ключевые преимущества</label>
             {{ form.key_advantages }}
-            <small class="help-text">Пример: ["закрыл 100 сделок", "конверсия 35%"]</small>
+            {% if form.key_advantages.help_text %}<small class="help-text">{{ form.key_advantages.help_text }}</small>{% endif %}
+            {% if form.key_advantages.errors %}<div class="error">{{ form.key_advantages.errors }}</div>{% endif %}
         </div>
 
         <div class="form-group">
             <label for="{{ form.languages.id_for_label }}">Владение языками</label>
             {{ form.languages }}
-            <small class="help-text">Пример: [{"language": "Английский", "level": "B2"}]</small>
+            {% if form.languages.help_text %}<small class="help-text">{{ form.languages.help_text }}</small>{% endif %}
+            {% if form.languages.errors %}<div class="error">{{ form.languages.errors }}</div>{% endif %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.portfolio_links.id_for_label }}">Ссылки на портфолио</label>
+            {{ form.portfolio_links }}
+            {% if form.portfolio_links.help_text %}<small class="help-text">{{ form.portfolio_links.help_text }}</small>{% endif %}
+            {% if form.portfolio_links.errors %}<div class="error">{{ form.portfolio_links.errors }}</div>{% endif %}
         </div>
 
         <div class="form-row">
             <div class="form-group">
-                <label for="{{ form.linkedin_url.id_for_label }}">Ссылка на LinkedIn</label>
+                <label for="{{ form.linkedin_url.id_for_label }}">LinkedIn</label>
                 {{ form.linkedin_url }}
             </div>
             <div class="form-group">
-                <label for="{{ form.video_url.id_for_label }}">Ссылка на видеопрезентацию</label>
+                <label for="{{ form.video_url.id_for_label }}">Видеопрезентация</label>
                 {{ form.video_url }}
             </div>
         </div>
@@ -74,6 +92,7 @@
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Сохранить профиль</button>
             <a href="{% url 'profiles:detail' user.id %}" class="btn btn-secondary">Отмена</a>
+            <a href="{% url 'profiles:portfolio' user.id %}" class="btn btn-secondary">Портфолио →</a>
         </div>
     </form>
 </div>

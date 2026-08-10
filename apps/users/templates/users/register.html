@@ -7,16 +7,38 @@
     <div class="auth-box">
         <h1>Регистрация на WowLance</h1>
 
-        {% if request.GET.role == 'director' %}
+        {% if selected_role == 'director' %}
         <p class="subtitle">Вы регистрируетесь как <strong>Директор</strong></p>
-        {% elif request.GET.role == 'freelancer' %}
+        {% elif selected_role == 'freelancer' %}
         <p class="subtitle">Вы регистрируетесь как <strong>Фрилансер</strong></p>
         {% else %}
-        <p class="subtitle">Пожалуйста, выберите роль на главной странице</p>
+        <p class="subtitle">Пожалуйста, выберите роль на <a href="{% url 'core:home' %}">главной странице</a></p>
+        {% endif %}
+
+        {% if form.role.errors %}
+        <div class="alert alert-error">{{ form.role.errors }}</div>
         {% endif %}
 
         <form method="post" class="auth-form">
             {% csrf_token %}
+            {{ form.role }}
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="{{ form.first_name.id_for_label }}">Имя</label>
+                    {{ form.first_name }}
+                    {% if form.first_name.errors %}
+                    <div class="error">{{ form.first_name.errors }}</div>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    <label for="{{ form.last_name.id_for_label }}">Фамилия</label>
+                    {{ form.last_name }}
+                    {% if form.last_name.errors %}
+                    <div class="error">{{ form.last_name.errors }}</div>
+                    {% endif %}
+                </div>
+            </div>
 
             <div class="form-group">
                 <label for="{{ form.email.id_for_label }}">Email</label>
@@ -42,10 +64,7 @@
                 {% endif %}
             </div>
 
-            <!-- Скрытое поле с ролью -->
-            <input type="hidden" name="role" value="{{ request.GET.role }}">
-
-            <button type="submit" class="btn btn-primary btn-block">
+            <button type="submit" class="btn btn-primary btn-block" {% if not selected_role %}disabled{% endif %}>
                 Зарегистрироваться
             </button>
         </form>

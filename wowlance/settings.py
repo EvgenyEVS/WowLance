@@ -39,7 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'apps.core',
     'apps.users',
-    'apps.profiles',
+    'apps.profiles.apps.ProfilesConfig',
 ]
 
 MIDDLEWARE = [
@@ -105,9 +105,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.1/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'ru-ru'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/Moscow'
 
 USE_I18N = True
 
@@ -121,11 +121,11 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
 
-# Email
+# Email (console backend — SMTP настраивается отдельно через env)
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'
 
 
 AUTH_USER_MODEL = 'users.User'
@@ -134,14 +134,7 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/'
 
 DEFAULT_CHARSET = 'utf-8'
 EMAIL_USE_LOCALTIME = False
-
-#EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-#EMAIL_HOST = 'smtp.yandex.ru'
-#EMAIL_PORT = 465
-#EMAIL_USE_SSL = True
-#EMAIL_HOST_USER = 'evis10@yandex.ru'  # Твой полный email
-#EMAIL_HOST_PASSWORD = 'iyqqfrivdwsgqyug'   # Пароль приложения (создали выше)
-#DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'

@@ -1,36 +1,37 @@
 from django.contrib import admin
-from .models import FreelancerProfile, PortfolioFile
+
+from .models import FreelancerProfile, Portfolio, PortfolioItem
+
+
+class PortfolioItemInline(admin.TabularInline):
+    model = PortfolioItem
+    extra = 0
+    fields = ['item_type', 'title', 'file', 'url', 'sort_order', 'is_public']
+
+
+class PortfolioInline(admin.StackedInline):
+    model = Portfolio
+    extra = 0
+    fields = ['title', 'description', 'is_public']
 
 
 @admin.register(FreelancerProfile)
 class FreelancerProfileAdmin(admin.ModelAdmin):
     list_display = [
-        'full_name', 'user', 'country', 'rating',
-        'is_verified', 'is_available', 'experience_years'
+        'full_name', 'user', 'level', 'country', 'rating',
+        'acceptance_rate', 'is_verified', 'is_available',
     ]
-    list_filter = ['is_verified', 'is_available', 'country']
-    search_fields = ['first_name', 'last_name', 'user__email']
+    list_filter = ['level', 'is_verified', 'is_available', 'country']
+    search_fields = ['user__email', 'user__first_name', 'user__last_name']
     readonly_fields = ['created_at', 'updated_at']
+    inlines = [PortfolioInline]
     fieldsets = (
-        ('Основная информация', {
-            'fields': ('user', 'first_name', 'last_name', 'country')
-        }),
-        ('Опыт', {
-            'fields': ('experience_years', 'experience_projects')
-        }),
-        ('Навыки и преимущества', {
-            'fields': ('skills', 'key_advantages', 'languages')
-        }),
-        ('Ссылки', {
-            'fields': ('linkedin_url', 'video_url')
-        }),
-        ('Рейтинг и верификация', {
-            'fields': ('rating', 'is_verified', 'is_available')
-        }),
-        ('Системные поля', {
-            'fields': ('created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
+        ('Пользователь', {'fields': ('user',)}),
+        ('Профиль', {'fields': ('country', 'level', 'experience_years', 'experience_projects')}),
+        ('Навыки', {'fields': ('skills', 'key_advantages', 'languages', 'portfolio_links')}),
+        ('Ссылки', {'fields': ('linkedin_url', 'video_url')}),
+        ('Метрики', {'fields': ('rating', 'acceptance_rate', 'is_verified', 'is_available')}),
+        ('Системные', {'fields': ('created_at', 'updated_at'), 'classes': ('collapse',)}),
     )
 
     def full_name(self, obj):
@@ -38,8 +39,16 @@ class FreelancerProfileAdmin(admin.ModelAdmin):
     full_name.short_description = 'Имя'
 
 
-@admin.register(PortfolioFile)
-class PortfolioFileAdmin(admin.ModelAdmin):
-    list_display = ['file_name', 'user', 'uploaded_at', 'file_size']
-    list_filter = ['uploaded_at']
-    search_fields = ['file_name', 'user__email']
+@admin.register(Portfolio)
+class PortfolioAdmin(admin.ModelAdmin):
+    list_display = ['profile', 'title', 'is_public', 'updated_at']
+    list_filter = ['is_public']
+    search_fields = ['profile__user__email', 'title']
+    inlines = [PortfolioItemInline]
+
+
+@admin.register(PortfolioItem)
+class PortfolioItemAdmin(admin.ModelAdmin):
+    list_display = ['title', 'portfolio', 'item_type', 'is_public', 'created_at']
+    list_filter = ['item_type', 'is_public']
+    search_fields = ['title', 'portfolio__profile__user__email']

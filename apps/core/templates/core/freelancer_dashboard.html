@@ -4,21 +4,24 @@
 
 {% block content %}
 <div class="dashboard freelancer">
-    <h1>Привет, {{ user.email }}! 👋</h1>
+    <h1>Привет, {{ user.full_name }}!</h1>
 
     <div class="features">
         <div class="feature-card">
-            <h3>🚀 Найди заказы</h3>
-            <p>Просматривай проекты, которые подходят под твои навыки</p>
-            <a href="#" class="btn btn-primary">Перейти к заказам</a>
+            <h3>Профиль</h3>
+            <p>Заполните навыки, опыт и портфолио — так вас быстрее найдут на проектах</p>
+            <a href="{% url 'profiles:edit' %}" class="btn btn-primary">Редактировать профиль</a>
+            <a href="{% url 'profiles:detail' user.id %}" class="btn btn-secondary">Моя карточка</a>
         </div>
         <div class="feature-card">
-            <h3>📊 Расти рейтинг</h3>
-            <p>Выполняй задачи, получай отзывы и повышай свой уровень</p>
+            <h3>Портфолио</h3>
+            <p>Добавьте кейсы, файлы и ссылки с подтверждением опыта</p>
+            <a href="{% url 'profiles:portfolio' user.id %}" class="btn btn-primary">Открыть портфолио</a>
         </div>
         <div class="feature-card">
-            <h3>💰 Зарабатывай</h3>
-            <p>Получай оплату за подтверждённые проекты</p>
+            <h3>Заказы</h3>
+            <p>Лента заказов появится после запуска комнат проектов</p>
+            <a href="{% url 'profiles:catalog' %}" class="btn btn-secondary">Смотреть коллег</a>
         </div>
     </div>
 </div>

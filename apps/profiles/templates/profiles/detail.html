@@ -7,6 +7,7 @@
     <div class="profile-header">
         <h1>{{ profile.full_name }}</h1>
         <div class="profile-badges">
+            <span class="badge level">{{ profile.get_level_display }}</span>
             {% if profile.is_verified %}
             <span class="badge verified">✅ Верифицирован</span>
             {% endif %}
@@ -16,10 +17,14 @@
             <span class="badge unavailable">🔴 Недоступен</span>
             {% endif %}
             <span class="badge rating">⭐ {{ profile.rating }}</span>
+            {% if profile.acceptance_rate %}
+            <span class="badge acceptance">📊 {{ profile.acceptance_rate }}% принятых отчётов</span>
+            {% endif %}
         </div>
         {% if is_owner %}
         <a href="{% url 'profiles:edit' %}" class="btn btn-primary">Редактировать профиль</a>
         {% endif %}
+        <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-secondary">Портфолио →</a>
     </div>
 
     <div class="profile-body">
@@ -27,6 +32,7 @@
             <div class="info-block">
                 <h3>Основная информация</h3>
                 <p><strong>Страна:</strong> {{ profile.country|default:"Не указано" }}</p>
+                <p><strong>Уровень:</strong> {{ profile.get_level_display }}</p>
                 <p><strong>Опыт:</strong> {{ profile.experience_years }} лет</p>
                 <p><strong>Проектов:</strong> {{ profile.experience_projects }}</p>
             </div>
@@ -73,48 +79,48 @@
             <div class="info-block">
                 <h3>Ссылки</h3>
                 {% if profile.linkedin_url %}
-                <p><a href="{{ profile.linkedin_url }}" target="_blank">LinkedIn</a></p>
+                <p><a href="{{ profile.linkedin_url }}" target="_blank" rel="noopener">LinkedIn</a></p>
                 {% endif %}
                 {% if profile.video_url %}
-                <p><a href="{{ profile.video_url }}" target="_blank">Видеопрезентация</a></p>
+                <p><a href="{{ profile.video_url }}" target="_blank" rel="noopener">Видеопрезентация</a></p>
                 {% endif %}
-                {% if not profile.linkedin_url and not profile.video_url %}
+                {% if profile.portfolio_links_list %}
+                <p><strong>Ссылки на портфолио:</strong></p>
+                <ul>
+                    {% for link in profile.portfolio_links_list %}
+                    <li><a href="{{ link }}" target="_blank" rel="noopener">{{ link }}</a></li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% if not profile.linkedin_url and not profile.video_url and not profile.portfolio_links_list %}
                 <p class="empty">Ссылки не добавлены</p>
                 {% endif %}
             </div>
         </div>
 
         <div class="profile-portfolio">
-            <h3>Портфолио</h3>
-            {% if portfolio %}
+            <h3>Портфолио (превью)</h3>
+            {% if portfolio_items %}
             <ul class="portfolio-list">
-                {% for file in portfolio %}
+                {% for item in portfolio_items|slice:":3" %}
                 <li>
-                    <a href="{{ file.file.url }}" target="_blank">{{ file.file_name }}</a>
-                    <span class="file-size">({{ file.file_size|filesizeformat }})</span>
-                    {% if is_owner %}
-                    <a href="{% url 'profiles:portfolio_delete' file.id %}"
-                       class="btn-delete"
-                       onclick="return confirm('Удалить файл?')">✕</a>
+                    {% if item.item_type == 'file' and item.file %}
+                    <a href="{{ item.file.url }}" target="_blank">{{ item.title }}</a>
+                    <span class="file-size">({{ item.file_size|filesizeformat }})</span>
+                    {% elif item.url %}
+                    <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a>
+                    {% else %}
+                    {{ item.title }}
                     {% endif %}
                 </li>
                 {% endfor %}
             </ul>
+            <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-secondary">Все работы →</a>
             {% else %}
-            <p class="empty">Файлы не загружены</p>
-            {% endif %}
-
+            <p class="empty">Портфолио пусто</p>
             {% if is_owner %}
-            <div class="upload-form">
-                <h4>Загрузить новый файл</h4>
-                <form method="post" enctype="multipart/form-data"
-                      action="{% url 'profiles:portfolio_upload' %}">
-                    {% csrf_token %}
-                    <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" required>
-                    <button type="submit" class="btn btn-primary">Загрузить</button>
-                </form>
-                <small>Разрешены: PDF, PNG, JPG, JPEG, DOC, DOCX (до 10 МБ)</small>
-            </div>
+            <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-primary">Добавить работы</a>
+            {% endif %}
             {% endif %}
         </div>
     </div>

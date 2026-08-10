@@ -4,21 +4,22 @@
 
 {% block content %}
 <div class="dashboard director">
-    <h1>Привет, {{ user.email }}! 🚀</h1>
+    <h1>Привет, {{ user.full_name }}!</h1>
 
     <div class="features">
         <div class="feature-card">
-            <h3>⚡ Запусти продажи за 1 час</h3>
-            <p>Создай проект, выбери команду и начни получать лиды</p>
-            <a href="#" class="btn btn-primary">Создать проект</a>
+            <h3>Запусти продажи</h3>
+            <p>Создание комнат проектов — следующий этап. Пока можно подобрать команду.</p>
+            <a href="{% url 'profiles:catalog' %}" class="btn btn-primary">Найти фрилансеров</a>
         </div>
         <div class="feature-card">
-            <h3>👥 Команда под ключ</h3>
-            <p>Найди проверенных продавцов с рейтингом и отзывами</p>
+            <h3>Команда под ключ</h3>
+            <p>Смотрите уровень, рейтинг, навыки и доступность продавцов</p>
+            <a href="{% url 'profiles:catalog' %}" class="btn btn-secondary">Каталог</a>
         </div>
         <div class="feature-card">
-            <h3>📈 Контроль и аналитика</h3>
-            <p>Отслеживай KPI, стоимость лида и конверсию в реальном времени</p>
+            <h3>Контроль и аналитика</h3>
+            <p>KPI и комнаты появятся после запуска проектов</p>
         </div>
     </div>
 </div>

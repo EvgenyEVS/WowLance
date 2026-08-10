@@ -10,6 +10,9 @@
 
         <form method="post" class="auth-form">
             {% csrf_token %}
+            {% if next %}
+            <input type="hidden" name="next" value="{{ next }}">
+            {% endif %}
 
             <div class="form-group">
                 <label for="{{ form.username.id_for_label }}">Email</label>

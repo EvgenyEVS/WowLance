@@ -21,10 +21,11 @@
                 {% if user.is_authenticated %}
                 {% if user.role == 'director' %}
                 <a href="{% url 'core:home' %}">Дашборд</a>
-                <a href="#">Проекты</a>
+                <a href="{% url 'profiles:catalog' %}">Фрилансеры</a>
                 {% elif user.role == 'freelancer' %}
                 <a href="{% url 'core:home' %}">Дашборд</a>
-                <a href="#">Поиск</a>
+                <a href="{% url 'profiles:edit' %}">Профиль</a>
+                <a href="{% url 'profiles:catalog' %}">Каталог</a>
                 {% endif %}
                 <span class="user-role">| {{ user.get_role_display }}</span>
                 <a href="{% url 'users:logout' %}">Выйти</a>
