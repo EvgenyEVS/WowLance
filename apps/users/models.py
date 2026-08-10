@@ -13,6 +13,8 @@ class User(AbstractUser):
 
     class Roles(models.TextChoices):
         DIRECTOR = 'director', _('Директор')
+        TEAMLEAD = 'teamlead', _('Тимлид')
+        MANAGER = 'manager', _('Менеджер')
         FREELANCER = 'freelancer', _('Фрилансер')
         ADMIN = 'admin', _('Администратор')
 

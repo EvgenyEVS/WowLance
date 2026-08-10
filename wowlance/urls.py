@@ -25,6 +25,7 @@ urlpatterns = [
     path('', include('apps.core.urls')),
     path('', include('apps.users.urls')),
     path('', include('apps.profiles.urls')),
+    path('', include('apps.rooms.urls')),
 ]
 
 # Для загрузки файлов в разработке
