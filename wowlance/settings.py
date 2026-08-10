@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'apps.users',
     'apps.profiles.apps.ProfilesConfig',
     'apps.rooms.apps.RoomsConfig',
+    'apps.pipeline.apps.PipelineConfig',
 ]
 
 MIDDLEWARE = [

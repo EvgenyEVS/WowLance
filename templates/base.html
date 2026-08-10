@@ -27,6 +27,9 @@
                 <a href="{% url 'core:home' %}">Дашборд</a>
                 <a href="{% url 'rooms:project_list' %}">Проекты</a>
                 <a href="{% url 'profiles:catalog' %}">Фрилансеры</a>
+                {% elif user.role == 'manager' %}
+                <a href="{% url 'core:home' %}">Дашборд</a>
+                <a href="{% url 'pipeline:manager_inbox' %}">Горячие лиды</a>
                 {% elif user.role == 'freelancer' %}
                 <a href="{% url 'core:home' %}">Дашборд</a>
                 <a href="{% url 'rooms:project_list' %}">Комнаты</a>

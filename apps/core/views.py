@@ -16,6 +16,8 @@ def home(request):
         return render(request, 'core/director_dashboard.html')
     if request.user.role == User.Roles.TEAMLEAD:
         return render(request, 'core/teamlead_dashboard.html')
+    if request.user.role == User.Roles.MANAGER:
+        return render(request, 'core/manager_dashboard.html')
     if request.user.role == User.Roles.FREELANCER:
         return render(request, 'core/freelancer_dashboard.html')
 
