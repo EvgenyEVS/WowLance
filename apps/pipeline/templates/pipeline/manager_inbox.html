@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block title %}Входящие — горячие лиды{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Задачи по горячим лидам</h1>
+</div>
+
+{% if tasks %}
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Задача</th>
+            <th>Проект</th>
+            <th>Лид</th>
+            <th>Дедлайн</th>
+            <th>Статус</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for task in tasks %}
+        <tr>
+            <td>{{ task.title }}</td>
+            <td>{{ task.project.name }}</td>
+            <td>{{ task.lead|default:"—" }}</td>
+            <td>{{ task.deadline|date:"d.m.Y H:i"|default:"—" }}</td>
+            <td>{{ task.get_status_display }}</td>
+            <td>
+                <a href="{% url 'pipeline:task_detail' task.project.id task.id %}" class="btn btn-secondary">Открыть</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty">Нет открытых задач по горячим лидам.</p>
+{% endif %}
+{% endblock %}

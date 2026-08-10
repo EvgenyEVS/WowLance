@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ task.title }}{% endblock %}
+
+{% block content %}
+{% include 'rooms/_room_header.html' %}
+
+<p><a href="{% url 'pipeline:room_tasks' project.id %}">← К задачам</a></p>
+
+<div class="info-block">
+    <h2>{{ task.title }}</h2>
+    <p><strong>Статус:</strong> {{ task.get_status_display }}</p>
+    <p><strong>Исполнитель:</strong> {{ task.assignee.full_name }}</p>
+    <p><strong>Тип:</strong> {{ task.get_task_type_display }}</p>
+    <p><strong>Дедлайн:</strong> {{ task.deadline|date:"d.m.Y H:i"|default:"—" }}</p>
+    <p><strong>Отчёт обязателен:</strong> {% if task.report_required %}да{% else %}нет{% endif %}</p>
+    {% if task.description %}<p>{{ task.description|linebreaksbr }}</p>{% endif %}
+
+    {% if task.checklist %}
+    <h4>Чеклист</h4>
+    <ul>
+        {% for item in task.checklist %}
+        <li>{% if item.done %}✓{% else %}○{% endif %} {{ item.text }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if task.lead %}
+    <p><strong>Лид:</strong>
+        <a href="{% url 'pipeline:lead_detail' project.id task.lead.id %}">{{ task.lead }}</a>
+    </p>
+    {% endif %}
+</div>
+
+<div class="form-actions" style="margin-bottom: 16px;">
+    {% if is_assignee %}
+      {% if task.status == 'new' or task.status == 'rejected' %}
+    <form method="post" action="{% url 'pipeline:task_start' project.id task.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary">Взять в работу</button>
+    </form>
+      {% endif %}
+    {% endif %}
+
+    {% if can_close %}
+    <form method="post" action="{% url 'pipeline:task_close' project.id task.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary">Закрыть задачу</button>
+    </form>
+    {% elif task.report_required and task.status != 'closed' %}
+    <p class="help-text">Закрытие доступно только после утверждения отчёта тимлидом.</p>
+    {% endif %}
+</div>
+
+{% if is_assignee and task.status != 'closed' and task.report_required %}
+<div class="upload-form">
+    <h4>Сдать отчёт</h4>
+    <form method="post" enctype="multipart/form-data"
+          action="{% url 'pipeline:task_submit_report' project.id task.id %}">
+        {% csrf_token %}
+        <div class="form-group"><label>Текст (мин. 10 символов)</label>{{ report_form.content_text }}</div>
+        <div class="form-group"><label>Скриншот / файл</label>{{ report_form.attachment }}</div>
+        <button type="submit" class="btn btn-primary">Сдать на проверку</button>
+    </form>
+</div>
+{% endif %}
+
+<div class="info-block">
+    <h3>Отчёты</h3>
+    {% for report in reports %}
+    <div class="report-card" style="border-top: 1px solid #eee; padding-top: 12px; margin-top: 12px;">
+        <p><strong>{{ report.get_review_status_display }}</strong> · {{ report.created_at|date:"d.m.Y H:i" }}
+            · {{ report.author.full_name }}</p>
+        <p>{{ report.content_text|linebreaksbr }}</p>
+        <p><a href="{{ report.attachment.url }}" target="_blank" rel="noopener">Вложение</a></p>
+        {% if report.reviewer_comment %}
+        <p><em>Комментарий проверки:</em> {{ report.reviewer_comment }}</p>
+        {% endif %}
+
+        {% if can_manage_team and report.review_status == 'pending' %}
+        <form method="post"
+              action="{% url 'pipeline:task_review_report' project.id task.id report.id %}"
+              class="form-actions">
+            {% csrf_token %}
+            <div class="form-group" style="flex: 1;">
+                <label>Комментарий</label>
+                <textarea name="comment" class="form-control" rows="2"></textarea>
+            </div>
+            <button type="submit" name="action" value="approve" class="btn btn-primary">Утвердить</button>
+            <button type="submit" name="action" value="reject" class="btn btn-secondary">Отклонить</button>
+        </form>
+        {% endif %}
+    </div>
+    {% empty %}
+    <p class="empty">Отчётов ещё нет.</p>
+    {% endfor %}
+</div>
+{% endblock %}

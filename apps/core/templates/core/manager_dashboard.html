@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Дашборд менеджера{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h1>Привет, {{ user.full_name }}!</h1>
+    <div class="features">
+        <div class="feature-card">
+            <h3>Горячие лиды</h3>
+            <p>Задачи «связаться в течение 24 часов» после квалификации тимлидом</p>
+            <a href="{% url 'pipeline:manager_inbox' %}" class="btn btn-primary">Входящие</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

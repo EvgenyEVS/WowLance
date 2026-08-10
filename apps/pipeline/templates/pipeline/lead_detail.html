@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+
+{% block title %}Лид — {{ lead }}{% endblock %}
+
+{% block content %}
+{% include 'rooms/_room_header.html' %}
+
+<p><a href="{% url 'pipeline:room_leads' project.id %}">← К лидам</a></p>
+
+<div class="info-block">
+    <h2>{{ lead }}</h2>
+    <p><strong>Квалификация:</strong> {{ lead.get_qualification_status_display }}</p>
+    <p><strong>Источник:</strong> {{ lead.get_source_display }}</p>
+    <p><strong>Имя:</strong> {{ lead.contact_name|default:"—" }}</p>
+    <p><strong>Телефон:</strong> {{ lead.contact_phone|default:"—" }}</p>
+    <p><strong>Email:</strong> {{ lead.contact_email|default:"—" }}</p>
+    <p><strong>LinkedIn:</strong>
+        {% if lead.contact_linkedin %}
+        <a href="{{ lead.contact_linkedin }}" target="_blank" rel="noopener">{{ lead.contact_linkedin }}</a>
+        {% else %}—{% endif %}
+    </p>
+    <p><strong>Создал:</strong> {{ lead.creator.full_name }}</p>
+    {% if lead.notes %}<p><strong>Заметки:</strong> {{ lead.notes|linebreaksbr }}</p>{% endif %}
+    {% if lead.matched_hot_criteria %}
+    <p><strong>Совпавшие критерии Hot:</strong></p>
+    <ul>{% for c in lead.matched_hot_criteria %}<li>{{ c }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if lead.hot_handoff_at %}
+    <p><strong>Передан менеджеру:</strong> {{ lead.hot_handoff_at|date:"d.m.Y H:i" }}
+        · {{ lead.assigned_manager.full_name|default:"—" }}</p>
+    {% endif %}
+</div>
+
+{% if hot_criteria %}
+<div class="sla-banner">Критерии проекта: {{ hot_criteria }}</div>
+{% endif %}
+
+{% if can_manage_team and qualify_form %}
+<div class="upload-form">
+    <h4>Квалификация (тимлид)</h4>
+    <form method="post" action="{% url 'pipeline:lead_qualify' project.id lead.id %}">
+        {% csrf_token %}
+        <div class="form-group"><label>Статус</label>{{ qualify_form.qualification_status }}</div>
+        <div class="form-group"><label>Совпавшие критерии Hot</label>{{ qualify_form.matched_hot_criteria }}
+            <small class="help-text">{{ qualify_form.matched_hot_criteria.help_text }}</small>
+        </div>
+        <div class="form-group"><label>Комментарий</label>{{ qualify_form.comment }}</div>
+        <button type="submit" class="btn btn-primary">Сохранить квалификацию</button>
+    </form>
+</div>
+{% endif %}
+
+<div class="info-block">
+    <h3>История статусов</h3>
+    <table class="data-table">
+        <thead>
+            <tr><th>Когда</th><th>Было</th><th>Стало</th><th>Кто</th><th>Комментарий</th></tr>
+        </thead>
+        <tbody>
+            {% for item in history %}
+            <tr>
+                <td>{{ item.created_at|date:"d.m.Y H:i" }}</td>
+                <td>{{ item.old_status|default:"—" }}</td>
+                <td>{{ item.new_status }}</td>
+                <td>{{ item.changed_by.full_name|default:"—" }}</td>
+                <td>{{ item.comment|default:"—" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="empty">История пуста</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
