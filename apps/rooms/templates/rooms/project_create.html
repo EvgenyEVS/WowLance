@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block title %}Новый проект{% endblock %}
+
+{% block content %}
+<div class="profile-edit-container">
+    <h1>Создать проект</h1>
+    <p class="subtitle">Заполните шаблон вводных. Без оффера, ЦА и критериев горячего лида запуск недоступен.</p>
+
+    <form method="post" class="profile-form">
+        {% csrf_token %}
+
+        <div class="form-group">
+            <label for="{{ form.name.id_for_label }}">Название</label>
+            {{ form.name }}
+            {% if form.name.errors %}<div class="error">{{ form.name.errors }}</div>{% endif %}
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="{{ form.project_type.id_for_label }}">Тип продаж</label>
+                {{ form.project_type }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.seller_level.id_for_label }}">Уровень продавцов</label>
+                {{ form.seller_level }}
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="{{ form.tariff_plan.id_for_label }}">Тариф</label>
+                {{ form.tariff_plan }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.budget.id_for_label }}">Бюджет</label>
+                {{ form.budget }}
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="{{ form.kpi_target.id_for_label }}">Целевой KPI</label>
+                {{ form.kpi_target }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.start_date.id_for_label }}">Дата старта</label>
+                {{ form.start_date }}
+            </div>
+        </div>
+
+        <h3>Вводные (обязательные)</h3>
+
+        <div class="form-group">
+            <label for="{{ form.offer.id_for_label }}">Оффер</label>
+            {{ form.offer }}
+            {% if form.offer.help_text %}<small class="help-text">{{ form.offer.help_text }}</small>{% endif %}
+            {% if form.offer.errors %}<div class="error">{{ form.offer.errors }}</div>{% endif %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.utp.id_for_label }}">УТП</label>
+            {{ form.utp }}
+            {% if form.utp.errors %}<div class="error">{{ form.utp.errors }}</div>{% endif %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.audience.id_for_label }}">Целевая аудитория</label>
+            {{ form.audience }}
+            {% if form.audience.errors %}<div class="error">{{ form.audience.errors }}</div>{% endif %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.hot_criteria.id_for_label }}">Критерии горячего лида</label>
+            {{ form.hot_criteria }}
+            {% if form.hot_criteria.help_text %}<small class="help-text">{{ form.hot_criteria.help_text }}</small>{% endif %}
+            {% if form.hot_criteria.errors %}<div class="error">{{ form.hot_criteria.errors }}</div>{% endif %}
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Создать черновик</button>
+            <a href="{% url 'rooms:project_list' %}" class="btn btn-secondary">Отмена</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

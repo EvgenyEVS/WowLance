@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block title %}Проекты{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Проекты</h1>
+    {% if user.role == 'director' %}
+    <a href="{% url 'rooms:project_create' %}" class="btn btn-primary">Создать проект</a>
+    {% endif %}
+</div>
+
+{% if projects %}
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Название</th>
+            <th>Тип</th>
+            <th>Уровень</th>
+            <th>Статус</th>
+            <th>Тимлид</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for project in projects %}
+        <tr>
+            <td>{{ project.name }}</td>
+            <td>{{ project.get_project_type_display }}</td>
+            <td>{{ project.get_seller_level_display }}</td>
+            <td>{{ project.get_status_display }}</td>
+            <td>{{ project.teamlead.full_name|default:"—" }}</td>
+            <td>
+                <a href="{% url 'rooms:project_detail' project.id %}" class="btn btn-secondary">Открыть</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="empty">Проектов пока нет.
+    {% if user.role == 'director' %}
+    <a href="{% url 'rooms:project_create' %}">Создайте первый</a>
+    {% endif %}
+</p>
+{% endif %}
+{% endblock %}

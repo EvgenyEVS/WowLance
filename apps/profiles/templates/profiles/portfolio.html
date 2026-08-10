@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+
+{% block title %}Портфолио — {{ profile.full_name }}{% endblock %}
+
+{% block content %}
+<div class="profile-container">
+    <div class="profile-header">
+        <p><a href="{% url 'profiles:detail' profile_user.id %}">← Профиль {{ profile.full_name }}</a></p>
+        <h1>Портфолио</h1>
+        {% if portfolio.title %}
+        <p class="subtitle">{{ portfolio.title }}</p>
+        {% endif %}
+        {% if portfolio.description %}
+        <p>{{ portfolio.description }}</p>
+        {% endif %}
+    </div>
+
+    <div class="profile-portfolio">
+        {% if portfolio_items %}
+        <ul class="portfolio-list">
+            {% for item in portfolio_items %}
+            <li>
+                <strong>{{ item.get_item_type_display }}:</strong>
+                {% if item.item_type == 'file' and item.file %}
+                <a href="{{ item.file.url }}" target="_blank">{{ item.title }}</a>
+                <span class="file-size">({{ item.file_size|filesizeformat }})</span>
+                {% elif item.url %}
+                <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a>
+                {% else %}
+                {{ item.title }}
+                {% endif %}
+                {% if item.description %}
+                <br><small>{{ item.description }}</small>
+                {% endif %}
+                {% if is_owner %}
+                <form method="post"
+                      action="{% url 'profiles:portfolio_delete' item.id %}"
+                      class="inline-delete-form"
+                      onsubmit="return confirm('Удалить элемент?');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-delete" title="Удалить">✕</button>
+                </form>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">Портфолио пусто</p>
+        {% endif %}
+
+        {% if profile.portfolio_links_list %}
+        <h3>Ссылки из профиля</h3>
+        <ul>
+            {% for link in profile.portfolio_links_list %}
+            <li><a href="{{ link }}" target="_blank" rel="noopener">{{ link }}</a></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if is_owner %}
+        <div class="upload-form">
+            <h4>Загрузить файл</h4>
+            <form method="post" enctype="multipart/form-data" action="{% url 'profiles:portfolio_upload' %}">
+                {% csrf_token %}
+                <input type="text" name="title" placeholder="Название" class="form-control">
+                <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx" required>
+                <button type="submit" class="btn btn-primary">Загрузить</button>
+            </form>
+            <small>PDF, PNG, JPG, JPEG, DOC, DOCX (до 10 МБ)</small>
+        </div>
+
+        <div class="upload-form">
+            <h4>Добавить ссылку</h4>
+            <form method="post" action="{% url 'profiles:portfolio_add_link' %}">
+                {% csrf_token %}
+                <input type="text" name="title" placeholder="Название" class="form-control" required>
+                <input type="url" name="url" placeholder="https://..." class="form-control" required>
+                <button type="submit" class="btn btn-primary">Добавить</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

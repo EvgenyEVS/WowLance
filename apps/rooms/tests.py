@@ -1,0 +1,233 @@
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import Client, TestCase
+from django.urls import reverse
+
+from apps.rooms.models import Project, RoomDocument, RoomMember
+from apps.rooms.services import (
+    add_freelancer_to_room,
+    assign_teamlead,
+    launch_project,
+    user_can_access_project,
+)
+from apps.test_helpers import make_director, make_freelancer, make_teamlead, make_user
+from apps.users.models import User
+
+
+class RoomServiceTests(TestCase):
+    def setUp(self):
+        self.director = make_director()
+        self.teamlead = make_teamlead()
+        self.freelancer = make_freelancer()
+        self.project = Project.objects.create(
+            owner=self.director,
+            name='Тестовый проект',
+            project_type=Project.Type.BASE,
+            seller_level=Project.SellerLevel.MIDDLE,
+            input_data={
+                'offer': 'Оффер',
+                'utp': 'УТП',
+                'audience': 'ЦА',
+                'hot_criteria': 'Запросил демо',
+            },
+            budget=10000,
+            status=Project.Status.DRAFT,
+        )
+
+    def test_launch_creates_room_and_director_member(self):
+        launch_project(self.project)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.status, Project.Status.STAFFING)
+        self.assertTrue(hasattr(self.project, 'room'))
+        self.assertTrue(
+            RoomMember.objects.filter(
+                room=self.project.room,
+                user=self.director,
+                role_in_room=RoomMember.RoleInRoom.DIRECTOR,
+            ).exists()
+        )
+
+    def test_assign_teamlead_and_add_freelancer_activates_project(self):
+        launch_project(self.project)
+        assign_teamlead(self.project, self.teamlead)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.teamlead_id, self.teamlead.id)
+        add_freelancer_to_room(self.project.room, self.freelancer)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.status, Project.Status.ACTIVE)
+        self.assertTrue(
+            RoomMember.objects.filter(
+                room=self.project.room,
+                user=self.freelancer,
+                role_in_room=RoomMember.RoleInRoom.FREELANCER,
+            ).exists()
+        )
+
+    def test_access_control(self):
+        launch_project(self.project)
+        stranger = make_user(email='stranger@example.com', role=User.Roles.FREELANCER)
+        self.assertTrue(user_can_access_project(self.director, self.project))
+        self.assertFalse(user_can_access_project(stranger, self.project))
+        add_freelancer_to_room(self.project.room, stranger)
+        self.assertTrue(user_can_access_project(stranger, self.project))
+
+
+class RoomViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.password = 'TestPass123!'
+        self.director = make_director(email='dir@rooms.test', password=self.password)
+        self.teamlead = make_teamlead(email='tl@rooms.test', password=self.password)
+        self.freelancer = make_freelancer(email='fr@rooms.test', password=self.password)
+        self.outsider = make_freelancer(email='out@rooms.test', password=self.password)
+
+    def _create_project_via_form(self):
+        self.client.login(username='dir@rooms.test', password=self.password)
+        response = self.client.post(
+            reverse('rooms:project_create'),
+            {
+                'name': 'Запуск продаж',
+                'project_type': Project.Type.LINKEDIN,
+                'seller_level': Project.SellerLevel.SENIOR,
+                'tariff_plan': 'launch',
+                'budget': '50000',
+                'kpi_target': '20',
+                'start_date': '',
+                'offer': 'Продаём SaaS',
+                'utp': 'Быстрый ROI',
+                'audience': 'CEO B2B',
+                'hot_criteria': 'Согласен на демо',
+            },
+        )
+        project = Project.objects.get(name='Запуск продаж')
+        self.assertRedirects(
+            response,
+            reverse('rooms:project_detail', kwargs={'project_id': project.id}),
+        )
+        return project
+
+    def test_director_creates_and_launches_project(self):
+        project = self._create_project_via_form()
+        self.assertEqual(project.status, Project.Status.DRAFT)
+        self.assertEqual(project.offer, 'Продаём SaaS')
+
+        launch = self.client.post(
+            reverse('rooms:project_launch', kwargs={'project_id': project.id}),
+        )
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.STAFFING)
+        self.assertRedirects(
+            launch,
+            reverse('rooms:room_overview', kwargs={'project_id': project.id}),
+        )
+
+    def test_launch_requires_input_data(self):
+        self.client.login(username='dir@rooms.test', password=self.password)
+        project = Project.objects.create(
+            owner=self.director,
+            name='Пустой',
+            input_data={},
+            status=Project.Status.DRAFT,
+        )
+        response = self.client.post(
+            reverse('rooms:project_launch', kwargs={'project_id': project.id}),
+        )
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.DRAFT)
+        self.assertRedirects(
+            response,
+            reverse('rooms:project_detail', kwargs={'project_id': project.id}),
+        )
+
+    def test_freelancer_cannot_create_project(self):
+        self.client.login(username='fr@rooms.test', password=self.password)
+        response = self.client.get(reverse('rooms:project_create'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_team_flow_assign_and_ready(self):
+        project = self._create_project_via_form()
+        self.client.post(reverse('rooms:project_launch', kwargs={'project_id': project.id}))
+        project.refresh_from_db()
+
+        assign = self.client.post(
+            reverse('rooms:room_assign_teamlead', kwargs={'project_id': project.id}),
+            {'teamlead': str(self.teamlead.id)},
+        )
+        self.assertRedirects(
+            assign,
+            reverse('rooms:room_team', kwargs={'project_id': project.id}),
+        )
+        project.refresh_from_db()
+        self.assertEqual(project.teamlead_id, self.teamlead.id)
+
+        add = self.client.post(
+            reverse('rooms:room_add_freelancer', kwargs={'project_id': project.id}),
+            {'freelancer': str(self.freelancer.id)},
+        )
+        self.assertRedirects(
+            add,
+            reverse('rooms:room_team', kwargs={'project_id': project.id}),
+        )
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.ACTIVE)
+
+        self.client.logout()
+        self.client.login(username='fr@rooms.test', password=self.password)
+        ready = self.client.post(
+            reverse('rooms:room_confirm_ready', kwargs={'project_id': project.id}),
+        )
+        self.assertRedirects(
+            ready,
+            reverse('rooms:room_overview', kwargs={'project_id': project.id}),
+        )
+        member = RoomMember.objects.get(room=project.room, user=self.freelancer)
+        self.assertEqual(member.ready_status, RoomMember.ReadyStatus.READY)
+
+    def test_outsider_cannot_access_room(self):
+        project = self._create_project_via_form()
+        self.client.post(reverse('rooms:project_launch', kwargs={'project_id': project.id}))
+        self.client.logout()
+        self.client.login(username='out@rooms.test', password=self.password)
+        response = self.client.get(
+            reverse('rooms:room_overview', kwargs={'project_id': project.id}),
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_document_upload(self):
+        project = self._create_project_via_form()
+        self.client.post(reverse('rooms:project_launch', kwargs={'project_id': project.id}))
+        response = self.client.post(
+            reverse('rooms:room_document_upload', kwargs={'project_id': project.id}),
+            {
+                'title': 'Презентация',
+                'file': SimpleUploadedFile(
+                    'vision.pdf',
+                    b'%PDF-1.4 vision',
+                    content_type='application/pdf',
+                ),
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse('rooms:room_documents', kwargs={'project_id': project.id}),
+        )
+        self.assertTrue(
+            RoomDocument.objects.filter(room=project.room, title='Презентация').exists()
+        )
+
+    def test_project_list_scoped_by_role(self):
+        project = self._create_project_via_form()
+        self.client.post(reverse('rooms:project_launch', kwargs={'project_id': project.id}))
+        self.client.post(
+            reverse('rooms:room_add_freelancer', kwargs={'project_id': project.id}),
+            {'freelancer': str(self.freelancer.id)},
+        )
+
+        self.client.logout()
+        self.client.login(username='fr@rooms.test', password=self.password)
+        response = self.client.get(reverse('rooms:project_list'))
+        self.assertContains(response, project.name)
+
+        self.client.logout()
+        self.client.login(username='out@rooms.test', password=self.password)
+        response = self.client.get(reverse('rooms:project_list'))
+        self.assertNotContains(response, project.name)

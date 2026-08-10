@@ -1,0 +1,15 @@
+<div class="page-header">
+    <div>
+        <p><a href="{% url 'rooms:project_list' %}">← Проекты</a></p>
+        <h1>{{ project.name }}</h1>
+        <p class="subtitle">Статус: {{ project.get_status_display }}
+            {% if project.teamlead %} · Тимлид: {{ project.teamlead.full_name }}{% endif %}
+        </p>
+    </div>
+</div>
+
+<nav class="room-tabs">
+    <a href="{% url 'rooms:room_overview' project.id %}" class="{% if active_tab == 'overview' %}active{% endif %}">Overview</a>
+    <a href="{% url 'rooms:room_team' project.id %}" class="{% if active_tab == 'team' %}active{% endif %}">Команда</a>
+    <a href="{% url 'rooms:room_documents' project.id %}" class="{% if active_tab == 'documents' %}active{% endif %}">Документы</a>
+</nav>

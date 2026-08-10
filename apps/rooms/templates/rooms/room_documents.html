@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}Документы — {{ project.name }}{% endblock %}
+
+{% block content %}
+{% include 'rooms/_room_header.html' %}
+
+<div class="info-block">
+    <h3>Вижен и материалы</h3>
+    {% if documents %}
+    <ul class="portfolio-list">
+        {% for doc in documents %}
+        <li>
+            <a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a>
+            <small> · {{ doc.uploaded_by.full_name|default:"—" }} · {{ doc.created_at|date:"d.m.Y H:i" }}</small>
+            {% if can_manage_team or doc.uploaded_by_id == user.id %}
+            <form method="post"
+                  action="{% url 'rooms:room_document_delete' project.id doc.id %}"
+                  class="inline-delete-form"
+                  onsubmit="return confirm('Удалить документ?');">
+                {% csrf_token %}
+                <button type="submit" class="btn-delete">✕</button>
+            </form>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">Документов пока нет — загрузите презентацию, схему или бриф.</p>
+    {% endif %}
+</div>
+
+{% if can_upload %}
+<div class="upload-form">
+    <h4>Загрузить документ</h4>
+    <form method="post" enctype="multipart/form-data" action="{% url 'rooms:room_document_upload' project.id %}">
+        {% csrf_token %}
+        <div class="form-group">
+            <label>Название</label>
+            {{ form.title }}
+        </div>
+        <div class="form-group">
+            <label>Файл</label>
+            {{ form.file }}
+        </div>
+        <button type="submit" class="btn btn-primary">Загрузить</button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

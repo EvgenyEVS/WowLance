@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+
+{% block title %}Дашборд тимлида{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <h1>Привет, {{ user.full_name }}!</h1>
+    <div class="features">
+        <div class="feature-card">
+            <h3>Проекты</h3>
+            <p>Комнаты, где вы назначены тимлидом — подбор команды и контроль</p>
+            <a href="{% url 'rooms:project_list' %}" class="btn btn-primary">Мои проекты</a>
+        </div>
+        <div class="feature-card">
+            <h3>Фрилансеры</h3>
+            <p>Каталог исполнителей для назначения в комнату</p>
+            <a href="{% url 'profiles:catalog' %}" class="btn btn-secondary">Каталог</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

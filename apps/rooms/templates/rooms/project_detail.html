@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p><a href="{% url 'rooms:project_list' %}">← К проектам</a></p>
+        <h1>{{ project.name }}</h1>
+        <p class="subtitle">Статус: {{ project.get_status_display }}</p>
+    </div>
+</div>
+
+<div class="sla-banner">Первые звонки — в течение 24 часов после запуска и подтверждения готовности команды</div>
+
+<div class="info-block">
+    <h3>Вводные</h3>
+    <p><strong>Тип:</strong> {{ project.get_project_type_display }}</p>
+    <p><strong>Уровень:</strong> {{ project.get_seller_level_display }}</p>
+    <p><strong>Оффер:</strong> {{ project.offer|default:"—" }}</p>
+    <p><strong>УТП:</strong> {{ project.utp|default:"—" }}</p>
+    <p><strong>ЦА:</strong> {{ project.audience|default:"—" }}</p>
+    <p><strong>Горячий лид:</strong> {{ project.hot_criteria|default:"—" }}</p>
+</div>
+
+{% if can_launch %}
+<form method="post" action="{% url 'rooms:project_launch' project.id %}">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Запустить проект (создать комнату)</button>
+</form>
+<p class="help-text">Пока без оплаты — для MVP запуск сразу открывает комнату.</p>
+{% endif %}
+{% endblock %}

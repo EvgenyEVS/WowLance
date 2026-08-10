@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}Фрилансеры{% endblock %}
+
+{% block content %}
+<div class="catalog-container">
+    <div class="catalog-header">
+        <h1>Каталог фрилансеров</h1>
+        <p class="subtitle">Подберите продавцов по уровню, навыкам и доступности</p>
+    </div>
+
+    <form method="get" class="catalog-filters">
+        <div class="form-group">
+            <label for="q">Поиск</label>
+            <input type="text" id="q" name="q" value="{{ search_query }}"
+                   class="form-control" placeholder="Имя, email, страна, навык">
+        </div>
+        <div class="form-group">
+            <label for="level">Уровень</label>
+            <select id="level" name="level" class="form-control">
+                <option value="">Все</option>
+                {% for value, label in levels %}
+                <option value="{{ value }}" {% if selected_level == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="available">Доступность</label>
+            <select id="available" name="available" class="form-control">
+                <option value="">Все</option>
+                <option value="1" {% if selected_available == '1' %}selected{% endif %}>Доступен</option>
+                <option value="0" {% if selected_available == '0' %}selected{% endif %}>Недоступен</option>
+            </select>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Найти</button>
+            <a href="{% url 'profiles:catalog' %}" class="btn btn-secondary">Сбросить</a>
+        </div>
+    </form>
+
+    {% if profiles %}
+    <div class="catalog-grid">
+        {% for profile in profiles %}
+        <article class="catalog-card">
+            <h3>
+                <a href="{% url 'profiles:detail' profile.user.id %}">{{ profile.full_name }}</a>
+            </h3>
+            <div class="profile-badges">
+                <span class="badge level">{{ profile.get_level_display }}</span>
+                {% if profile.is_verified %}
+                <span class="badge verified">Верифицирован</span>
+                {% endif %}
+                {% if profile.is_available %}
+                <span class="badge available">Доступен</span>
+                {% else %}
+                <span class="badge unavailable">Недоступен</span>
+                {% endif %}
+                <span class="badge rating">★ {{ profile.rating }}</span>
+            </div>
+            <p><strong>Страна:</strong> {{ profile.country|default:"—" }}</p>
+            <p><strong>Опыт:</strong> {{ profile.experience_years }} лет · {{ profile.experience_projects }} проектов</p>
+            {% if profile.skills_list %}
+            <ul class="skills-list">
+                {% for skill in profile.skills_list|slice:":4" %}
+                <li class="skill-tag">{{ skill }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <a href="{% url 'profiles:detail' profile.user.id %}" class="btn btn-secondary">Открыть профиль</a>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">Фрилансеры не найдены. Измените фильтры или дождитесь регистрации продавцов.</p>
+    {% endif %}
+</div>
+{% endblock %}

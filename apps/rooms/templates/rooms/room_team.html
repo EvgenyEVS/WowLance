@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+
+{% block title %}Команда — {{ project.name }}{% endblock %}
+
+{% block content %}
+{% include 'rooms/_room_header.html' %}
+
+<div class="info-block">
+    <h3>Участники</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Имя</th>
+                <th>Email</th>
+                <th>Роль</th>
+                <th>Готовность</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for member in members %}
+            <tr>
+                <td>{{ member.user.full_name }}</td>
+                <td>{{ member.user.email }}</td>
+                <td>{{ member.get_role_in_room_display }}</td>
+                <td>
+                    {% if member.role_in_room == 'freelancer' %}
+                    {{ member.get_ready_status_display }}
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
+                <td>
+                    {% if can_manage_team and member.role_in_room != 'director' %}
+                    <form method="post"
+                          action="{% url 'rooms:room_remove_member' project.id member.id %}"
+                          class="inline-delete-form"
+                          onsubmit="return confirm('Удалить участника?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn-delete">Удалить</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="empty">Нет участников</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if can_manage_team %}
+<div class="room-grid">
+    {% if user.id == project.owner_id or user.role == 'admin' %}
+    <div class="upload-form">
+        <h4>Назначить тимлида</h4>
+        <p class="help-text">Сначала создайте пользователя с ролью «Тимлид» в админке.</p>
+        <form method="post" action="{% url 'rooms:room_assign_teamlead' project.id %}">
+            {% csrf_token %}
+            <div class="form-group">{{ teamlead_form.teamlead }}</div>
+            <button type="submit" class="btn btn-primary">Назначить</button>
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="upload-form">
+        <h4>Добавить фрилансера</h4>
+        <p class="help-text"><a href="{% url 'profiles:catalog' %}">Открыть каталог</a> для просмотра профилей.</p>
+        <form method="post" action="{% url 'rooms:room_add_freelancer' project.id %}">
+            {% csrf_token %}
+            <div class="form-group">{{ freelancer_form.freelancer }}</div>
+            <button type="submit" class="btn btn-primary">Добавить</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if my_membership and my_membership.role_in_room == 'freelancer' and my_membership.ready_status != 'ready' %}
+<form method="post" action="{% url 'rooms:room_confirm_ready' project.id %}" style="margin-top: 16px;">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Готов к работе</button>
+</form>
+{% endif %}
+{% endblock %}
