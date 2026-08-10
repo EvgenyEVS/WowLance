@@ -1,17 +1,126 @@
 {% extends 'base.html' %}
 
-{% block content %}
-<div class="landing">
-    <h1>WowLance — Продажи за 1 клик</h1>
-    <p>Платформа для быстрого запуска продаж</p>
+{% block title %}Sales Architecture{% endblock %}
+{% block body_class %}page-wizard{% endblock %}
+{% block main_class %}wizard-main{% endblock %}
 
-    <div class="role-selector">
-        <a href="{% url 'users:register' %}?role=director" class="btn btn-primary">
-            Я директор — нанять команду
-        </a>
-        <a href="{% url 'users:register' %}?role=freelancer" class="btn btn-secondary">
-            Я фрилансер — найти работу
-        </a>
+{% block content %}
+<section class="wizard-hero">
+    <div class="container">
+        <p class="wizard-kicker animate-fade">B2B Sales Architecture</p>
+        <h1 class="wizard-title animate-rise">Select Your Business Scale</h1>
+
+        <div class="scale-tabs animate-fade" role="tablist" aria-label="Масштаб бизнеса">
+            <button type="button" class="scale-tab is-active" data-scale="startup">Startups</button>
+            <button type="button" class="scale-tab" data-scale="smb">SMB</button>
+            <button type="button" class="scale-tab" data-scale="enterprise">Enterprise</button>
+        </div>
+
+        <p class="wizard-alt">
+            <a href="{% url 'users:register' %}?role=director">Or build your own architecture from scratch →</a>
+        </p>
     </div>
-</div>
+</section>
+
+<section class="wizard-architectures container">
+    <article class="arch-card animate-card" data-scales="startup smb">
+        <div class="arch-card-top">
+            <span class="arch-icon">◎</span>
+            <h2>Cold Calling Machine</h2>
+        </div>
+        <p class="arch-lead">Агрессивный outbound по базе для B2B. Команда junior/middle за 1 час.</p>
+        <ul class="arch-meta">
+            <li>База клиента + скрипты + контроль скриншотами</li>
+            <li>Тимлид + 2–4 фрилансера</li>
+            <li>Первые звонки ≤ 24 часов</li>
+        </ul>
+        <div class="arch-stats">
+            <div>
+                <span class="arch-label">Launch</span>
+                <strong>24 Hours</strong>
+            </div>
+            <div>
+                <span class="arch-label">From</span>
+                <strong class="arch-price">₽97 000</strong>
+            </div>
+        </div>
+        <a href="{% url 'users:register' %}?role=director" class="btn btn-primary btn-block">Apply Architecture</a>
+    </article>
+
+    <article class="arch-card animate-card" data-scales="startup smb enterprise">
+        <div class="arch-card-top">
+            <span class="arch-icon">◇</span>
+            <h2>LinkedIn Outreach</h2>
+        </div>
+        <p class="arch-lead">Тёплый аутрич в LinkedIn: последовательность касаний, отчёты, квалификация Hot.</p>
+        <ul class="arch-meta">
+            <li>Шаблоны сообщений + чеклисты</li>
+            <li>Передача горячих лидов менеджеру</li>
+            <li>Прозрачный лог действий</li>
+        </ul>
+        <div class="arch-stats">
+            <div>
+                <span class="arch-label">Launch</span>
+                <strong>24 Hours</strong>
+            </div>
+            <div>
+                <span class="arch-label">From</span>
+                <strong class="arch-price">₽83 000</strong>
+            </div>
+        </div>
+        <a href="{% url 'users:register' %}?role=director" class="btn btn-primary btn-block">Apply Architecture</a>
+    </article>
+
+    <article class="arch-card animate-card" data-scales="smb enterprise">
+        <div class="arch-card-top">
+            <span class="arch-icon">▣</span>
+            <h2>The Scale-Up Machine</h2>
+        </div>
+        <p class="arch-lead">Полная комната: тимлид, senior-продавцы, задачи, лиды и комната проекта.</p>
+        <ul class="arch-meta">
+            <li>Staffing + контроль SLA</li>
+            <li>Hot handoff менеджеру платформы</li>
+            <li>Дашборд KPI для директора</li>
+        </ul>
+        <div class="arch-stats">
+            <div>
+                <span class="arch-label">Launch</span>
+                <strong>1 Hour</strong>
+            </div>
+            <div>
+                <span class="arch-label">From</span>
+                <strong class="arch-price">₽137 000</strong>
+            </div>
+        </div>
+        <a href="{% url 'users:register' %}?role=director" class="btn btn-primary btn-block">Apply Architecture</a>
+    </article>
+</section>
+
+<section class="wizard-secondary container">
+    <div class="secondary-card">
+        <h3>Я фрилансер-сейл</h3>
+        <p>Бери задачи, сдавай отчёты со скриншотами, расти рейтинг.</p>
+        <a href="{% url 'users:register' %}?role=freelancer" class="btn btn-ghost">Найти работу →</a>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+  const tabs = document.querySelectorAll('.scale-tab');
+  const cards = document.querySelectorAll('.arch-card');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      tabs.forEach((t) => t.classList.remove('is-active'));
+      tab.classList.add('is-active');
+      const scale = tab.dataset.scale;
+      cards.forEach((card) => {
+        const match = (card.dataset.scales || '').split(/\s+/).includes(scale);
+        card.classList.toggle('is-dimmed', !match);
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

@@ -3,74 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WowLance — {% block title %}Платформа продаж{% endblock %}</title>
-    <!-- Подключаем HTMX -->
+    <title>WowLance — {% block title %}Sales Architecture{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Syne:wght@600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/htmx.org@2.0.2" defer></script>
-    <!-- Подключаем CSS -->
     {% load static %}
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
     {% block extra_css %}{% endblock %}
 </head>
-<body>
-<!-- Шапка -->
-<header>
-    <nav class="navbar">
-        <div class="container">
-            <a href="{% url 'core:home' %}" class="logo">WowLance</a>
-            <div class="nav-menu">
+<body class="{% block body_class %}{% endblock %}">
+<div class="app-shell">
+    <header class="site-header">
+        <div class="container header-inner">
+            <div class="header-left">
+                <a href="{% url 'core:home' %}" class="logo">
+                    <span class="logo-mark">W</span>
+                    <span class="logo-text">WowLance</span>
+                </a>
                 {% if user.is_authenticated %}
-                {% if user.role == 'director' %}
-                <a href="{% url 'core:home' %}">Дашборд</a>
-                <a href="{% url 'rooms:project_list' %}">Проекты</a>
-                <a href="{% url 'profiles:catalog' %}">Фрилансеры</a>
-                {% elif user.role == 'teamlead' %}
-                <a href="{% url 'core:home' %}">Дашборд</a>
-                <a href="{% url 'rooms:project_list' %}">Проекты</a>
-                <a href="{% url 'profiles:catalog' %}">Фрилансеры</a>
-                {% elif user.role == 'manager' %}
-                <a href="{% url 'core:home' %}">Дашборд</a>
-                <a href="{% url 'pipeline:manager_inbox' %}">Горячие лиды</a>
-                {% elif user.role == 'freelancer' %}
-                <a href="{% url 'core:home' %}">Дашборд</a>
-                <a href="{% url 'rooms:project_list' %}">Комнаты</a>
-                <a href="{% url 'profiles:edit' %}">Профиль</a>
-                <a href="{% url 'profiles:catalog' %}">Каталог</a>
-                {% endif %}
-                <span class="user-role">| {{ user.get_role_display }}</span>
-                <a href="{% url 'users:logout' %}">Выйти</a>
-                {% else %}
-                <a href="{% url 'users:login' %}">Войти</a>
-                <a href="{% url 'users:register' %}">Регистрация</a>
+                <span class="header-chip">Guided Setup</span>
                 {% endif %}
             </div>
+            <nav class="nav-menu">
+                {% if user.is_authenticated %}
+                    {% if user.role == 'director' %}
+                    <a href="{% url 'core:home' %}">Дашборд</a>
+                    <a href="{% url 'rooms:project_list' %}">Проекты</a>
+                    <a href="{% url 'profiles:catalog' %}">Фрилансеры</a>
+                    {% elif user.role == 'teamlead' %}
+                    <a href="{% url 'core:home' %}">Дашборд</a>
+                    <a href="{% url 'rooms:project_list' %}">Проекты</a>
+                    <a href="{% url 'profiles:catalog' %}">Фрилансеры</a>
+                    {% elif user.role == 'manager' %}
+                    <a href="{% url 'core:home' %}">Дашборд</a>
+                    <a href="{% url 'pipeline:manager_inbox' %}">Горячие лиды</a>
+                    {% elif user.role == 'freelancer' %}
+                    <a href="{% url 'core:home' %}">Дашборд</a>
+                    <a href="{% url 'rooms:project_list' %}">Комнаты</a>
+                    <a href="{% url 'profiles:edit' %}">Профиль</a>
+                    <a href="{% url 'profiles:catalog' %}">Каталог</a>
+                    {% endif %}
+                    <span class="user-role">{{ user.get_role_display }}</span>
+                    <a href="{% url 'users:logout' %}" class="btn btn-ghost btn-sm">Exit</a>
+                {% else %}
+                    <a href="{% url 'users:login' %}">Войти</a>
+                    <a href="{% url 'users:register' %}?role=director" class="btn btn-ghost btn-sm">Начать</a>
+                {% endif %}
+            </nav>
         </div>
-    </nav>
-</header>
+    </header>
 
-<!-- Сообщения (flash) -->
-{% if messages %}
-<div class="container">
-    {% for message in messages %}
-    <div class="alert alert-{{ message.tags }}">{{ message }}</div>
-    {% endfor %}
+    {% if messages %}
+    <div class="container flash-wrap">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <main class="{% block main_class %}container{% endblock %}">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <div class="container footer-inner">
+            <div class="footer-links">
+                <a href="{% url 'core:about' %}">О платформе</a>
+                <a href="#">Privacy Policy</a>
+                <a href="#">Terms of Service</a>
+            </div>
+            <p>&copy; 2026 WowLance. All rights reserved.</p>
+        </div>
+    </footer>
 </div>
-{% endif %}
-
-<!-- Основной контент -->
-<main>
-    <div class="container">
-        {% block content %}
-        {% endblock %}
-    </div>
-</main>
-
-<!-- Подвал -->
-<footer>
-    <div class="container">
-        <p>&copy; 2026 WowLance. Все права защищены.</p>
-    </div>
-</footer>
-
 {% block extra_js %}{% endblock %}
 </body>
 </html>
