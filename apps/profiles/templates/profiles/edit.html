@@ -72,6 +72,12 @@
             {% if form.portfolio_links.errors %}<div class="error">{{ form.portfolio_links.errors }}</div>{% endif %}
         </div>
 
+        <div class="form-group">
+            <label for="{{ form.avatar_url.id_for_label }}">Аватар (URL фото)</label>
+            {{ form.avatar_url }}
+            {% if form.avatar_url.help_text %}<small class="help-text">{{ form.avatar_url.help_text }}</small>{% endif %}
+        </div>
+
         <div class="form-row">
             <div class="form-group">
                 <label for="{{ form.linkedin_url.id_for_label }}">LinkedIn</label>

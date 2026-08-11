@@ -11,7 +11,12 @@ from apps.users.models import User
 from .models import FreelancerProfile, Portfolio, PortfolioItem
 from .forms import UserProfileForm, PortfolioItemFileForm, PortfolioItemLinkForm
 from .services import get_or_create_freelancer_profile
-
+from .card import (
+    highlights_for_profile,
+    rating_stars,
+    seller_title_for_level,
+    video_embed_url,
+)
 
 def _add_to_room_context(request):
     projects = staffing_projects_for_user(request.user)
@@ -79,11 +84,11 @@ def freelancer_catalog(request):
 
 @login_required
 def profile_detail(request, user_id):
-    """Карточка фрилансера (baseball card)."""
+    """Карточка фрилансера по макету (фото, highlights, video, проекты/навыки)."""
     user = get_object_or_404(User, id=user_id, role=User.Roles.FREELANCER)
     profile = get_object_or_404(FreelancerProfile, user=user)
     portfolio = getattr(profile, 'portfolio', None)
-    portfolio_items = portfolio.items.filter(is_public=True) if portfolio else []
+    portfolio_items = list(portfolio.items.filter(is_public=True)[:6]) if portfolio else []
     is_owner = request.user.id == user.id
     ctx = {
         'profile_user': user,
@@ -94,6 +99,10 @@ def profile_detail(request, user_id):
         'avatar_initials': ''.join(
             part[0] for part in user.full_name.split()[:2]
         ).upper() or user.email[:1].upper(),
+        'seller_title': seller_title_for_level(profile.level),
+        'rating_stars': rating_stars(profile.rating),
+        'highlights': highlights_for_profile(profile),
+        'video_embed_url': video_embed_url(profile.video_url),
     }
     ctx.update(_add_to_room_context(request))
     return render(request, 'profiles/detail.html', ctx)

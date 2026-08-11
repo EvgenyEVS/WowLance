@@ -29,7 +29,7 @@ class FreelancerProfileAdmin(admin.ModelAdmin):
         ('Пользователь', {'fields': ('user',)}),
         ('Профиль', {'fields': ('country', 'level', 'experience_years', 'experience_projects')}),
         ('Навыки', {'fields': ('skills', 'key_advantages', 'languages', 'portfolio_links')}),
-        ('Ссылки', {'fields': ('linkedin_url', 'video_url')}),
+        ('Ссылки', {'fields': ('avatar_url', 'linkedin_url', 'video_url')}),
         ('Метрики', {'fields': ('rating', 'acceptance_rate', 'is_verified', 'is_available')}),
         ('Системные', {'fields': ('created_at', 'updated_at'), 'classes': ('collapse',)}),
     )

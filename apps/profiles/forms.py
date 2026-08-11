@@ -107,12 +107,16 @@ class UserProfileForm(forms.ModelForm):
             'skills',
             'portfolio_links',
             'linkedin_url',
+            'avatar_url',
             'video_url',
             'is_available',
         ]
         widgets = {
+            'avatar_url': forms.URLInput(attrs={
+                'placeholder': 'https://…/photo.jpg',
+            }),
             'video_url': forms.URLInput(attrs={
-                'placeholder': 'https://youtube.com/...',
+                'placeholder': 'https://youtube.com/watch?v=...',
             }),
             'linkedin_url': forms.URLInput(attrs={
                 'placeholder': 'https://linkedin.com/in/...',

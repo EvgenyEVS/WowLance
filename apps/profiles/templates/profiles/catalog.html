@@ -42,9 +42,13 @@
     <div class="catalog-grid baseball-grid">
         {% for profile in profiles %}
         <article class="baseball-card">
+            {% if profile.avatar_url %}
+            <img class="baseball-avatar baseball-avatar-img" src="{{ profile.avatar_url }}" alt="{{ profile.full_name }}" width="56" height="56">
+            {% else %}
             <div class="baseball-avatar" aria-hidden="true">
                 {{ profile.user.first_name|default:profile.user.email|slice:":1"|upper }}{{ profile.user.last_name|slice:":1"|upper }}
             </div>
+            {% endif %}
             <h3>
                 <a href="{% url 'profiles:detail' profile.user.id %}">{{ profile.full_name }}</a>
             </h3>

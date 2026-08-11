@@ -64,11 +64,31 @@ class ProfileViewTests(TestCase):
 
     def test_profile_detail(self):
         self.client.login(username='dir@example.com', password='TestPass123!')
+        self.profile.country = 'Россия'
+        self.profile.level = FreelancerProfile.Level.JUNIOR
+        self.profile.rating = 4
+        self.profile.key_advantages = [
+            '100 клиентов за 7 дней',
+            '20 проектов',
+            'Диплом Гарварда',
+        ]
+        self.profile.skills = ['SPIN', 'Cold calls']
+        self.profile.linkedin_url = 'https://linkedin.com/in/demo'
+        self.profile.video_url = 'https://youtube.com/watch?v=dQw4w9WgXcQ'
+        self.profile.save()
         response = self.client.get(
             reverse('profiles:detail', kwargs={'user_id': self.freelancer.id}),
         )
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.freelancer.full_name)
+        self.assertContains(response, self.freelancer.first_name)
+        self.assertContains(response, 'Junior seller')
+        self.assertContains(response, '100 клиентов за 7 дней')
+        self.assertContains(response, 'Video presentation 40 sec.')
+        self.assertContains(response, 'Проекты:')
+        self.assertContains(response, 'Навыки:')
+        self.assertContains(response, 'SPIN')
+        self.assertContains(response, 'linkedin.com/in/demo')
+        self.assertContains(response, 'youtube-nocookie.com/embed/')
 
     def test_profile_edit_only_freelancer(self):
         self.client.login(username='dir@example.com', password='TestPass123!')

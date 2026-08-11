@@ -8,6 +8,34 @@ from apps.profiles.models import FreelancerProfile, Portfolio
 from apps.profiles.services import get_or_create_freelancer_profile
 from apps.users.models import User
 
+# Деловые демо-видео (известные TED / talks) — embed в карточке
+VIDEO_DEMO = {
+    'pitch': 'https://www.youtube.com/watch?v=Ks-_Mh1QhMc',   # Amy Cuddy — body language
+    'why': 'https://www.youtube.com/watch?v=u4ZoJKF_VuA',     # Simon Sinek — Start with why
+    'speak': 'https://www.youtube.com/watch?v=eIho2S0ZahI',   # Julian Treasure — speak so people listen
+    'lead': 'https://www.youtube.com/watch?v=iCvmsMzlF7o',    # Brené Brown — vulnerability
+    'negotiate': 'https://www.youtube.com/watch?v=arj7oStGLkU',  # Patrick Winston — How to Speak
+    'story': 'https://www.youtube.com/watch?v=Unzc731iCUY',   # Tim Urban
+    'focus': 'https://www.youtube.com/watch?v=c0KYU2j0TM4',   # Susan Cain — power of introverts
+    'habit': 'https://www.youtube.com/watch?v=yqpW8VjS2Y4',   # Dan Pink — motivation
+    'listen': 'https://www.youtube.com/watch?v=R1vskiVDwl4',  # Celeste Headlee — conversation
+    'team': 'https://www.youtube.com/watch?v=iKyI4QwcYMw',    # leadership talk
+}
+
+# Портреты randomuser (деловые headshots) — без хранения на своём сервере
+AVATAR = {
+    'anna': 'https://randomuser.me/api/portraits/women/44.jpg',
+    'ivan': 'https://randomuser.me/api/portraits/men/32.jpg',
+    'maria': 'https://randomuser.me/api/portraits/women/65.jpg',
+    'dmitry': 'https://randomuser.me/api/portraits/men/52.jpg',
+    'elena': 'https://randomuser.me/api/portraits/women/68.jpg',
+    'alex': 'https://randomuser.me/api/portraits/men/11.jpg',
+    'olga': 'https://randomuser.me/api/portraits/women/47.jpg',
+    'sergey': 'https://randomuser.me/api/portraits/men/75.jpg',
+    'natalia': 'https://randomuser.me/api/portraits/women/26.jpg',
+    'kirill': 'https://randomuser.me/api/portraits/men/22.jpg',
+}
+
 SEED_FREELANCERS = [
     {
         'email': 'anna.sokolova@wowlance.demo',
@@ -30,7 +58,8 @@ SEED_FREELANCERS = [
         'skills': ['Холодные звонки', 'SPIN', 'MEDDIC', 'Salesforce', 'Discovery'],
         'portfolio_links': ['https://linkedin.com/in/anna-sokolova-demo'],
         'linkedin_url': 'https://linkedin.com/in/anna-sokolova-demo',
-        'video_url': 'https://youtube.com/watch?v=demo-anna',
+        'avatar_url': AVATAR['anna'],
+        'video_url': VIDEO_DEMO['pitch'],
         'rating': Decimal('4.85'),
         'acceptance_rate': Decimal('96.50'),
         'is_verified': True,
@@ -52,11 +81,13 @@ SEED_FREELANCERS = [
         'key_advantages': [
             'сильный outbound LinkedIn',
             'среднее 40 касаний/день',
+            '18 проектов в портфеле',
         ],
         'skills': ['LinkedIn Outreach', 'Холодные письма', 'HubSpot', 'AIDA'],
         'portfolio_links': ['https://linkedin.com/in/ivan-petrov-demo'],
         'linkedin_url': 'https://linkedin.com/in/ivan-petrov-demo',
-        'video_url': '',
+        'avatar_url': AVATAR['ivan'],
+        'video_url': VIDEO_DEMO['why'],
         'rating': Decimal('4.40'),
         'acceptance_rate': Decimal('88.00'),
         'is_verified': True,
@@ -79,11 +110,13 @@ SEED_FREELANCERS = [
         'key_advantages': [
             'быстрый онбординг',
             'высокая дисциплина отчётов',
+            '5 проектов за год',
         ],
         'skills': ['Холодные звонки', 'Скрипты', 'Битрикс24'],
         'portfolio_links': [],
         'linkedin_url': 'https://linkedin.com/in/maria-kim-demo',
-        'video_url': '',
+        'avatar_url': AVATAR['maria'],
+        'video_url': VIDEO_DEMO['speak'],
         'rating': Decimal('3.90'),
         'acceptance_rate': Decimal('91.00'),
         'is_verified': False,
@@ -114,7 +147,8 @@ SEED_FREELANCERS = [
             'https://drive.google.com/demo-cases-volkov',
         ],
         'linkedin_url': 'https://linkedin.com/in/dmitry-volkov-demo',
-        'video_url': 'https://vimeo.com/123456789',
+        'avatar_url': AVATAR['dmitry'],
+        'video_url': VIDEO_DEMO['negotiate'],
         'rating': Decimal('4.95'),
         'acceptance_rate': Decimal('98.00'),
         'is_verified': True,
@@ -136,11 +170,13 @@ SEED_FREELANCERS = [
         'key_advantages': [
             'работа с возражениями',
             'стабильный pipeline',
+            '14 успешных проектов',
         ],
         'skills': ['Холодные звонки', 'База возражений', 'SPIN', 'AmoCRM'],
         'portfolio_links': ['https://linkedin.com/in/elena-morozova-demo'],
         'linkedin_url': 'https://linkedin.com/in/elena-morozova-demo',
-        'video_url': '',
+        'avatar_url': AVATAR['elena'],
+        'video_url': VIDEO_DEMO['lead'],
         'rating': Decimal('4.20'),
         'acceptance_rate': Decimal('85.50'),
         'is_verified': True,
@@ -167,7 +203,8 @@ SEED_FREELANCERS = [
         'skills': ['LinkedIn Outreach', 'Apollo', 'Outreach.io', 'Cold Email', 'Salesforce'],
         'portfolio_links': ['https://linkedin.com/in/alex-brown-demo'],
         'linkedin_url': 'https://linkedin.com/in/alex-brown-demo',
-        'video_url': 'https://youtube.com/watch?v=demo-alex',
+        'avatar_url': AVATAR['alex'],
+        'video_url': VIDEO_DEMO['story'],
         'rating': Decimal('4.70'),
         'acceptance_rate': Decimal('93.00'),
         'is_verified': True,
@@ -189,11 +226,13 @@ SEED_FREELANCERS = [
         'key_advantages': [
             'хорошо держит скрипт',
             'много энергии на звонках',
+            '8 проектов',
         ],
         'skills': ['Холодные звонки', 'Квалификация BANT', 'Google Sheets'],
         'portfolio_links': [],
-        'linkedin_url': '',
-        'video_url': '',
+        'linkedin_url': 'https://linkedin.com/in/olga-novikova-demo',
+        'avatar_url': AVATAR['olga'],
+        'video_url': VIDEO_DEMO['focus'],
         'rating': Decimal('3.60'),
         'acceptance_rate': Decimal('79.00'),
         'is_verified': False,
@@ -223,7 +262,8 @@ SEED_FREELANCERS = [
             'https://notion.so/demo-ivanov-cases',
         ],
         'linkedin_url': 'https://linkedin.com/in/sergey-ivanov-demo',
-        'video_url': '',
+        'avatar_url': AVATAR['sergey'],
+        'video_url': VIDEO_DEMO['habit'],
         'rating': Decimal('4.55'),
         'acceptance_rate': Decimal('90.00'),
         'is_verified': True,
@@ -246,11 +286,13 @@ SEED_FREELANCERS = [
         'key_advantages': [
             'рынок PL/EU',
             'мультиязычный outreach',
+            '16 проектов',
         ],
         'skills': ['LinkedIn Outreach', 'Cold Email', 'HubSpot', 'Objection Handling'],
         'portfolio_links': ['https://linkedin.com/in/natalia-orska-demo'],
         'linkedin_url': 'https://linkedin.com/in/natalia-orska-demo',
-        'video_url': 'https://youtube.com/watch?v=demo-natalia',
+        'avatar_url': AVATAR['natalia'],
+        'video_url': VIDEO_DEMO['listen'],
         'rating': Decimal('4.30'),
         'acceptance_rate': Decimal('87.00'),
         'is_verified': True,
@@ -272,11 +314,13 @@ SEED_FREELANCERS = [
         'key_advantages': [
             'готов к высокой нагрузке',
             'учится быстро',
+            '3 проекта в работе',
         ],
         'skills': ['Холодные звонки', 'База клиентов', 'Telegram outreach'],
         'portfolio_links': [],
         'linkedin_url': 'https://linkedin.com/in/kirill-smirnov-demo',
-        'video_url': '',
+        'avatar_url': AVATAR['kirill'],
+        'video_url': VIDEO_DEMO['team'],
         'rating': Decimal('3.40'),
         'acceptance_rate': Decimal('72.00'),
         'is_verified': False,
@@ -331,7 +375,7 @@ class Command(BaseCommand):
             for field in (
                 'country', 'level', 'experience_years', 'experience_projects',
                 'languages', 'key_advantages', 'skills', 'portfolio_links',
-                'linkedin_url', 'video_url', 'rating', 'acceptance_rate',
+                'linkedin_url', 'avatar_url', 'video_url', 'rating', 'acceptance_rate',
                 'is_verified', 'is_available',
             ):
                 setattr(profile, field, data[field])

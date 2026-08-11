@@ -78,6 +78,11 @@ class FreelancerProfile(models.Model):
         blank=True,
         verbose_name=_('LinkedIn'),
     )
+    avatar_url = models.URLField(
+        blank=True,
+        verbose_name=_('Аватар (URL)'),
+        help_text=_('Ссылка на деловое фото профиля'),
+    )
     video_url = models.URLField(
         blank=True,
         verbose_name=_('Видеопрезентация'),

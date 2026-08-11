@@ -1,121 +1,175 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ profile.full_name }} — карточка{% endblock %}
+{% block title %}{{ profile.full_name }} — карточка профиля{% endblock %}
 
 {% block content %}
-<div class="baseball-detail">
-    <div class="baseball-hero">
-        <div class="baseball-avatar xl" aria-hidden="true">{{ avatar_initials }}</div>
-        <div>
-            <p class="wizard-kicker">Baseball Card</p>
-            <h1>{{ profile.full_name }}</h1>
-            <div class="profile-badges">
-                <span class="badge level">{{ profile.get_level_display }}</span>
-                {% if profile.is_verified %}<span class="badge verified">Верифицирован</span>{% endif %}
-                {% if profile.is_available %}
-                <span class="badge available">Доступен</span>
-                {% else %}
-                <span class="badge unavailable">Недоступен</span>
-                {% endif %}
-                <span class="badge rating">★ {{ profile.rating }}</span>
-                {% if profile.acceptance_rate %}
-                <span class="badge acceptance">{{ profile.acceptance_rate }}% принятых</span>
-                {% endif %}
-            </div>
-            <div class="baseball-actions">
-                {% if is_owner %}
-                <a href="{% url 'profiles:edit' %}" class="btn btn-primary">Редактировать</a>
-                {% endif %}
-                <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-secondary">Портфолио</a>
-                {% if can_add_to_room and add_to_room_form %}
-                <form method="post" action="{% url 'rooms:catalog_add_to_room' profile_user.id %}" class="inline-add-form">
-                    {% csrf_token %}
-                    <label class="sr-only">Проект</label>
-                    {{ add_to_room_form.project }}
-                    <button type="submit" class="btn btn-primary">Добавить в комнату</button>
-                </form>
-                {% endif %}
-            </div>
-        </div>
-    </div>
+<article class="freelancer-card">
+    <header class="fc-header">
+        {% if profile.avatar_url %}
+        <img class="fc-avatar" src="{{ profile.avatar_url }}" alt="{{ profile.full_name }}" width="88" height="88">
+        {% else %}
+        <div class="fc-avatar fc-avatar-fallback" aria-hidden="true">{{ avatar_initials }}</div>
+        {% endif %}
 
-    <div class="profile-body">
-        <div class="profile-info">
-            <div class="info-block">
-                <h3>Основное</h3>
-                <p><strong>Страна:</strong> {{ profile.country|default:"Не указано" }}</p>
-                <p><strong>Опыт:</strong> {{ profile.experience_years }} лет · {{ profile.experience_projects }} проектов</p>
-            </div>
-
-            <div class="info-block">
-                <h3>Навыки</h3>
-                {% if profile.skills_list %}
-                <ul class="skills-list">
-                    {% for skill in profile.skills_list %}
-                    <li class="skill-tag">{{ skill }}</li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <div class="empty-state compact">
-                    <p>Навыки не указаны</p>
-                    {% if is_owner %}<a href="{% url 'profiles:edit' %}" class="btn btn-primary btn-sm">Добавить навыки</a>{% endif %}
-                </div>
+        <div class="fc-identity">
+            <h1 class="fc-name">
+                <span class="fc-firstname">{{ profile_user.first_name|default:profile.full_name }}</span>
+                {% if profile_user.last_name %}
+                <span class="fc-lastname">{{ profile_user.last_name }}</span>
                 {% endif %}
-            </div>
-
-            <div class="info-block">
-                <h3>Ключевые преимущества</h3>
-                {% if profile.advantages_list %}
-                <ul class="advantages-list">
-                    {% for advantage in profile.advantages_list %}
-                    <li>{{ advantage }}</li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <p class="empty">Преимущества не указаны</p>
-                {% endif %}
-            </div>
-
-            <div class="info-block">
-                <h3>Ссылки</h3>
-                {% if profile.linkedin_url %}
-                <p><a href="{{ profile.linkedin_url }}" target="_blank" rel="noopener">LinkedIn</a></p>
-                {% endif %}
-                {% if profile.video_url %}
-                <p><a href="{{ profile.video_url }}" target="_blank" rel="noopener">Видеопрезентация</a></p>
-                {% endif %}
-                {% if not profile.linkedin_url and not profile.video_url %}
-                <p class="empty">Ссылки не добавлены</p>
-                {% endif %}
-            </div>
+            </h1>
+            <p class="fc-meta">
+                {% if profile.experience_years %}{{ profile.experience_years }} лет опыта{% else %}опыт{% endif %}
+                · {{ profile.country|default:"—" }}
+            </p>
+            <p class="fc-level">{{ seller_title }}</p>
         </div>
 
-        <div class="profile-portfolio">
-            <h3>Портфолио (превью)</h3>
+        <div class="fc-aside">
+            <div class="fc-menu-wrap">
+                <details class="fc-menu">
+                    <summary class="fc-menu-btn" aria-label="Меню">
+                        <span></span><span></span><span></span>
+                    </summary>
+                    <div class="fc-menu-panel">
+                        {% if is_owner %}
+                        <a href="{% url 'profiles:edit' %}">Редактировать</a>
+                        {% endif %}
+                        <a href="{% url 'profiles:portfolio' profile_user.id %}">Портфолио</a>
+                        <a href="{% url 'profiles:catalog' %}">К каталогу</a>
+                        {% if can_add_to_room and add_to_room_form %}
+                        <form method="post" action="{% url 'rooms:catalog_add_to_room' profile_user.id %}" class="fc-menu-add">
+                            {% csrf_token %}
+                            {{ add_to_room_form.project }}
+                            <button type="submit" class="btn btn-primary btn-sm">В комнату</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </details>
+            </div>
+
+            {% if profile.is_verified %}
+            <span class="fc-verified" title="Верифицирован" aria-label="Верифицирован">
+                <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
+                    <path fill="currentColor" d="M12 2l2.4 2.1 3.1-.4 1.2 2.9 2.9 1.2-.4 3.1L23 12l-2.1 2.4.4 3.1-2.9 1.2-1.2 2.9-3.1-.4L12 22l-2.4-2.1-3.1.4-1.2-2.9-2.9-1.2.4-3.1L1 12l2.1-2.4-.4-3.1 2.9-1.2 1.2-2.9 3.1.4L12 2zm-1.2 13.3l6-6-1.4-1.4-4.6 4.6-2.2-2.2-1.4 1.4 3.6 3.6z"/>
+                </svg>
+            </span>
+            {% endif %}
+
+            <div class="fc-stars" aria-label="Рейтинг {{ profile.rating }} из 5">
+                {% for filled in rating_stars %}
+                <span class="fc-star {% if filled %}is-on{% endif %}" aria-hidden="true">★</span>
+                {% endfor %}
+            </div>
+        </div>
+    </header>
+
+    <ul class="fc-highlights">
+        {% for item in highlights %}
+        <li>
+            <span class="fc-check" aria-hidden="true">✓</span>
+            <span>{{ item }}</span>
+        </li>
+        {% empty %}
+        <li class="fc-highlight-empty">
+            <span class="fc-check" aria-hidden="true">✓</span>
+            <span>{{ profile.experience_projects }} проектов</span>
+        </li>
+        {% if is_owner %}
+        <li class="fc-highlight-empty">
+            <a href="{% url 'profiles:edit' %}">Добавить преимущества →</a>
+        </li>
+        {% endif %}
+        {% endfor %}
+    </ul>
+
+    <section class="fc-video">
+        {% if video_embed_url %}
+        <div class="fc-video-frame">
+            <iframe
+                src="{{ video_embed_url }}"
+                title="Video presentation 40 sec."
+                referrerpolicy="strict-origin-when-cross-origin"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+                loading="lazy"
+            ></iframe>
+        </div>
+        <p class="fc-video-caption">Video presentation 40 sec.</p>
+        {% elif profile.video_url %}
+        <a class="fc-video-placeholder" href="{{ profile.video_url }}" target="_blank" rel="noopener">
+            <span class="fc-play" aria-hidden="true">▶</span>
+            <span>Video presentation 40 sec.</span>
+        </a>
+        {% else %}
+        <div class="fc-video-placeholder is-empty">
+            <span>Video presentation 40 sec.</span>
+            {% if is_owner %}
+            <a href="{% url 'profiles:edit' %}" class="btn btn-ghost btn-sm">Добавить видео</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </section>
+
+    <div class="fc-columns">
+        <section class="fc-col">
+            <h2>Проекты:</h2>
             {% if portfolio_items %}
-            <ul class="portfolio-list">
+            <ol class="fc-list">
                 {% for item in portfolio_items|slice:":3" %}
                 <li>
                     {% if item.item_type == 'file' and item.file %}
-                    <a href="{{ item.file.url }}" target="_blank">{{ item.title }}</a>
+                    <a href="{{ item.file.url }}" target="_blank" rel="noopener">{{ item.title }}</a>
                     {% elif item.url %}
                     <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a>
                     {% else %}
                     {{ item.title }}
                     {% endif %}
+                    {% if item.description %}
+                    <p>{{ item.description|truncatechars:90 }}</p>
+                    {% endif %}
                 </li>
                 {% endfor %}
-            </ul>
-            <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-secondary">Все работы →</a>
+            </ol>
             {% else %}
-            <div class="empty-state compact">
-                <p>Портфолио пусто</p>
-                {% if is_owner %}
-                <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-primary btn-sm">Добавить работы</a>
-                {% endif %}
-            </div>
+            <p class="fc-empty">Пока нет проектов в портфолио</p>
+            {% if is_owner %}
+            <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-ghost btn-sm">Добавить</a>
             {% endif %}
-        </div>
+            {% endif %}
+        </section>
+
+        <section class="fc-col">
+            <h2>Навыки:</h2>
+            {% if profile.skills_list %}
+            <ol class="fc-list">
+                {% for skill in profile.skills_list|slice:":6" %}
+                <li>{{ skill }}</li>
+                {% endfor %}
+            </ol>
+            {% else %}
+            <p class="fc-empty">Навыки не указаны</p>
+            {% if is_owner %}
+            <a href="{% url 'profiles:edit' %}" class="btn btn-ghost btn-sm">Добавить</a>
+            {% endif %}
+            {% endif %}
+        </section>
     </div>
-</div>
+
+    <footer class="fc-footer">
+        {% if profile.linkedin_url %}
+        <a class="fc-linkedin" href="{{ profile.linkedin_url }}" target="_blank" rel="noopener" title="LinkedIn" aria-label="LinkedIn">
+            in
+        </a>
+        {% else %}
+        <span class="fc-linkedin is-disabled" title="LinkedIn не указан" aria-hidden="true">in</span>
+        {% endif %}
+
+        {% if profile.is_available %}
+        <span class="fc-availability is-on">Доступен</span>
+        {% else %}
+        <span class="fc-availability">Недоступен</span>
+        {% endif %}
+    </footer>
+</article>
 {% endblock %}
