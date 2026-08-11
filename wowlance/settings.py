@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -20,12 +21,43 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-+vq^metgs%(+(%)xnzs2fbu8a-0se+se0es_ou1^ge6ku8hgft'
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-+vq^metgs%(+(%)xnzs2fbu8a-0se+se0es_ou1^ge6ku8hgft',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
-ALLOWED_HOSTS = []
+PUBLIC_HOST = os.environ.get('PUBLIC_HOST', '195.19.209.121')
+PUBLIC_SCHEME = os.environ.get('PUBLIC_SCHEME', 'https')
+# На сервере после nginx+TLS: Environment=USE_HTTPS=1
+USE_HTTPS = os.environ.get('USE_HTTPS', '0') == '1'
+
+ALLOWED_HOSTS = [
+    PUBLIC_HOST,
+    'localhost',
+    '127.0.0.1',
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    f'https://{PUBLIC_HOST}',
+    f'http://{PUBLIC_HOST}',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+]
+
+# Nginx → gunicorn: доверяем X-Forwarded-Proto, чтобы ссылки были https://
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
+if USE_HTTPS:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '0'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
 
 # YouTube embed требует Referer; Django по умолчанию same-origin → Error 153
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'

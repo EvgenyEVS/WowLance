@@ -6,14 +6,16 @@ from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
+from apps.core.absolute_uri import absolute_uri
+
 from .tokens import account_activation_token
 
 
-def build_activation_url(request, user) -> str:
+def build_activation_url(request, user) -> tuple[str, str, str]:
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = account_activation_token.make_token(user)
     path = f'/activate/{uid}/{token}/'
-    return request.build_absolute_uri(path), uid, token
+    return absolute_uri(request, path), uid, token
 
 
 def send_activation_email(request, user) -> str:

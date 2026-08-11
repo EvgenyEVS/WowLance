@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from apps.core.absolute_uri import absolute_uri
 from apps.pipeline.models import Task
 from apps.users.models import User
 from .forms import (
@@ -373,8 +374,9 @@ def room_team(request, project_id):
     )
     invite_url = None
     if invite and invite.is_valid:
-        invite_url = request.build_absolute_uri(
-            reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token})
+        invite_url = absolute_uri(
+            request,
+            reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token}),
         )
 
     return render(request, 'rooms/room_team.html', {
@@ -398,8 +400,9 @@ def room_create_teamlead_invite(request, project_id):
         raise PermissionDenied('Создавать приглашение может только директор.')
     ensure_room_for_project(project)
     invite = create_teamlead_invite(project, request.user)
-    url = request.build_absolute_uri(
-        reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token})
+    url = absolute_uri(
+        request,
+        reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token}),
     )
     messages.success(request, f'Ссылка-приглашение для тимлида создана: {url}')
     return redirect('rooms:room_team', project_id=project.id)
