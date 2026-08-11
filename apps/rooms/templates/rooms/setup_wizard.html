@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+
+{% block title %}Мастер запуска — шаг {{ step }}{% endblock %}
+
+{% block content %}
+<div class="setup-wizard">
+    <p class="wizard-kicker">Мастер запуска</p>
+    <h1>Три шага до комнаты</h1>
+
+    <ol class="wizard-steps">
+        <li class="{% if step == 1 %}is-active{% elif step > 1 %}is-done{% endif %}">1. Архитектура</li>
+        <li class="{% if step == 2 %}is-active{% elif step > 2 %}is-done{% endif %}">2. Вводные</li>
+        <li class="{% if step == 3 %}is-active{% endif %}">3. Запуск</li>
+    </ol>
+
+    {% if step == 1 %}
+    <form method="post" class="arch-pick-form">
+        {% csrf_token %}
+        <input type="hidden" name="step" value="1">
+        <div class="wizard-architectures setup-arch-grid">
+            {% for p in presets %}
+            <label class="arch-card arch-pick {% if arch_key == p.key %}is-selected{% endif %}">
+                <input type="radio" name="arch" value="{{ p.key }}" {% if arch_key == p.key %}checked{% endif %} required>
+                <div class="arch-card-top">
+                    <h2>{{ p.label }}</h2>
+                </div>
+                <p class="arch-lead">{{ p.short }}</p>
+                <div class="arch-stats">
+                    <div><span class="arch-label">Запуск</span><strong>{{ p.launch_label }}</strong></div>
+                    <div><span class="arch-label">От</span><strong class="arch-price">{{ p.price_label }}</strong></div>
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+        <button type="submit" class="btn btn-primary">Далее → вводные</button>
+    </form>
+    {% endif %}
+
+    {% if step == 2 %}
+    {% if preset %}<p class="subtitle">Пресет: <strong>{{ preset.label }}</strong> — поля уже заполнены, можно править.</p>{% endif %}
+    <form method="post" class="upload-form">
+        {% csrf_token %}
+        <input type="hidden" name="step" value="2">
+        <input type="hidden" name="arch" value="{{ arch_key }}">
+        <div class="form-group"><label>Название</label>{{ form.name }}</div>
+        <div class="form-row">
+            <div class="form-group"><label>Тип продаж</label>{{ form.project_type }}</div>
+            <div class="form-group"><label>Уровень</label>{{ form.seller_level }}</div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Тариф</label>{{ form.tariff_plan }}</div>
+            <div class="form-group"><label>Бюджет</label>{{ form.budget }}</div>
+        </div>
+        <div class="form-group"><label>Оффер</label>{{ form.offer }}</div>
+        <div class="form-group"><label>УТП</label>{{ form.utp }}</div>
+        <div class="form-group"><label>ЦА</label>{{ form.audience }}</div>
+        <div class="form-group"><label>Критерии Hot</label>{{ form.hot_criteria }}</div>
+        <div class="form-row">
+            <div class="form-group"><label>KPI</label>{{ form.kpi_target }}</div>
+            <div class="form-group"><label>Старт</label>{{ form.start_date }}</div>
+        </div>
+        {% if form.errors %}<div class="alert alert-error">{{ form.errors }}</div>{% endif %}
+        <a href="{% url 'rooms:setup_wizard' %}?step=1" class="btn btn-ghost">Назад</a>
+        <button type="submit" class="btn btn-primary">Создать черновик →</button>
+    </form>
+    {% endif %}
+
+    {% if step == 3 %}
+    {% if project %}
+    <div class="info-block">
+        <h3>{{ project.name }}</h3>
+        <p><strong>Тип:</strong> {{ project.get_project_type_display }} · <strong>Уровень:</strong> {{ project.get_seller_level_display }}</p>
+        <p><strong>Оффер:</strong> {{ project.offer|truncatechars:160 }}</p>
+        <p class="help-text">Запуск создаёт комнату без оплаты (MVP). Дальше — пригласите тимлида и добавьте фрилансеров.</p>
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="step" value="3">
+            <button type="submit" name="action" value="launch" class="btn btn-primary">Запустить комнату</button>
+            <button type="submit" name="action" value="later" class="btn btn-ghost">Оставить черновик</button>
+        </form>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <h3>Нет черновика для запуска</h3>
+        <p>Сначала выберите архитектуру и сохраните вводные.</p>
+        <a href="{% url 'rooms:setup_wizard' %}?step=1" class="btn btn-primary">К шагу 1</a>
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

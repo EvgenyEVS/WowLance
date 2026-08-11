@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Project, Room, RoomDocument, RoomMember
+from .models import Project, Room, RoomActivity, RoomDocument, RoomMember, TeamleadInvite
 
 
 class RoomMemberInline(admin.TabularInline):
@@ -54,3 +54,17 @@ class RoomDocumentAdmin(admin.ModelAdmin):
     list_display = ['title', 'room', 'uploaded_by', 'created_at']
     search_fields = ['title', 'room__project__name']
     autocomplete_fields = ['room', 'uploaded_by']
+
+
+@admin.register(RoomActivity)
+class RoomActivityAdmin(admin.ModelAdmin):
+    list_display = ['message', 'event_type', 'room', 'actor', 'created_at']
+    list_filter = ['event_type']
+    search_fields = ['message', 'room__project__name']
+
+
+@admin.register(TeamleadInvite)
+class TeamleadInviteAdmin(admin.ModelAdmin):
+    list_display = ['project', 'token', 'is_active', 'expires_at', 'accepted_by', 'created_at']
+    list_filter = ['is_active']
+    search_fields = ['project__name', 'token']

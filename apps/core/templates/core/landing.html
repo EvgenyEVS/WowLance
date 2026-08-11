@@ -1,23 +1,23 @@
 {% extends 'base.html' %}
 
-{% block title %}Sales Architecture{% endblock %}
+{% block title %}Архитектура продаж{% endblock %}
 {% block body_class %}page-wizard{% endblock %}
 {% block main_class %}wizard-main{% endblock %}
 
 {% block content %}
 <section class="wizard-hero">
     <div class="container">
-        <p class="wizard-kicker animate-fade">B2B Sales Architecture</p>
-        <h1 class="wizard-title animate-rise">Select Your Business Scale</h1>
+        <p class="wizard-kicker animate-fade">B2B · WowLance</p>
+        <h1 class="wizard-title animate-rise">Выберите масштаб бизнеса</h1>
 
         <div class="scale-tabs animate-fade" role="tablist" aria-label="Масштаб бизнеса">
-            <button type="button" class="scale-tab is-active" data-scale="startup">Startups</button>
+            <button type="button" class="scale-tab is-active" data-scale="startup">Стартапы</button>
             <button type="button" class="scale-tab" data-scale="smb">SMB</button>
             <button type="button" class="scale-tab" data-scale="enterprise">Enterprise</button>
         </div>
 
         <p class="wizard-alt">
-            <a href="{% url 'users:register' %}?role=director">Or build your own architecture from scratch →</a>
+            <a href="{% url 'users:register' %}?role=director">Или собрать архитектуру с нуля →</a>
         </p>
     </div>
 </section>
@@ -28,7 +28,7 @@
             <span class="arch-icon">◎</span>
             <h2>Cold Calling Machine</h2>
         </div>
-        <p class="arch-lead">Агрессивный outbound по базе для B2B. Команда junior/middle за 1 час.</p>
+        <p class="arch-lead">Агрессивный outbound по базе для B2B. Команда junior/middle за час.</p>
         <ul class="arch-meta">
             <li>База клиента + скрипты + контроль скриншотами</li>
             <li>Тимлид + 2–4 фрилансера</li>
@@ -36,15 +36,19 @@
         </ul>
         <div class="arch-stats">
             <div>
-                <span class="arch-label">Launch</span>
-                <strong>24 Hours</strong>
+                <span class="arch-label">Запуск</span>
+                <strong>24 часа</strong>
             </div>
             <div>
-                <span class="arch-label">From</span>
+                <span class="arch-label">От</span>
                 <strong class="arch-price">₽97 000</strong>
             </div>
         </div>
-        <a href="{% url 'users:register' %}?role=director" class="btn btn-primary btn-block">Apply Architecture</a>
+        {% if user.is_authenticated %}
+        <a href="{% url 'rooms:apply_architecture' %}?arch=cold_calling&scale=startup" class="btn btn-primary btn-block">Применить архитектуру</a>
+        {% else %}
+        <a href="{% url 'rooms:apply_architecture' %}?arch=cold_calling&scale=startup" class="btn btn-primary btn-block">Применить архитектуру</a>
+        {% endif %}
     </article>
 
     <article class="arch-card animate-card" data-scales="startup smb enterprise">
@@ -52,7 +56,7 @@
             <span class="arch-icon">◇</span>
             <h2>LinkedIn Outreach</h2>
         </div>
-        <p class="arch-lead">Тёплый аутрич в LinkedIn: последовательность касаний, отчёты, квалификация Hot.</p>
+        <p class="arch-lead">Тёплый аутрич в LinkedIn: касания, отчёты, квалификация Hot.</p>
         <ul class="arch-meta">
             <li>Шаблоны сообщений + чеклисты</li>
             <li>Передача горячих лидов менеджеру</li>
@@ -60,15 +64,15 @@
         </ul>
         <div class="arch-stats">
             <div>
-                <span class="arch-label">Launch</span>
-                <strong>24 Hours</strong>
+                <span class="arch-label">Запуск</span>
+                <strong>24 часа</strong>
             </div>
             <div>
-                <span class="arch-label">From</span>
+                <span class="arch-label">От</span>
                 <strong class="arch-price">₽83 000</strong>
             </div>
         </div>
-        <a href="{% url 'users:register' %}?role=director" class="btn btn-primary btn-block">Apply Architecture</a>
+        <a href="{% url 'rooms:apply_architecture' %}?arch=linkedin&scale=startup" class="btn btn-primary btn-block">Применить архитектуру</a>
     </article>
 
     <article class="arch-card animate-card" data-scales="smb enterprise">
@@ -76,7 +80,7 @@
             <span class="arch-icon">▣</span>
             <h2>The Scale-Up Machine</h2>
         </div>
-        <p class="arch-lead">Полная комната: тимлид, senior-продавцы, задачи, лиды и комната проекта.</p>
+        <p class="arch-lead">Полная комната: тимлид, senior-продавцы, задачи, лиды.</p>
         <ul class="arch-meta">
             <li>Staffing + контроль SLA</li>
             <li>Hot handoff менеджеру платформы</li>
@@ -84,15 +88,15 @@
         </ul>
         <div class="arch-stats">
             <div>
-                <span class="arch-label">Launch</span>
-                <strong>1 Hour</strong>
+                <span class="arch-label">Запуск</span>
+                <strong>1 час</strong>
             </div>
             <div>
-                <span class="arch-label">From</span>
+                <span class="arch-label">От</span>
                 <strong class="arch-price">₽137 000</strong>
             </div>
         </div>
-        <a href="{% url 'users:register' %}?role=director" class="btn btn-primary btn-block">Apply Architecture</a>
+        <a href="{% url 'rooms:apply_architecture' %}?arch=scaleup&scale=smb" class="btn btn-primary btn-block">Применить архитектуру</a>
     </article>
 </section>
 

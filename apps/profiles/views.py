@@ -5,10 +5,26 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.views.decorators.http import require_POST
 
+from apps.rooms.forms import AddToRoomForm
+from apps.rooms.onboarding import staffing_projects_for_user
 from apps.users.models import User
 from .models import FreelancerProfile, Portfolio, PortfolioItem
 from .forms import UserProfileForm, PortfolioItemFileForm, PortfolioItemLinkForm
 from .services import get_or_create_freelancer_profile
+
+
+def _add_to_room_context(request):
+    projects = staffing_projects_for_user(request.user)
+    can_staff = projects.exists() and request.user.role in {
+        User.Roles.DIRECTOR,
+        User.Roles.TEAMLEAD,
+        User.Roles.ADMIN,
+    }
+    return {
+        'can_add_to_room': can_staff,
+        'staffing_projects': projects,
+        'add_to_room_form': AddToRoomForm(projects=projects) if can_staff else None,
+    }
 
 
 def _require_freelancer(user):
@@ -50,32 +66,37 @@ def freelancer_catalog(request):
         )
 
     profiles = profiles.order_by('-is_verified', '-rating', 'user__first_name')
-
-    return render(request, 'profiles/catalog.html', {
+    ctx = {
         'profiles': profiles,
         'levels': FreelancerProfile.Level.choices,
         'selected_level': level,
         'selected_available': available,
         'search_query': q,
-    })
+    }
+    ctx.update(_add_to_room_context(request))
+    return render(request, 'profiles/catalog.html', ctx)
 
 
 @login_required
 def profile_detail(request, user_id):
-    """Карточка фрилансера."""
+    """Карточка фрилансера (baseball card)."""
     user = get_object_or_404(User, id=user_id, role=User.Roles.FREELANCER)
     profile = get_object_or_404(FreelancerProfile, user=user)
     portfolio = getattr(profile, 'portfolio', None)
     portfolio_items = portfolio.items.filter(is_public=True) if portfolio else []
     is_owner = request.user.id == user.id
-
-    return render(request, 'profiles/detail.html', {
+    ctx = {
         'profile_user': user,
         'profile': profile,
         'portfolio': portfolio,
         'portfolio_items': portfolio_items,
         'is_owner': is_owner,
-    })
+        'avatar_initials': ''.join(
+            part[0] for part in user.full_name.split()[:2]
+        ).upper() or user.email[:1].upper(),
+    }
+    ctx.update(_add_to_room_context(request))
+    return render(request, 'profiles/detail.html', ctx)
 
 
 @login_required

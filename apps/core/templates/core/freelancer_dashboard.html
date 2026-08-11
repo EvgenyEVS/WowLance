@@ -5,22 +5,58 @@
 {% block content %}
 <div class="dashboard freelancer">
     <h1>Привет, {{ user.full_name }}!</h1>
+    <p class="subtitle">Профиль → комната → задачи с доказательством.</p>
+
+    <div class="metrics-strip">
+        <div class="metric-card">
+            <span class="metric-label">Комнаты</span>
+            <strong class="metric-value">{{ metrics.rooms_count }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Открытые задачи</span>
+            <strong class="metric-value">{{ metrics.open_tasks }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Рейтинг</span>
+            <strong class="metric-value">★ {{ metrics.rating }}</strong>
+        </div>
+    </div>
+
+    {% if onboarding and not onboarding.complete %}
+    <section class="onboarding-panel">
+        <div class="onboarding-head">
+            <h2>Чеклист старта</h2>
+            <span class="onboarding-progress">{{ onboarding.done }}/{{ onboarding.total }} · {{ onboarding.percent }}%</span>
+        </div>
+        <ul class="onboarding-list">
+            {% for item in onboarding.items %}
+            <li class="{% if item.done %}is-done{% endif %}">
+                <span class="onboarding-check">{% if item.done %}✓{% else %}○{% endif %}</span>
+                <span>{{ item.label }}</span>
+                {% if not item.done %}
+                <a href="{% url item.url_name %}" class="btn btn-ghost btn-sm">{{ item.cta }}</a>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
 
     <div class="features">
         <div class="feature-card">
             <h3>Профиль</h3>
-            <p>Заполните навыки, опыт и портфолио — так вас быстрее найдут на проектах</p>
+            <p>Навыки, опыт и baseball-card — так вас быстрее найдут</p>
             <a href="{% url 'profiles:edit' %}" class="btn btn-primary">Редактировать профиль</a>
             <a href="{% url 'profiles:detail' user.id %}" class="btn btn-secondary">Моя карточка</a>
         </div>
         <div class="feature-card">
             <h3>Портфолио</h3>
-            <p>Добавьте кейсы, файлы и ссылки с подтверждением опыта</p>
+            <p>Кейсы, файлы и ссылки с подтверждением опыта</p>
             <a href="{% url 'profiles:portfolio' user.id %}" class="btn btn-primary">Открыть портфолио</a>
         </div>
         <div class="feature-card">
             <h3>Мои комнаты</h3>
-            <p>Проекты, куда вас добавили — вводные, документы и готовность</p>
+            <p>Проекты, документы и готовность к работе</p>
             <a href="{% url 'rooms:project_list' %}" class="btn btn-primary">Открыть проекты</a>
         </div>
     </div>

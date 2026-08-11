@@ -8,20 +8,30 @@
         <h1>Вход в WowLance</h1>
         <p class="subtitle">Войдите, чтобы продолжить работу</p>
 
-        <form method="post" class="auth-form">
+        <form method="post" class="auth-form" novalidate>
             {% csrf_token %}
             {% if next %}
             <input type="hidden" name="next" value="{{ next }}">
             {% endif %}
 
+            {% if form.non_field_errors %}
+            <div class="alert alert-error">{{ form.non_field_errors }}</div>
+            {% endif %}
+
             <div class="form-group">
                 <label for="{{ form.username.id_for_label }}">Email</label>
                 {{ form.username }}
+                {% if form.username.errors %}
+                <div class="error">{{ form.username.errors }}</div>
+                {% endif %}
             </div>
 
             <div class="form-group">
                 <label for="{{ form.password.id_for_label }}">Пароль</label>
                 {{ form.password }}
+                {% if form.password.errors %}
+                <div class="error">{{ form.password.errors }}</div>
+                {% endif %}
             </div>
 
             <button type="submit" class="btn btn-primary btn-block">
@@ -30,7 +40,11 @@
         </form>
 
         <p class="auth-footer">
-            Нет аккаунта? <a href="{% url 'users:register' %}">Зарегистрироваться</a>
+            Нет аккаунта? <a href="{% url 'users:register' %}?role=director">Директор</a>
+            · <a href="{% url 'users:register' %}?role=freelancer">Фрилансер</a>
+        </p>
+        <p class="auth-footer">
+            <a href="{% url 'users:resend_activation' %}">Не подтвердил email?</a>
         </p>
     </div>
 </div>

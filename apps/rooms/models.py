@@ -1,8 +1,11 @@
+import secrets
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 
@@ -227,3 +230,104 @@ class RoomDocument(models.Model):
         if self.file:
             self.file.delete(save=False)
         super().delete(*args, **kwargs)
+
+
+class RoomActivity(models.Model):
+    """Лента событий комнаты."""
+
+    class EventType(models.TextChoices):
+        PROJECT_LAUNCHED = 'project_launched', _('Проект запущен')
+        MEMBER_ADDED = 'member_added', _('Участник добавлен')
+        MEMBER_REMOVED = 'member_removed', _('Участник удалён')
+        TEAMLEAD_ASSIGNED = 'teamlead_assigned', _('Тимлид назначен')
+        DOCUMENT_UPLOADED = 'document_uploaded', _('Документ загружен')
+        TASK_CREATED = 'task_created', _('Задача создана')
+        LEAD_CREATED = 'lead_created', _('Лид создан')
+        READY = 'ready', _('Готовность')
+        OTHER = 'other', _('Другое')
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    room = models.ForeignKey(
+        Room,
+        on_delete=models.CASCADE,
+        related_name='activities',
+        verbose_name=_('Комната'),
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='room_activities',
+        verbose_name=_('Автор'),
+    )
+    event_type = models.CharField(
+        max_length=40,
+        choices=EventType.choices,
+        default=EventType.OTHER,
+        verbose_name=_('Тип'),
+    )
+    message = models.CharField(max_length=500, verbose_name=_('Сообщение'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Создано'))
+
+    class Meta:
+        verbose_name = _('Событие комнаты')
+        verbose_name_plural = _('События комнат')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.message
+
+
+class TeamleadInvite(models.Model):
+    """Приглашение тимлида по ссылке (без ручной админки)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name='teamlead_invites',
+        verbose_name=_('Проект'),
+    )
+    token = models.CharField(max_length=64, unique=True, editable=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='created_teamlead_invites',
+        verbose_name=_('Создал'),
+    )
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='accepted_teamlead_invites',
+        verbose_name=_('Принял'),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_('Активно'))
+    expires_at = models.DateTimeField(verbose_name=_('Истекает'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Создано'))
+    accepted_at = models.DateTimeField(null=True, blank=True, verbose_name=_('Принято'))
+
+    class Meta:
+        verbose_name = _('Приглашение тимлида')
+        verbose_name_plural = _('Приглашения тимлидов')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Invite → {self.project.name}'
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(days=7)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_valid(self) -> bool:
+        return (
+            self.is_active
+            and self.accepted_by_id is None
+            and self.expires_at > timezone.now()
+        )

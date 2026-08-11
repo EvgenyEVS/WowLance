@@ -6,7 +6,7 @@
 <div class="page-header">
     <h1>Проекты</h1>
     {% if user.role == 'director' %}
-    <a href="{% url 'rooms:project_create' %}" class="btn btn-primary">Создать проект</a>
+    <a href="{% url 'rooms:setup_wizard' %}" class="btn btn-primary">Мастер запуска</a>
     {% endif %}
 </div>
 
@@ -38,10 +38,10 @@
     </tbody>
 </table>
 {% else %}
-<p class="empty">Проектов пока нет.
-    {% if user.role == 'director' %}
-    <a href="{% url 'rooms:project_create' %}">Создайте первый</a>
-    {% endif %}
-</p>
+<div class="empty-state">
+    <h3>Проектов пока нет</h3>
+    <p>Запустите мастер архитектуры — комната появится за три шага.</p>
+    <a href="{{ empty_cta_url }}" class="btn btn-primary">{{ empty_cta_label }}</a>
+</div>
 {% endif %}
 {% endblock %}

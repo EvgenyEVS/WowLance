@@ -1,10 +1,12 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>О проекте</title>
-</head>
-<body>
-<h1>WowLance</h1>
-<p>Это наш первый работающий модуль!</p>
-</body>
-</html>
+{% extends 'base.html' %}
+
+{% block title %}О платформе{% endblock %}
+
+{% block content %}
+<div class="legal-page">
+    <h1>О WowLance</h1>
+    <p>WowLance — платформа проектных продаж: директор запускает архитектуру, собирает комнату, тимлид управляет фрилансерами, менеджер закрывает горячие лиды.</p>
+    <p>Ключевой путь: архитектура → проект → комната → задачи и отчёты → квалификация лидов → handoff менеджеру.</p>
+    <a href="{% url 'core:home' %}" class="btn btn-primary">На главную</a>
+</div>
+{% endblock %}

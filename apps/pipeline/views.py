@@ -4,9 +4,10 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from apps.rooms.models import Project
+from apps.rooms.models import Project, RoomActivity
 from apps.rooms.services import (
     ensure_room_for_project,
+    log_room_activity,
     user_can_access_project,
     user_can_manage_team,
 )
@@ -30,6 +31,24 @@ from .services import (
     start_task,
     submit_report,
 )
+
+
+def _kanban_columns(tasks):
+    review_statuses = {Task.Status.READY_FOR_REVIEW}
+    done_statuses = {Task.Status.APPROVED, Task.Status.CLOSED}
+    columns = [
+        {'key': 'todo', 'title': 'К работе', 'tasks': []},
+        {'key': 'review', 'title': 'На проверке', 'tasks': []},
+        {'key': 'done', 'title': 'Готово', 'tasks': []},
+    ]
+    for task in tasks:
+        if task.status in review_statuses:
+            columns[1]['tasks'].append(task)
+        elif task.status in done_statuses:
+            columns[2]['tasks'].append(task)
+        else:
+            columns[0]['tasks'].append(task)
+    return columns
 
 
 def _get_project(user, project_id):
@@ -57,9 +76,11 @@ def room_tasks(request, project_id):
         tasks = tasks.filter(assignee=request.user)
 
     can_manage = user_can_manage_team(request.user, project)
+    task_list = list(tasks)
     return render(request, 'pipeline/room_tasks.html', {
         'project': project,
-        'tasks': tasks,
+        'tasks': task_list,
+        'kanban_columns': _kanban_columns(task_list),
         'can_manage_team': can_manage,
         'create_form': TaskCreateForm(project=project) if can_manage else None,
         'active_tab': 'tasks',
@@ -74,7 +95,7 @@ def task_create(request, project_id):
         raise PermissionDenied
     form = TaskCreateForm(request.POST, project=project)
     if form.is_valid():
-        create_task(
+        task = create_task(
             project=project,
             assignee=form.cleaned_data['assignee'],
             created_by=request.user,
@@ -83,6 +104,13 @@ def task_create(request, project_id):
             deadline=form.cleaned_data.get('deadline'),
             checklist=form.cleaned_checklist(),
             report_required=form.cleaned_data.get('report_required', True),
+        )
+        room = ensure_room_for_project(project)
+        log_room_activity(
+            room,
+            f'Задача «{task.title}» создана.',
+            RoomActivity.EventType.TASK_CREATED,
+            actor=request.user,
         )
         messages.success(request, 'Задача создана.')
     else:

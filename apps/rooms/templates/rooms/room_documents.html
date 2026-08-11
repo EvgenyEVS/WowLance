@@ -5,33 +5,43 @@
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
-<div class="info-block">
-    <h3>Вижен и материалы</h3>
+<div class="dropbox-lite">
+    <div class="section-head">
+        <h3>Файлы комнаты</h3>
+        <p class="subtitle">Общее хранилище вводных, скриптов и материалов</p>
+    </div>
+
     {% if documents %}
-    <ul class="portfolio-list">
+    <div class="dropbox-grid">
         {% for doc in documents %}
-        <li>
-            <a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a>
-            <small> · {{ doc.uploaded_by.full_name|default:"—" }} · {{ doc.created_at|date:"d.m.Y H:i" }}</small>
+        <article class="dropbox-card">
+            <div class="dropbox-icon">📄</div>
+            <h4><a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a></h4>
+            <p class="muted">{{ doc.uploaded_by.full_name|default:"—" }} · {{ doc.created_at|date:"d.m.Y H:i" }}</p>
             {% if can_manage_team or doc.uploaded_by_id == user.id %}
             <form method="post"
                   action="{% url 'rooms:room_document_delete' project.id doc.id %}"
-                  class="inline-delete-form"
                   onsubmit="return confirm('Удалить документ?');">
                 {% csrf_token %}
-                <button type="submit" class="btn-delete">✕</button>
+                <button type="submit" class="btn-delete">Удалить</button>
             </form>
             {% endif %}
-        </li>
+        </article>
         {% endfor %}
-    </ul>
+    </div>
     {% else %}
-    <p class="empty">Документов пока нет — загрузите презентацию, схему или бриф.</p>
+    <div class="empty-state">
+        <h3>Папка пуста</h3>
+        <p>Загрузите презентацию, скрипт звонка или бриф — как в Dropbox комнаты.</p>
+        {% if can_upload %}
+        <a href="#upload" class="btn btn-primary" onclick="document.getElementById('upload').scrollIntoView({behavior:'smooth'}); return false;">Загрузить файл</a>
+        {% endif %}
+    </div>
     {% endif %}
 </div>
 
 {% if can_upload %}
-<div class="upload-form">
+<div class="upload-form" id="upload">
     <h4>Загрузить документ</h4>
     <form method="post" enctype="multipart/form-data" action="{% url 'rooms:room_document_upload' project.id %}">
         {% csrf_token %}

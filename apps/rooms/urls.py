@@ -7,6 +7,8 @@ app_name = 'rooms'
 urlpatterns = [
     path('projects/', views.project_list, name='project_list'),
     path('projects/create/', views.project_create, name='project_create'),
+    path('setup/', views.setup_wizard, name='setup_wizard'),
+    path('apply-architecture/', views.apply_architecture, name='apply_architecture'),
     path('projects/<uuid:project_id>/', views.project_detail, name='project_detail'),
     path('projects/<uuid:project_id>/launch/', views.project_launch, name='project_launch'),
     path('projects/<uuid:project_id>/room/', views.room_overview, name='room_overview'),
@@ -28,6 +30,11 @@ urlpatterns = [
         name='room_assign_teamlead',
     ),
     path(
+        'projects/<uuid:project_id>/room/team/invite-teamlead/',
+        views.room_create_teamlead_invite,
+        name='room_create_teamlead_invite',
+    ),
+    path(
         'projects/<uuid:project_id>/room/team/add-freelancer/',
         views.room_add_freelancer,
         name='room_add_freelancer',
@@ -41,5 +48,15 @@ urlpatterns = [
         'projects/<uuid:project_id>/room/ready/',
         views.room_confirm_ready,
         name='room_confirm_ready',
+    ),
+    path(
+        'catalog/<uuid:user_id>/add-to-room/',
+        views.catalog_add_to_room,
+        name='catalog_add_to_room',
+    ),
+    path(
+        'invite/teamlead/<str:token>/',
+        views.teamlead_invite_accept,
+        name='teamlead_invite_accept',
     ),
 ]

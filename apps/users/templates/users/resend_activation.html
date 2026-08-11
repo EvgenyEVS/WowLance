@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+
+{% block title %}Повторная активация{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-box">
+        <h1>Подтверждение email</h1>
+        <p class="subtitle">
+            Если вы регистрировались, но не открыли ссылку — запросите новую.
+            Неподтверждённый аккаунт блокирует повторную регистрацию с тем же email.
+        </p>
+
+        <form method="post" class="auth-form" novalidate>
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="{{ form.email.id_for_label }}">Email</label>
+                {{ form.email }}
+                {% if form.email.errors %}
+                <div class="error">{{ form.email.errors }}</div>
+                {% endif %}
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Выслать ссылку</button>
+        </form>
+
+        <p class="auth-footer">
+            <a href="{% url 'users:login' %}">Войти</a>
+            · <a href="{% url 'users:register' %}">Регистрация</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

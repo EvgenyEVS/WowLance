@@ -1,25 +1,41 @@
 from django.contrib import messages
+from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from apps.pipeline.models import Task
 from apps.users.models import User
 from .forms import (
     AddFreelancerForm,
+    AddToRoomForm,
     AssignTeamleadForm,
     ProjectCreateForm,
     RoomDocumentForm,
+    TeamleadInviteRegisterForm,
 )
-from .models import Project, RoomDocument, RoomMember
+from .models import Project, RoomActivity, RoomDocument, RoomMember, TeamleadInvite
+from .onboarding import staffing_projects_for_user
+from .presets import (
+    ARCHITECTURE_PRESETS,
+    apply_preset_to_form_initial,
+    get_architecture_preset,
+)
 from .services import (
+    accept_teamlead_invite,
     add_freelancer_to_room,
     assign_teamlead,
+    create_teamlead_invite,
     ensure_room_for_project,
     launch_project,
+    log_room_activity,
     user_can_access_project,
     user_can_manage_team,
 )
+
+SESSION_ARCH_KEY = 'architecture_preset'
 
 
 def _require_director(user):
@@ -35,6 +51,24 @@ def _get_accessible_project(user, project_id):
     if not user_can_access_project(user, project):
         raise PermissionDenied('Нет доступа к этому проекту.')
     return project
+
+
+def _kanban_columns(tasks):
+    review_statuses = {Task.Status.READY_FOR_REVIEW}
+    done_statuses = {Task.Status.APPROVED, Task.Status.CLOSED}
+    columns = [
+        {'key': 'todo', 'title': 'К работе', 'tasks': []},
+        {'key': 'review', 'title': 'На проверке', 'tasks': []},
+        {'key': 'done', 'title': 'Готово', 'tasks': []},
+    ]
+    for task in tasks:
+        if task.status in review_statuses:
+            columns[1]['tasks'].append(task)
+        elif task.status in done_statuses:
+            columns[2]['tasks'].append(task)
+        else:
+            columns[0]['tasks'].append(task)
+    return columns
 
 
 @login_required
@@ -53,13 +87,122 @@ def project_list(request):
         projects = Project.objects.none()
 
     projects = projects.select_related('owner', 'teamlead').order_by('-created_at')
-    return render(request, 'rooms/project_list.html', {'projects': projects})
+    return render(request, 'rooms/project_list.html', {
+        'projects': projects,
+        'empty_cta_url': (
+            reverse('rooms:setup_wizard')
+            if user.role == User.Roles.DIRECTOR
+            else reverse('core:home')
+        ),
+        'empty_cta_label': (
+            'Создать первый проект'
+            if user.role == User.Roles.DIRECTOR
+            else 'На дашборд'
+        ),
+    })
+
+
+def apply_architecture(request):
+    """
+    Apply Architecture: сохраняет пресет и ведёт в 3-шаговый wizard
+    или на регистрацию директора.
+    """
+    arch = request.GET.get('arch', '').strip()
+    scale = request.GET.get('scale', '').strip()
+    preset = get_architecture_preset(arch)
+    if not preset:
+        messages.error(request, 'Неизвестная архитектура.')
+        return redirect('core:home')
+
+    request.session[SESSION_ARCH_KEY] = arch
+    if scale:
+        request.session['architecture_scale'] = scale
+
+    if not request.user.is_authenticated:
+        return redirect(f"{reverse('users:register')}?role=director&arch={arch}")
+
+    if request.user.role != User.Roles.DIRECTOR:
+        messages.error(request, 'Архитектуру применяет директор.')
+        return redirect('core:home')
+
+    return redirect(f"{reverse('rooms:setup_wizard')}?step=2&arch={arch}")
+
+
+@login_required
+def setup_wizard(request):
+    """Реальный wizard из 3 шагов: архитектура → вводные → запуск."""
+    _require_director(request.user)
+    step = request.GET.get('step') or request.POST.get('step') or '1'
+    if step not in {'1', '2', '3'}:
+        step = '1'
+
+    arch_key = (
+        request.GET.get('arch')
+        or request.POST.get('arch')
+        or request.session.get(SESSION_ARCH_KEY)
+    )
+    preset = get_architecture_preset(arch_key)
+
+    if request.method == 'POST' and step == '1':
+        arch_key = request.POST.get('arch', '').strip()
+        preset = get_architecture_preset(arch_key)
+        if not preset:
+            messages.error(request, 'Выберите архитектуру.')
+            return redirect(f"{reverse('rooms:setup_wizard')}?step=1")
+        request.session[SESSION_ARCH_KEY] = arch_key
+        return redirect(f"{reverse('rooms:setup_wizard')}?step=2&arch={arch_key}")
+
+    if request.method == 'POST' and step == '2':
+        form = ProjectCreateForm(request.POST)
+        if form.is_valid():
+            project = form.save(commit=False)
+            project.owner = request.user
+            project.status = Project.Status.DRAFT
+            if preset:
+                data = dict(project.input_data or {})
+                data['architecture'] = preset['key']
+                project.input_data = data
+            project.save()
+            request.session.pop(SESSION_ARCH_KEY, None)
+            request.session['wizard_project_id'] = str(project.id)
+            messages.success(request, 'Черновик проекта создан. Запустите комнату.')
+            return redirect(f"{reverse('rooms:setup_wizard')}?step=3&project={project.id}")
+    else:
+        initial = apply_preset_to_form_initial(preset) if preset else None
+        form = ProjectCreateForm(initial=initial) if step == '2' else ProjectCreateForm()
+
+    project = None
+    if step == '3':
+        project_id = request.GET.get('project') or request.session.get('wizard_project_id')
+        if project_id:
+            project = get_object_or_404(Project, id=project_id, owner=request.user)
+
+    if request.method == 'POST' and step == '3' and project:
+        action = request.POST.get('action', 'launch')
+        if action == 'launch':
+            launch_project(project, actor=request.user)
+            request.session.pop('wizard_project_id', None)
+            messages.success(request, 'Комната запущена. Соберите команду.')
+            return redirect('rooms:room_overview', project_id=project.id)
+        request.session.pop('wizard_project_id', None)
+        return redirect('rooms:project_detail', project_id=project.id)
+
+    return render(request, 'rooms/setup_wizard.html', {
+        'step': int(step),
+        'presets': ARCHITECTURE_PRESETS.values(),
+        'preset': preset,
+        'arch_key': arch_key or '',
+        'form': form if step == '2' else None,
+        'project': project,
+    })
 
 
 @login_required
 def project_create(request):
-    """Создание проекта директором (черновик)."""
+    """Создание проекта директором (черновик) — с учётом пресета из сессии."""
     _require_director(request.user)
+    arch_key = request.GET.get('arch') or request.session.get(SESSION_ARCH_KEY)
+    preset = get_architecture_preset(arch_key)
 
     if request.method == 'POST':
         form = ProjectCreateForm(request.POST)
@@ -67,13 +210,22 @@ def project_create(request):
             project = form.save(commit=False)
             project.owner = request.user
             project.status = Project.Status.DRAFT
+            if preset:
+                data = dict(project.input_data or {})
+                data['architecture'] = preset['key']
+                project.input_data = data
             project.save()
+            request.session.pop(SESSION_ARCH_KEY, None)
             messages.success(request, 'Проект создан. Заполните вводные и запустите его.')
             return redirect('rooms:project_detail', project_id=project.id)
     else:
-        form = ProjectCreateForm()
+        initial = apply_preset_to_form_initial(preset) if preset else None
+        form = ProjectCreateForm(initial=initial)
 
-    return render(request, 'rooms/project_create.html', {'form': form})
+    return render(request, 'rooms/project_create.html', {
+        'form': form,
+        'preset': preset,
+    })
 
 
 @login_required
@@ -106,7 +258,7 @@ def project_launch(request, project_id):
         messages.error(request, 'Заполните обязательные вводные перед запуском.')
         return redirect('rooms:project_detail', project_id=project.id)
 
-    launch_project(project)
+    launch_project(project, actor=request.user)
     messages.success(
         request,
         'Проект запущен. Комната создана, можно собирать команду. '
@@ -117,7 +269,7 @@ def project_launch(request, project_id):
 
 @login_required
 def room_overview(request, project_id):
-    """Overview комнаты проекта."""
+    """Hub комнаты: вводные + activity feed."""
     project = _get_accessible_project(request.user, project_id)
     room = ensure_room_for_project(project) if project.status != Project.Status.DRAFT else getattr(project, 'room', None)
     if room is None and project.status == Project.Status.DRAFT:
@@ -126,12 +278,16 @@ def room_overview(request, project_id):
     room = ensure_room_for_project(project)
     members = room.members.select_related('user').all()
     my_membership = members.filter(user=request.user).first()
+    activities = room.activities.select_related('actor').all()[:20]
+    tasks = Task.objects.filter(project=project).select_related('assignee')[:50]
 
     return render(request, 'rooms/room_overview.html', {
         'project': project,
         'room': room,
         'members': members,
         'my_membership': my_membership,
+        'activities': activities,
+        'kanban_preview': _kanban_columns(tasks)[:3],
         'can_manage_team': user_can_manage_team(request.user, project),
         'can_launch': (
             request.user.id == project.owner_id
@@ -143,7 +299,7 @@ def room_overview(request, project_id):
 
 @login_required
 def room_documents(request, project_id):
-    """Документы / вижен комнаты."""
+    """Документы / Dropbox-lite комнаты."""
     project = _get_accessible_project(request.user, project_id)
     room = ensure_room_for_project(project)
     documents = room.documents.select_related('uploaded_by').all()
@@ -172,6 +328,12 @@ def room_document_upload(request, project_id):
         if not doc.title and doc.file:
             doc.title = doc.file.name
         doc.save()
+        log_room_activity(
+            room,
+            f'Документ «{doc.title}» загружен.',
+            RoomActivity.EventType.DOCUMENT_UPLOADED,
+            actor=request.user,
+        )
         messages.success(request, 'Документ загружен.')
     else:
         for errors in form.errors.values():
@@ -198,12 +360,22 @@ def room_document_delete(request, project_id, document_id):
 
 @login_required
 def room_team(request, project_id):
-    """Состав команды комнаты."""
+    """Состав команды комнаты + invite тимлида."""
     project = _get_accessible_project(request.user, project_id)
     room = ensure_room_for_project(project)
     members = room.members.select_related('user').all()
     can_manage = user_can_manage_team(request.user, project)
     my_membership = members.filter(user=request.user).first()
+    invite = (
+        TeamleadInvite.objects.filter(project=project, is_active=True)
+        .order_by('-created_at')
+        .first()
+    )
+    invite_url = None
+    if invite and invite.is_valid:
+        invite_url = request.build_absolute_uri(
+            reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token})
+        )
 
     return render(request, 'rooms/room_team.html', {
         'project': project,
@@ -213,7 +385,55 @@ def room_team(request, project_id):
         'my_membership': my_membership,
         'teamlead_form': AssignTeamleadForm() if can_manage else None,
         'freelancer_form': AddFreelancerForm(room=room) if can_manage else None,
+        'invite_url': invite_url,
         'active_tab': 'team',
+    })
+
+
+@login_required
+@require_POST
+def room_create_teamlead_invite(request, project_id):
+    project = get_object_or_404(Project, id=project_id)
+    if request.user.id != project.owner_id and request.user.role != User.Roles.ADMIN:
+        raise PermissionDenied('Создавать приглашение может только директор.')
+    ensure_room_for_project(project)
+    invite = create_teamlead_invite(project, request.user)
+    url = request.build_absolute_uri(
+        reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token})
+    )
+    messages.success(request, f'Ссылка-приглашение для тимлида создана: {url}')
+    return redirect('rooms:room_team', project_id=project.id)
+
+
+def teamlead_invite_accept(request, token):
+    """Публичная страница принятия invite тимлида."""
+    invite = get_object_or_404(TeamleadInvite.objects.select_related('project'), token=token)
+    if not invite.is_valid:
+        messages.error(request, 'Приглашение недействительно или уже использовано.')
+        return redirect('users:login')
+
+    if request.user.is_authenticated:
+        try:
+            accept_teamlead_invite(invite, request.user)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect('core:home')
+        messages.success(request, f'Вы тимлид проекта «{invite.project.name}».')
+        return redirect('rooms:room_overview', project_id=invite.project_id)
+
+    form = TeamleadInviteRegisterForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        user = form.save()
+        accept_teamlead_invite(invite, user)
+        login(request, user)
+        messages.success(request, f'Аккаунт тимлида создан. Проект: {invite.project.name}.')
+        return redirect('rooms:room_overview', project_id=invite.project_id)
+
+    return render(request, 'rooms/teamlead_invite.html', {
+        'invite': invite,
+        'project': invite.project,
+        'form': form,
+        'login_next': reverse('rooms:teamlead_invite_accept', kwargs={'token': token}),
     })
 
 
@@ -223,13 +443,12 @@ def room_assign_teamlead(request, project_id):
     project = get_object_or_404(Project, id=project_id)
     if not user_can_manage_team(request.user, project):
         raise PermissionDenied
-    # Назначать тимлида может директор (или admin)
     if request.user.id != project.owner_id and request.user.role != User.Roles.ADMIN:
         raise PermissionDenied('Назначать тимлида может только директор.')
 
     form = AssignTeamleadForm(request.POST)
     if form.is_valid():
-        assign_teamlead(project, form.cleaned_data['teamlead'])
+        assign_teamlead(project, form.cleaned_data['teamlead'], actor=request.user)
         messages.success(request, 'Тимлид назначен.')
     else:
         messages.error(request, 'Не удалось назначить тимлида. Есть активные тимлиды?')
@@ -245,10 +464,33 @@ def room_add_freelancer(request, project_id):
     room = ensure_room_for_project(project)
     form = AddFreelancerForm(request.POST, room=room)
     if form.is_valid():
-        add_freelancer_to_room(room, form.cleaned_data['freelancer'])
+        add_freelancer_to_room(room, form.cleaned_data['freelancer'], actor=request.user)
         messages.success(request, 'Фрилансер добавлен в комнату.')
     else:
         messages.error(request, 'Не удалось добавить фрилансера.')
+    return redirect('rooms:room_team', project_id=project.id)
+
+
+@login_required
+@require_POST
+def catalog_add_to_room(request, user_id):
+    """Добавить фрилансера из каталога/карточки в выбранный проект."""
+    freelancer = get_object_or_404(User, id=user_id, role=User.Roles.FREELANCER)
+    projects = staffing_projects_for_user(request.user)
+    form = AddToRoomForm(request.POST, projects=projects)
+    if not form.is_valid():
+        messages.error(request, 'Выберите проект со статусом подбора или активный.')
+        return redirect('profiles:detail', user_id=user_id)
+
+    project = form.cleaned_data['project']
+    if not user_can_manage_team(request.user, project):
+        raise PermissionDenied
+    room = ensure_room_for_project(project)
+    add_freelancer_to_room(room, freelancer, actor=request.user)
+    messages.success(
+        request,
+        f'{freelancer.full_name} добавлен в комнату «{project.name}».',
+    )
     return redirect('rooms:room_team', project_id=project.id)
 
 
@@ -264,11 +506,18 @@ def room_remove_member(request, project_id, member_id):
         messages.error(request, 'Нельзя удалить директора из комнаты.')
         return redirect('rooms:room_team', project_id=project.id)
 
+    name = member.user.full_name
     if member.role_in_room == RoomMember.RoleInRoom.TEAMLEAD:
         project.teamlead = None
         project.save(update_fields=['teamlead', 'updated_at'])
 
     member.delete()
+    log_room_activity(
+        room,
+        f'{name} удалён из команды.',
+        RoomActivity.EventType.MEMBER_REMOVED,
+        actor=request.user,
+    )
     messages.success(request, 'Участник удалён из комнаты.')
     return redirect('rooms:room_team', project_id=project.id)
 
@@ -286,5 +535,11 @@ def room_confirm_ready(request, project_id):
 
     member.ready_status = RoomMember.ReadyStatus.READY
     member.save(update_fields=['ready_status'])
+    log_room_activity(
+        room,
+        f'{request.user.full_name} готов к работе.',
+        RoomActivity.EventType.READY,
+        actor=request.user,
+    )
     messages.success(request, 'Статус: готов к работе.')
     return redirect('rooms:room_overview', project_id=project.id)

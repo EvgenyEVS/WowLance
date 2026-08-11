@@ -5,10 +5,24 @@
 {% block content %}
 <div class="dashboard">
     <h1>Привет, {{ user.full_name }}!</h1>
+    <div class="metrics-strip">
+        <div class="metric-card">
+            <span class="metric-label">Открытые handoff</span>
+            <strong class="metric-value">{{ metrics.handoff_open }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Новые</span>
+            <strong class="metric-value">{{ metrics.handoff_new }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Закрыто</span>
+            <strong class="metric-value">{{ metrics.handoff_done }}</strong>
+        </div>
+    </div>
     <div class="features">
         <div class="feature-card">
             <h3>Горячие лиды</h3>
-            <p>Задачи «связаться в течение 24 часов» после квалификации тимлидом</p>
+            <p>Связаться в течение 24 часов после квалификации тимлидом</p>
             <a href="{% url 'pipeline:manager_inbox' %}" class="btn btn-primary">Входящие</a>
         </div>
     </div>

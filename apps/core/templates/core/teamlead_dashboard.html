@@ -5,10 +5,24 @@
 {% block content %}
 <div class="dashboard">
     <h1>Привет, {{ user.full_name }}!</h1>
+    <div class="metrics-strip">
+        <div class="metric-card">
+            <span class="metric-label">Проекты</span>
+            <strong class="metric-value">{{ metrics.projects_led }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">На проверке</span>
+            <strong class="metric-value">{{ metrics.tasks_in_review }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Warm / Hot</span>
+            <strong class="metric-value">{{ metrics.warm_hot_leads }}</strong>
+        </div>
+    </div>
     <div class="features">
         <div class="feature-card">
             <h3>Проекты</h3>
-            <p>Комнаты, где вы назначены тимлидом — подбор команды и контроль</p>
+            <p>Комнаты, где вы тимлид — подбор команды и контроль</p>
             <a href="{% url 'rooms:project_list' %}" class="btn btn-primary">Мои проекты</a>
         </div>
         <div class="feature-card">

@@ -2,87 +2,64 @@ from django.shortcuts import render, redirect
 from django.contrib.auth import login, authenticate, logout
 from django.contrib import messages
 from django.contrib.auth import get_user_model
-from django.template.loader import render_to_string
 from django.utils.http import (
-    urlsafe_base64_encode,
     urlsafe_base64_decode,
     url_has_allowed_host_and_scheme,
 )
-from django.utils.encoding import force_bytes, force_str
-from django.core.mail import EmailMultiAlternatives
+from django.utils.encoding import force_str
 from django.conf import settings
 
 from apps.profiles.services import get_or_create_freelancer_profile
-from .forms import RegistrationForm, LoginForm, ALLOWED_REGISTRATION_ROLES
+from .activation import send_activation_email
+from .forms import (
+    RegistrationForm,
+    LoginForm,
+    ResendActivationForm,
+    ALLOWED_REGISTRATION_ROLES,
+)
 from .tokens import account_activation_token
 
 User = get_user_model()
+
+
+def _registration_success_response(request, user, activation_url):
+    if settings.DEBUG:
+        return render(request, 'users/registration_success.html', {
+            'email': user.email,
+            'activation_url': activation_url,
+            'debug_mode': True,
+        })
+    messages.success(
+        request,
+        'Регистрация успешна! На ваш email отправлено письмо с подтверждением.',
+    )
+    return redirect('users:login')
 
 
 def register(request):
     if request.method == 'POST':
         form = RegistrationForm(request.POST)
         if form.is_valid():
+            reused = form.pending_user is not None
             user = form.save()
-
-            uid = urlsafe_base64_encode(force_bytes(user.pk))
-            token = account_activation_token.make_token(user)
-            activation_path = f'/activate/{uid}/{token}/'
-            activation_url = request.build_absolute_uri(activation_path)
-            # Для шаблона письма — origin без пути
-            domain = activation_url.rsplit(activation_path, 1)[0]
-
-            subject = 'Подтверждение регистрации на WowLance'
-
-            html_message = render_to_string('users/activation_email.html', {
-                'user': user,
-                'domain': domain,
-                'uid': uid,
-                'token': token,
-            })
-
-            text_message = f"""
-Добро пожаловать на WowLance!
-
-Привет, {user.email}!
-
-Для активации аккаунта перейдите по ссылке:
-{activation_url}
-
-Ссылка действительна в течение 24 часов.
-
-С уважением,
-Команда WowLance
-"""
-
-            msg = EmailMultiAlternatives(
-                subject,
-                text_message,
-                settings.DEFAULT_FROM_EMAIL,
-                [user.email],
-            )
-            msg.attach_alternative(html_message, "text/html")
-            msg.send()
-
-            # В DEBUG показываем ссылку на странице — SMTP не нужен
-            if settings.DEBUG:
-                return render(request, 'users/registration_success.html', {
-                    'email': user.email,
-                    'activation_url': activation_url,
-                    'debug_mode': True,
-                })
-
-            messages.success(
-                request,
-                'Регистрация успешна! На ваш email отправлено письмо с подтверждением.'
-            )
-            return redirect('users:login')
+            activation_url = send_activation_email(request, user)
+            if reused:
+                messages.info(
+                    request,
+                    'Этот email уже ждал подтверждения. Мы обновили данные '
+                    'и отправили новую ссылку активации.',
+                )
+            return _registration_success_response(request, user, activation_url)
     else:
         initial = {}
         role = request.GET.get('role', '')
         if role in ALLOWED_REGISTRATION_ROLES:
             initial['role'] = role
         form = RegistrationForm(initial=initial)
+
+    arch = request.GET.get('arch', '').strip()
+    if arch:
+        request.session['architecture_preset'] = arch
 
     if form.is_bound:
         role = form.data.get('role', '')
@@ -92,7 +69,33 @@ def register(request):
     return render(request, 'users/register.html', {
         'form': form,
         'selected_role': role if role in ALLOWED_REGISTRATION_ROLES else '',
+        'arch': arch or request.session.get('architecture_preset', ''),
     })
+
+
+def resend_activation(request):
+    """Повторная отправка ссылки для pending-аккаунта."""
+    form = ResendActivationForm(
+        request.POST or None,
+        initial={'email': request.GET.get('email', '')},
+    )
+    if request.method == 'POST' and form.is_valid():
+        email = form.cleaned_data['email']
+        user = User.objects.filter(email__iexact=email).first()
+        if user is None:
+            messages.error(request, 'Аккаунт с таким email не найден.')
+        elif user.status == User.Status.ACTIVE:
+            messages.info(request, 'Этот аккаунт уже активирован. Можно войти.')
+            return redirect('users:login')
+        elif user.status == User.Status.BLOCKED:
+            messages.error(request, 'Аккаунт заблокирован.')
+        elif user.status == User.Status.PENDING:
+            activation_url = send_activation_email(request, user)
+            return _registration_success_response(request, user, activation_url)
+        else:
+            messages.error(request, 'Нельзя отправить ссылку для этого аккаунта.')
+
+    return render(request, 'users/resend_activation.html', {'form': form})
 
 
 def activate(request, uidb64, token):
@@ -113,17 +116,44 @@ def activate(request, uidb64, token):
 
         login(request, user)
         messages.success(request, 'Ваш аккаунт активирован! Добро пожаловать на WowLance.')
+        if (
+            user.role == User.Roles.DIRECTOR
+            and request.session.get('architecture_preset')
+        ):
+            from django.urls import reverse
+            return redirect(
+                f"{reverse('rooms:setup_wizard')}?step=2"
+                f"&arch={request.session['architecture_preset']}"
+            )
         return redirect('core:home')
 
-    messages.error(request, 'Ссылка активации недействительна.')
-    return redirect('users:login')
+    messages.error(
+        request,
+        'Ссылка активации недействительна или устарела. '
+        'Запросите новую на странице повторной отправки.',
+    )
+    return redirect('users:resend_activation')
 
 
 def login_view(request):
     """Вход пользователя."""
+    form = LoginForm(request, data=request.POST or None)
     if request.method == 'POST':
-        form = LoginForm(request, data=request.POST)
-        if form.is_valid():
+        email = (request.POST.get('username') or '').strip()
+        password = request.POST.get('password') or ''
+        existing = User.objects.filter(email__iexact=email).first()
+
+        if existing and existing.status == User.Status.PENDING:
+            # ModelBackend не пускает is_active=False — объясняем причину
+            if existing.check_password(password):
+                messages.warning(
+                    request,
+                    'Аккаунт ещё не подтверждён. Откройте ссылку из письма '
+                    'или запросите новую.',
+                )
+                return redirect(f"/resend-activation/?email={existing.email}")
+            messages.error(request, 'Неверный email или пароль.')
+        elif form.is_valid():
             email = form.cleaned_data.get('username')
             password = form.cleaned_data.get('password')
             user = authenticate(request, username=email, password=password)
@@ -137,12 +167,17 @@ def login_view(request):
                 ):
                     return redirect(next_url)
                 return redirect('core:home')
-        messages.error(request, 'Неверный email или пароль.')
-    else:
-        form = LoginForm()
+            messages.error(request, 'Неверный email или пароль.')
+        else:
+            # pending/blocked из confirm_login_allowed
+            if form.non_field_errors():
+                for err in form.non_field_errors():
+                    messages.error(request, err)
+            else:
+                messages.error(request, 'Неверный email или пароль.')
 
     return render(request, 'users/login.html', {
-        'form': form,
+        'form': form if request.method == 'POST' else LoginForm(),
         'next': request.GET.get('next', ''),
     })
 

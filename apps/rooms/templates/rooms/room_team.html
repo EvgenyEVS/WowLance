@@ -7,6 +7,7 @@
 
 <div class="info-block">
     <h3>Участники</h3>
+    {% if members %}
     <table class="data-table">
         <thead>
             <tr>
@@ -42,30 +43,44 @@
                     {% endif %}
                 </td>
             </tr>
-            {% empty %}
-            <tr><td colspan="5" class="empty">Нет участников</td></tr>
             {% endfor %}
         </tbody>
     </table>
+    {% else %}
+    <div class="empty-state">
+        <h3>Команда ещё не собрана</h3>
+        <p>Пригласите тимлида по ссылке или добавьте фрилансера из каталога.</p>
+        <a href="{% url 'profiles:catalog' %}" class="btn btn-primary">Открыть каталог</a>
+    </div>
+    {% endif %}
 </div>
 
 {% if can_manage_team %}
 <div class="room-grid">
     {% if user.id == project.owner_id or user.role == 'admin' %}
     <div class="upload-form">
-        <h4>Назначить тимлида</h4>
-        <p class="help-text">Сначала создайте пользователя с ролью «Тимлид» в админке.</p>
+        <h4>Пригласить тимлида</h4>
+        <p class="help-text">Ссылка без админки: тимлид регистрируется или входит и сразу попадает в проект.</p>
+        <form method="post" action="{% url 'rooms:room_create_teamlead_invite' project.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary">Создать ссылку</button>
+        </form>
+        {% if invite_url %}
+        <p class="invite-url"><code>{{ invite_url }}</code></p>
+        {% endif %}
+        <hr class="soft-hr">
+        <h4>Или выбрать из уже созданных</h4>
         <form method="post" action="{% url 'rooms:room_assign_teamlead' project.id %}">
             {% csrf_token %}
             <div class="form-group">{{ teamlead_form.teamlead }}</div>
-            <button type="submit" class="btn btn-primary">Назначить</button>
+            <button type="submit" class="btn btn-ghost">Назначить</button>
         </form>
     </div>
     {% endif %}
 
     <div class="upload-form">
         <h4>Добавить фрилансера</h4>
-        <p class="help-text"><a href="{% url 'profiles:catalog' %}">Открыть каталог</a> для просмотра профилей.</p>
+        <p class="help-text"><a href="{% url 'profiles:catalog' %}">Каталог</a> — карточки с кнопкой «В комнату».</p>
         <form method="post" action="{% url 'rooms:room_add_freelancer' project.id %}">
             {% csrf_token %}
             <div class="form-group">{{ freelancer_form.freelancer }}</div>

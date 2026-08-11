@@ -118,3 +118,77 @@ class AddFreelancerForm(forms.Form):
             role=User.Roles.FREELANCER,
             status=User.Status.ACTIVE,
         ).exclude(id__in=existing_ids).order_by('first_name', 'email')
+
+
+class AddToRoomForm(forms.Form):
+    """Добавление фрилансера из каталога в выбранный проект."""
+
+    project = forms.ModelChoiceField(
+        label=_('Проект / комната'),
+        queryset=Project.objects.none(),
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
+
+    def __init__(self, *args, projects=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['project'].queryset = (
+            projects if projects is not None else Project.objects.none()
+        )
+
+
+class TeamleadInviteRegisterForm(forms.Form):
+    """Регистрация тимлида по invite-ссылке."""
+
+    first_name = forms.CharField(
+        label=_('Имя'),
+        max_length=150,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    last_name = forms.CharField(
+        label=_('Фамилия'),
+        max_length=150,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    email = forms.EmailField(
+        label=_('Email'),
+        widget=forms.EmailInput(attrs={'class': 'form-control'}),
+    )
+    password1 = forms.CharField(
+        label=_('Пароль'),
+        widget=forms.PasswordInput(attrs={'class': 'form-control'}),
+        min_length=8,
+    )
+    password2 = forms.CharField(
+        label=_('Подтверждение пароля'),
+        widget=forms.PasswordInput(attrs={'class': 'form-control'}),
+    )
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError(
+                _('Пользователь с таким email уже есть. Войдите в аккаунт.'),
+            )
+        return email
+
+    def clean(self):
+        cleaned = super().clean()
+        p1 = cleaned.get('password1')
+        p2 = cleaned.get('password2')
+        if p1 and p2 and p1 != p2:
+            self.add_error('password2', _('Пароли не совпадают.'))
+        return cleaned
+
+    def save(self) -> User:
+        user = User(
+            username=self.cleaned_data['email'],
+            email=self.cleaned_data['email'],
+            first_name=self.cleaned_data['first_name'],
+            last_name=self.cleaned_data['last_name'],
+            role=User.Roles.TEAMLEAD,
+            status=User.Status.ACTIVE,
+            is_email_verified=True,
+        )
+        user.set_password(self.cleaned_data['password1'])
+        user.save()
+        return user

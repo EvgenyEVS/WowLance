@@ -6,22 +6,31 @@
 <div class="auth-container">
     <div class="auth-box">
         <h1>Регистрация на WowLance</h1>
+        <p class="subtitle">Создайте аккаунт директора или фрилансера</p>
 
-        {% if selected_role == 'director' %}
-        <p class="subtitle">Вы регистрируетесь как <strong>Директор</strong></p>
-        {% elif selected_role == 'freelancer' %}
-        <p class="subtitle">Вы регистрируетесь как <strong>Фрилансер</strong></p>
-        {% else %}
-        <p class="subtitle">Пожалуйста, выберите роль на <a href="{% url 'core:home' %}">главной странице</a></p>
+        {% if form.non_field_errors %}
+        <div class="alert alert-error">{{ form.non_field_errors }}</div>
         {% endif %}
 
-        {% if form.role.errors %}
-        <div class="alert alert-error">{{ form.role.errors }}</div>
+        {% if form.errors and not form.non_field_errors %}
+        <div class="alert alert-error">Проверьте поля формы — есть ошибки.</div>
         {% endif %}
 
-        <form method="post" class="auth-form">
+        <form method="post" class="auth-form" novalidate>
             {% csrf_token %}
-            {{ form.role }}
+
+            <fieldset class="role-fieldset">
+                <legend>Кто вы?</legend>
+                {% for radio in form.role %}
+                <label class="role-option {% if radio.data.selected %}is-selected{% endif %}">
+                    {{ radio.tag }}
+                    <span>{{ radio.choice_label }}</span>
+                </label>
+                {% endfor %}
+                {% if form.role.errors %}
+                <div class="error">{{ form.role.errors }}</div>
+                {% endif %}
+            </fieldset>
 
             <div class="form-row">
                 <div class="form-group">
@@ -64,13 +73,14 @@
                 {% endif %}
             </div>
 
-            <button type="submit" class="btn btn-primary btn-block" {% if not selected_role %}disabled{% endif %}>
+            <button type="submit" class="btn btn-primary btn-block">
                 Зарегистрироваться
             </button>
         </form>
 
         <p class="auth-footer">
             Уже есть аккаунт? <a href="{% url 'users:login' %}">Войти</a>
+            · <a href="{% url 'users:resend_activation' %}">Не пришла активация?</a>
         </p>
 
         <p class="auth-footer">

@@ -4,25 +4,60 @@
 
 {% block content %}
 <div class="dashboard director">
-    <p class="wizard-kicker">Director Console</p>
+    <p class="wizard-kicker">Консоль директора</p>
     <h1>Привет, {{ user.full_name }}</h1>
     <p class="subtitle">Собери архитектуру продаж и запусти комнату за час.</p>
 
+    <div class="metrics-strip">
+        <div class="metric-card">
+            <span class="metric-label">Проекты</span>
+            <strong class="metric-value">{{ metrics.projects_total }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Активные комнаты</span>
+            <strong class="metric-value">{{ metrics.rooms_active }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Горячие лиды</span>
+            <strong class="metric-value">{{ metrics.hot_leads }}</strong>
+        </div>
+    </div>
+
+    {% if onboarding and not onboarding.complete %}
+    <section class="onboarding-panel">
+        <div class="onboarding-head">
+            <h2>Чеклист запуска</h2>
+            <span class="onboarding-progress">{{ onboarding.done }}/{{ onboarding.total }} · {{ onboarding.percent }}%</span>
+        </div>
+        <ul class="onboarding-list">
+            {% for item in onboarding.items %}
+            <li class="{% if item.done %}is-done{% endif %}">
+                <span class="onboarding-check">{% if item.done %}✓{% else %}○{% endif %}</span>
+                <span>{{ item.label }}</span>
+                {% if not item.done %}
+                <a href="{% url item.url_name %}" class="btn btn-ghost btn-sm">{{ item.cta }}</a>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
     <div class="features">
         <div class="feature-card">
-            <h3>Apply Architecture</h3>
-            <p>Создай проект по шаблону — комната и команда собираются за минуты</p>
-            <a href="{% url 'rooms:project_create' %}" class="btn btn-primary">Создать проект</a>
+            <h3>Мастер архитектуры</h3>
+            <p>3 шага: выбрать архитектуру → вводные → запуск комнаты</p>
+            <a href="{% url 'rooms:setup_wizard' %}" class="btn btn-primary">Запустить мастер</a>
             <a href="{% url 'rooms:project_list' %}" class="btn btn-ghost">Мои проекты</a>
         </div>
         <div class="feature-card">
-            <h3>Talent Pool</h3>
-            <p>Уровень, рейтинг, навыки и доступность продавцов</p>
+            <h3>Пул талантов</h3>
+            <p>Уровень, рейтинг, навыки — добавьте продавца прямо из каталога</p>
             <a href="{% url 'profiles:catalog' %}" class="btn btn-ghost">Каталог фрилансеров</a>
         </div>
         <div class="feature-card">
-            <h3>Project Rooms</h3>
-            <p>Вижен, состав команды, задачи и лиды — в одном пространстве</p>
+            <h3>Комнаты проектов</h3>
+            <p>Вижен, команда, канбан задач и лиды — в одном пространстве</p>
             <a href="{% url 'rooms:project_list' %}" class="btn btn-ghost">Открыть проекты</a>
         </div>
     </div>

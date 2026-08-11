@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+
+{% block title %}Приглашение тимлида{% endblock %}
+
+{% block content %}
+<div class="auth-card">
+    <p class="wizard-kicker">Приглашение</p>
+    <h1>Тимлид проекта «{{ project.name }}»</h1>
+    <p class="subtitle">Зарегистрируйтесь или <a href="{% url 'users:login' %}?next={{ login_next|urlencode }}">войдите</a> аккаунтом тимлида.</p>
+
+    <form method="post" class="upload-form">
+        {% csrf_token %}
+        <div class="form-group"><label>Имя</label>{{ form.first_name }}</div>
+        <div class="form-group"><label>Фамилия</label>{{ form.last_name }}</div>
+        <div class="form-group"><label>Email</label>{{ form.email }}</div>
+        <div class="form-group"><label>Пароль</label>{{ form.password1 }}</div>
+        <div class="form-group"><label>Подтверждение</label>{{ form.password2 }}</div>
+        {% if form.errors %}<div class="alert alert-error">{{ form.errors }}</div>{% endif %}
+        <button type="submit" class="btn btn-primary">Принять и войти</button>
+    </form>
+</div>
+{% endblock %}

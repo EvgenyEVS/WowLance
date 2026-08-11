@@ -7,28 +7,74 @@
 
 <div class="sla-banner">SLA: первые звонки в течение 24 часов после готовности исполнителей</div>
 
-<div class="room-grid">
-    <div class="info-block">
-        <h3>Вводные проекта</h3>
-        <p><strong>Тип:</strong> {{ project.get_project_type_display }}</p>
-        <p><strong>Уровень продавцов:</strong> {{ project.get_seller_level_display }}</p>
-        <p><strong>Оффер:</strong> {{ project.offer|linebreaksbr }}</p>
-        <p><strong>УТП:</strong> {{ project.utp|linebreaksbr }}</p>
-        <p><strong>ЦА:</strong> {{ project.audience|linebreaksbr }}</p>
-        <p><strong>Критерии горячего лида:</strong> {{ project.hot_criteria|linebreaksbr }}</p>
-        {% if project.kpi_target %}<p><strong>KPI:</strong> {{ project.kpi_target }}</p>{% endif %}
+<div class="room-hub">
+    <div class="room-grid">
+        <div class="info-block">
+            <h3>Вводные проекта</h3>
+            <p><strong>Тип:</strong> {{ project.get_project_type_display }}</p>
+            <p><strong>Уровень продавцов:</strong> {{ project.get_seller_level_display }}</p>
+            <p><strong>Оффер:</strong> {{ project.offer|linebreaksbr }}</p>
+            <p><strong>УТП:</strong> {{ project.utp|linebreaksbr }}</p>
+            <p><strong>ЦА:</strong> {{ project.audience|linebreaksbr }}</p>
+            <p><strong>Критерии горячего лида:</strong> {{ project.hot_criteria|linebreaksbr }}</p>
+            {% if project.kpi_target %}<p><strong>KPI:</strong> {{ project.kpi_target }}</p>{% endif %}
+        </div>
+
+        <div class="info-block">
+            <h3>Лента событий</h3>
+            {% if activities %}
+            <ul class="activity-feed">
+                {% for item in activities %}
+                <li>
+                    <time>{{ item.created_at|date:"d.m H:i" }}</time>
+                    <span>{{ item.message }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty-state compact">
+                <p>Пока тихо — начните с команды или задач.</p>
+                <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-primary btn-sm">Собрать команду</a>
+            </div>
+            {% endif %}
+        </div>
     </div>
 
-    <div class="info-block">
+    <div class="info-block" style="margin-top: 16px;">
+        <div class="section-head">
+            <h3>Задачи (канбан)</h3>
+            <a href="{% url 'pipeline:room_tasks' project.id %}" class="btn btn-ghost btn-sm">Все задачи</a>
+        </div>
+        <div class="kanban-board">
+            {% for col in kanban_preview %}
+            <div class="kanban-col">
+                <h4>{{ col.title }} <span class="muted">({{ col.tasks|length }})</span></h4>
+                {% for task in col.tasks|slice:":4" %}
+                <a class="kanban-card" href="{% url 'pipeline:task_detail' project.id task.id %}">
+                    <strong>{{ task.title }}</strong>
+                    <span>{{ task.assignee.full_name }}</span>
+                </a>
+                {% empty %}
+                <p class="empty compact">Пусто</p>
+                {% endfor %}
+            </div>
+            {% endfor %}
+        </div>
+        {% if not members %}
+        <div class="empty-state" style="margin-top:12px;">
+            <p>Добавьте фрилансера, чтобы ставить задачи.</p>
+            <a href="{% url 'profiles:catalog' %}" class="btn btn-primary">Открыть каталог</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="info-block" style="margin-top: 16px;">
         <h3>Команда</h3>
         <ul>
             {% for member in members %}
             <li>
-                {{ member.user.full_name }} —
-                {{ member.get_role_in_room_display }}
-                {% if member.role_in_room == 'freelancer' %}
-                ({{ member.get_ready_status_display }})
-                {% endif %}
+                {{ member.user.full_name }} — {{ member.get_role_in_room_display }}
+                {% if member.role_in_room == 'freelancer' %} ({{ member.get_ready_status_display }}){% endif %}
             </li>
             {% empty %}
             <li class="empty">Пока никого нет</li>

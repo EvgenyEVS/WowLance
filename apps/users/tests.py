@@ -80,6 +80,93 @@ class RegistrationTests(TestCase):
             },
         )
         self.assertFalse(User.objects.filter(email='norole@example.com').exists())
+        self.assertContains(response, 'роль', status_code=200)
+
+    def test_register_duplicate_email_shows_error(self):
+        make_user(
+            email='taken@example.com',
+            role=User.Roles.FREELANCER,
+            status=User.Status.ACTIVE,
+        )
+        response = self.client.post(
+            reverse('users:register') + '?role=freelancer',
+            {
+                'first_name': 'Другой',
+                'last_name': 'Юзер',
+                'email': 'Taken@example.com',
+                'password1': 'StrongPass123!',
+                'password2': 'StrongPass123!',
+                'role': User.Roles.FREELANCER,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'уже зарегистрирован')
+        self.assertEqual(User.objects.filter(email__iexact='taken@example.com').count(), 1)
+
+    def test_register_page_without_role_is_usable(self):
+        response = self.client.get(reverse('users:register'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Директор')
+        self.assertContains(response, 'Фрилансер')
+        self.assertContains(response, 'Зарегистрироваться')
+        self.assertNotContains(response, 'disabled')
+
+    @override_settings(DEBUG=True)
+    def test_register_reuses_pending_account_and_resends_link(self):
+        pending = make_user(
+            email='ghost@example.com',
+            role=User.Roles.DIRECTOR,
+            status=User.Status.PENDING,
+            password='OldPass123!',
+        )
+        response = self.client.post(
+            reverse('users:register') + '?role=director',
+            {
+                'first_name': 'Новый',
+                'last_name': 'Директор',
+                'email': 'ghost@example.com',
+                'password1': 'NewPass123!',
+                'password2': 'NewPass123!',
+                'role': User.Roles.DIRECTOR,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'users/registration_success.html')
+        self.assertEqual(User.objects.filter(email='ghost@example.com').count(), 1)
+        pending.refresh_from_db()
+        self.assertEqual(pending.first_name, 'Новый')
+        self.assertTrue(pending.check_password('NewPass123!'))
+        self.assertEqual(pending.status, User.Status.PENDING)
+        self.assertEqual(len(mail.outbox), 1)
+
+    @override_settings(DEBUG=True)
+    def test_resend_activation_for_pending(self):
+        make_user(
+            email='wait2@example.com',
+            role=User.Roles.FREELANCER,
+            status=User.Status.PENDING,
+        )
+        response = self.client.post(
+            reverse('users:resend_activation'),
+            {'email': 'wait2@example.com'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'users/registration_success.html')
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_login_pending_with_correct_password_points_to_resend(self):
+        user = make_user(
+            email='pendlogin@example.com',
+            role=User.Roles.DIRECTOR,
+            status=User.Status.PENDING,
+            password='StrongPass123!',
+        )
+        response = self.client.post(
+            reverse('users:login'),
+            {'username': user.email, 'password': 'StrongPass123!'},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/resend-activation/', response['Location'])
 
 
 class ActivationTests(TestCase):
@@ -113,7 +200,7 @@ class ActivationTests(TestCase):
         response = self.client.get(
             reverse('users:activate', kwargs={'uidb64': uid, 'token': 'bad-token'}),
         )
-        self.assertRedirects(response, reverse('users:login'))
+        self.assertRedirects(response, reverse('users:resend_activation'))
         self.user.refresh_from_db()
         self.assertEqual(self.user.status, User.Status.PENDING)
 
@@ -145,7 +232,8 @@ class LoginTests(TestCase):
             reverse('users:login'),
             {'username': pending.email, 'password': self.password},
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/resend-activation/', response['Location'])
         self.assertFalse(response.wsgi_request.user.is_authenticated)
 
     def test_login_open_redirect_blocked(self):

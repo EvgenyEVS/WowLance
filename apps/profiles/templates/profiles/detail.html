@@ -1,40 +1,50 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ profile.full_name }} — профиль фрилансера{% endblock %}
+{% block title %}{{ profile.full_name }} — карточка{% endblock %}
 
 {% block content %}
-<div class="profile-container">
-    <div class="profile-header">
-        <h1>{{ profile.full_name }}</h1>
-        <div class="profile-badges">
-            <span class="badge level">{{ profile.get_level_display }}</span>
-            {% if profile.is_verified %}
-            <span class="badge verified">✅ Верифицирован</span>
-            {% endif %}
-            {% if profile.is_available %}
-            <span class="badge available">🟢 Доступен</span>
-            {% else %}
-            <span class="badge unavailable">🔴 Недоступен</span>
-            {% endif %}
-            <span class="badge rating">⭐ {{ profile.rating }}</span>
-            {% if profile.acceptance_rate %}
-            <span class="badge acceptance">📊 {{ profile.acceptance_rate }}% принятых отчётов</span>
-            {% endif %}
+<div class="baseball-detail">
+    <div class="baseball-hero">
+        <div class="baseball-avatar xl" aria-hidden="true">{{ avatar_initials }}</div>
+        <div>
+            <p class="wizard-kicker">Baseball Card</p>
+            <h1>{{ profile.full_name }}</h1>
+            <div class="profile-badges">
+                <span class="badge level">{{ profile.get_level_display }}</span>
+                {% if profile.is_verified %}<span class="badge verified">Верифицирован</span>{% endif %}
+                {% if profile.is_available %}
+                <span class="badge available">Доступен</span>
+                {% else %}
+                <span class="badge unavailable">Недоступен</span>
+                {% endif %}
+                <span class="badge rating">★ {{ profile.rating }}</span>
+                {% if profile.acceptance_rate %}
+                <span class="badge acceptance">{{ profile.acceptance_rate }}% принятых</span>
+                {% endif %}
+            </div>
+            <div class="baseball-actions">
+                {% if is_owner %}
+                <a href="{% url 'profiles:edit' %}" class="btn btn-primary">Редактировать</a>
+                {% endif %}
+                <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-secondary">Портфолио</a>
+                {% if can_add_to_room and add_to_room_form %}
+                <form method="post" action="{% url 'rooms:catalog_add_to_room' profile_user.id %}" class="inline-add-form">
+                    {% csrf_token %}
+                    <label class="sr-only">Проект</label>
+                    {{ add_to_room_form.project }}
+                    <button type="submit" class="btn btn-primary">Добавить в комнату</button>
+                </form>
+                {% endif %}
+            </div>
         </div>
-        {% if is_owner %}
-        <a href="{% url 'profiles:edit' %}" class="btn btn-primary">Редактировать профиль</a>
-        {% endif %}
-        <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-secondary">Портфолио →</a>
     </div>
 
     <div class="profile-body">
         <div class="profile-info">
             <div class="info-block">
-                <h3>Основная информация</h3>
+                <h3>Основное</h3>
                 <p><strong>Страна:</strong> {{ profile.country|default:"Не указано" }}</p>
-                <p><strong>Уровень:</strong> {{ profile.get_level_display }}</p>
-                <p><strong>Опыт:</strong> {{ profile.experience_years }} лет</p>
-                <p><strong>Проектов:</strong> {{ profile.experience_projects }}</p>
+                <p><strong>Опыт:</strong> {{ profile.experience_years }} лет · {{ profile.experience_projects }} проектов</p>
             </div>
 
             <div class="info-block">
@@ -46,7 +56,10 @@
                     {% endfor %}
                 </ul>
                 {% else %}
-                <p class="empty">Навыки не указаны</p>
+                <div class="empty-state compact">
+                    <p>Навыки не указаны</p>
+                    {% if is_owner %}<a href="{% url 'profiles:edit' %}" class="btn btn-primary btn-sm">Добавить навыки</a>{% endif %}
+                </div>
                 {% endif %}
             </div>
 
@@ -64,19 +77,6 @@
             </div>
 
             <div class="info-block">
-                <h3>Языки</h3>
-                {% if profile.languages %}
-                <ul class="languages-list">
-                    {% for lang in profile.languages %}
-                    <li>{{ lang.language }} — {{ lang.level }}</li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <p class="empty">Языки не указаны</p>
-                {% endif %}
-            </div>
-
-            <div class="info-block">
                 <h3>Ссылки</h3>
                 {% if profile.linkedin_url %}
                 <p><a href="{{ profile.linkedin_url }}" target="_blank" rel="noopener">LinkedIn</a></p>
@@ -84,15 +84,7 @@
                 {% if profile.video_url %}
                 <p><a href="{{ profile.video_url }}" target="_blank" rel="noopener">Видеопрезентация</a></p>
                 {% endif %}
-                {% if profile.portfolio_links_list %}
-                <p><strong>Ссылки на портфолио:</strong></p>
-                <ul>
-                    {% for link in profile.portfolio_links_list %}
-                    <li><a href="{{ link }}" target="_blank" rel="noopener">{{ link }}</a></li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
-                {% if not profile.linkedin_url and not profile.video_url and not profile.portfolio_links_list %}
+                {% if not profile.linkedin_url and not profile.video_url %}
                 <p class="empty">Ссылки не добавлены</p>
                 {% endif %}
             </div>
@@ -106,7 +98,6 @@
                 <li>
                     {% if item.item_type == 'file' and item.file %}
                     <a href="{{ item.file.url }}" target="_blank">{{ item.title }}</a>
-                    <span class="file-size">({{ item.file_size|filesizeformat }})</span>
                     {% elif item.url %}
                     <a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.title }}</a>
                     {% else %}
@@ -117,10 +108,12 @@
             </ul>
             <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-secondary">Все работы →</a>
             {% else %}
-            <p class="empty">Портфолио пусто</p>
-            {% if is_owner %}
-            <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-primary">Добавить работы</a>
-            {% endif %}
+            <div class="empty-state compact">
+                <p>Портфолио пусто</p>
+                {% if is_owner %}
+                <a href="{% url 'profiles:portfolio' profile_user.id %}" class="btn btn-primary btn-sm">Добавить работы</a>
+                {% endif %}
+            </div>
             {% endif %}
         </div>
     </div>

@@ -25,35 +25,31 @@
 </div>
 {% endif %}
 
-<div class="info-block" style="margin-top: 16px;">
-    <h3>Список задач</h3>
-    {% if tasks %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Название</th>
-                <th>Исполнитель</th>
-                <th>Тип</th>
-                <th>Статус</th>
-                <th>Дедлайн</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for task in tasks %}
-            <tr>
-                <td>{{ task.title }}</td>
-                <td>{{ task.assignee.full_name }}</td>
-                <td>{{ task.get_task_type_display }}</td>
-                <td>{{ task.get_status_display }}</td>
-                <td>{{ task.deadline|date:"d.m.Y H:i"|default:"—" }}</td>
-                <td><a href="{% url 'pipeline:task_detail' project.id task.id %}" class="btn btn-secondary">Открыть</a></td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+{% if tasks %}
+<div class="kanban-board" style="margin-top: 16px;">
+    {% for col in kanban_columns %}
+    <div class="kanban-col">
+        <h4>{{ col.title }} <span class="muted">({{ col.tasks|length }})</span></h4>
+        {% for task in col.tasks %}
+        <a class="kanban-card" href="{% url 'pipeline:task_detail' project.id task.id %}">
+            <strong>{{ task.title }}</strong>
+            <span>{{ task.assignee.full_name }} · {{ task.get_status_display }}</span>
+        </a>
+        {% empty %}
+        <p class="empty compact">Нет задач</p>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <h3>Задач пока нет</h3>
+    <p>Поставьте первую задачу исполнителю в комнате.</p>
+    {% if can_manage_team %}
+    <a href="#create" class="btn btn-primary" onclick="document.querySelector('.upload-form')?.scrollIntoView({behavior:'smooth'}); return false;">Создать задачу</a>
     {% else %}
-    <p class="empty">Задач пока нет.</p>
+    <a href="{% url 'rooms:room_overview' project.id %}" class="btn btn-primary">К обзору комнаты</a>
     {% endif %}
 </div>
+{% endif %}
 {% endblock %}
