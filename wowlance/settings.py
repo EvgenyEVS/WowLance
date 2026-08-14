@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -159,10 +160,18 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 
 
 # Email (console backend — SMTP настраивается отдельно через env)
+# Email настройки
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')  # <-- EMAIL_HOST берём из .env или по умолчанию smtp.gmail.com
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)    # <-- cast=int для числовых значений
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)  # <-- cast=bool для True/False
+EMAIL_HOST_USER = config('EMAIL_HOST_USER')  # <-- Это адрес email берём из .env
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')  # <-- Это пароль берём из .env (Для Gmail нужно включить 2FA и создать "App Password")
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'
 
 
 AUTH_USER_MODEL = 'users.User'
