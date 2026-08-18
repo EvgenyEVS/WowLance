@@ -143,7 +143,7 @@ class CatalogAddToRoomTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'SPIN')
-        self.assertContains(response, 'Добавить в комнату')
+        self.assertContains(response, 'В комнату')
         self.assertContains(response, '★')
 
 
