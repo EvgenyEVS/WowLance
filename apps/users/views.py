@@ -22,18 +22,32 @@ from .tokens import account_activation_token
 User = get_user_model()
 
 
+# apps/users/views.py
+from django.conf import settings
+from django.core.mail import get_connection # <-- Импортируем
+
+# ... остальной код ...
+
 def _registration_success_response(request, user, activation_url):
-    if settings.DEBUG:
+    # Проверяем, используется ли консольный бэкенд
+    # Это более точный способ, чем просто DEBUG
+    current_backend_path = settings.EMAIL_BACKEND
+    is_console_backend = 'console' in current_backend_path.lower()
+
+    if settings.DEBUG and is_console_backend: # <-- Изменяем условие
         return render(request, 'users/registration_success.html', {
             'email': user.email,
             'activation_url': activation_url,
-            'debug_mode': True,
+            'debug_mode': True, # <-- Теперь True только если DEBUG и используется console backend
         })
-    messages.success(
-        request,
-        'Регистрация успешна! На ваш email отправлено письмо с подтверждением.',
-    )
-    return redirect('users:login')
+    else:
+        # В остальных случаях (prod или dev с SMTP) показываем обычное сообщение
+        messages.success(
+            request,
+            'Регистрация успешна! На ваш email отправлено письмо с подтверждением. После активации аккаунта вы сможете войти в WowLance.',
+        )
+        return redirect('users:login')
+
 
 
 def register(request):
