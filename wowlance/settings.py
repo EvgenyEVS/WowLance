@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,11 +30,14 @@ SECRET_KEY = os.environ.get(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
-PUBLIC_HOST = os.environ.get('PUBLIC_HOST', '195.19.209.121')
+# PUBLIC_HOST = os.environ.get('PUBLIC_HOST', '195.19.209.121') # os.environ.get не работает
+PUBLIC_HOST = config('PUBLIC_HOST', default='195.19.209.121') # Используем config
 # По умолчанию http: на демо-VPS нет TLS (порт 443 не слушает).
 # После настройки HTTPS: PUBLIC_SCHEME=https и USE_HTTPS=1
-PUBLIC_SCHEME = os.environ.get('PUBLIC_SCHEME', 'http')
-USE_HTTPS = os.environ.get('USE_HTTPS', '0') == '1'
+# PUBLIC_SCHEME = os.environ.get('PUBLIC_SCHEME', 'http') # os.environ.get не работает
+PUBLIC_SCHEME = config('PUBLIC_SCHEME', default='http') # Используем config
+# USE_HTTPS = os.environ.get('USE_HTTPS', '0') == '1' # os.environ.get не работает
+USE_HTTPS = config('USE_HTTPS', default='0', cast=lambda v: v == '1') # Используем config
 
 ALLOWED_HOSTS = [
     PUBLIC_HOST,
@@ -159,11 +163,26 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
 
-# Email (console backend — SMTP настраивается отдельно через env)
+# Настройка EMAIL
+# Значения по умолчанию - пустые строки или разумные дефолты
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+if EMAIL_BACKEND == 'django.core.mail.backends.smtp.EmailBackend':
+    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+# DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'
 
 
 AUTH_USER_MODEL = 'users.User'
