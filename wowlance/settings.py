@@ -160,15 +160,22 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
 
-# Email (console backend — SMTP настраивается отдельно через env)
-# Email настройки
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')  # <-- EMAIL_HOST берём из .env или по умолчанию smtp.gmail.com
-EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)    # <-- cast=int для числовых значений
-EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)  # <-- cast=bool для True/False
-EMAIL_HOST_USER = config('EMAIL_HOST_USER')  # <-- Это адрес email берём из .env
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')  # <-- Это пароль берём из .env (Для Gmail нужно включить 2FA и создать "App Password")
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER)
+# Настройка EMAIL
+# Значения по умолчанию - пустые строки или разумные дефолты
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+if EMAIL_BACKEND == 'django.core.mail.backends.smtp.EmailBackend':
+    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
 # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
