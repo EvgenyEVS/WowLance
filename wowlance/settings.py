@@ -31,8 +31,9 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
 
 PUBLIC_HOST = os.environ.get('PUBLIC_HOST', '195.19.209.121')
-PUBLIC_SCHEME = os.environ.get('PUBLIC_SCHEME', 'https')
-# На сервере после nginx+TLS: Environment=USE_HTTPS=1
+# По умолчанию http: на демо-VPS нет TLS (порт 443 не слушает).
+# После настройки HTTPS: PUBLIC_SCHEME=https и USE_HTTPS=1
+PUBLIC_SCHEME = os.environ.get('PUBLIC_SCHEME', 'http')
 USE_HTTPS = os.environ.get('USE_HTTPS', '0') == '1'
 
 ALLOWED_HOSTS = [
