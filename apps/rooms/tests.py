@@ -231,3 +231,83 @@ class RoomViewTests(TestCase):
         self.client.login(username='out@rooms.test', password=self.password)
         response = self.client.get(reverse('rooms:project_list'))
         self.assertNotContains(response, project.name)
+
+
+class AddToRoomContextProcessorTests(TestCase):
+    """`add_to_room` отдаёт форму BIZ-шаблонам без импорта rooms в profiles."""
+
+    def setUp(self):
+        self.client = Client()
+        self.director = make_director(email='cp-dir@rooms.test')
+        self.freelancer = make_freelancer(email='cp-fr@rooms.test')
+        self.project = Project.objects.create(
+            owner=self.director,
+            name='Проект для подбора',
+            project_type=Project.Type.BASE,
+            input_data={'offer': 'o', 'utp': 'u', 'audience': 'a', 'hot_criteria': 'h'},
+            status=Project.Status.DRAFT,
+        )
+        launch_project(self.project)
+
+    def _catalog(self):
+        return self.client.get(reverse('profiles:catalog'))
+
+    def _card(self):
+        return self.client.get(
+            reverse('profiles:detail', kwargs={'user_id': self.freelancer.id}),
+        )
+
+    def test_director_sees_project_select_in_catalog_and_card(self):
+        self.client.force_login(self.director)
+        for response in (self._catalog(), self._card()):
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.context['can_add_to_room'])
+            self.assertTrue(response.context['add_to_room_form'])
+            self.assertContains(
+                response,
+                reverse(
+                    'rooms:catalog_add_to_room',
+                    kwargs={'user_id': self.freelancer.id},
+                ),
+            )
+            self.assertContains(response, self.project.name)
+
+    def test_teamlead_sees_only_own_projects(self):
+        teamlead = make_teamlead(email='cp-tl@rooms.test')
+        assign_teamlead(self.project, teamlead, actor=self.director)
+        other_director = make_director(email='cp-dir2@rooms.test')
+        other = Project.objects.create(
+            owner=other_director,
+            name='Чужой проект',
+            project_type=Project.Type.BASE,
+            input_data={'offer': 'o', 'utp': 'u', 'audience': 'a', 'hot_criteria': 'h'},
+            status=Project.Status.DRAFT,
+        )
+        launch_project(other)
+
+        self.client.force_login(teamlead)
+        response = self._catalog()
+        self.assertTrue(response.context['can_add_to_room'])
+        self.assertContains(response, self.project.name)
+        self.assertNotContains(response, other.name)
+
+    def test_freelancer_has_no_add_to_room(self):
+        self.client.force_login(self.freelancer)
+        response = self._card()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_add_to_room'])
+        self.assertFalse(response.context['add_to_room_form'])
+
+    def test_director_without_staffing_projects_has_no_form(self):
+        lonely = make_director(email='cp-dir3@rooms.test')
+        self.client.force_login(lonely)
+        response = self._catalog()
+        self.assertFalse(response.context['can_add_to_room'])
+        self.assertFalse(response.context['add_to_room_form'])
+
+    def test_anonymous_page_renders_without_room_queries(self):
+        self.client.logout()
+        with self.assertNumQueries(0):
+            response = self.client.get(reverse('core:home'))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_add_to_room'])

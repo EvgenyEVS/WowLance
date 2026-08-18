@@ -5,8 +5,6 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.views.decorators.http import require_POST
 
-from apps.rooms.forms import AddToRoomForm
-from apps.rooms.onboarding import staffing_projects_for_user
 from apps.users.models import User
 from .models import FreelancerProfile, Portfolio, PortfolioItem
 from .forms import UserProfileForm, PortfolioItemFileForm, PortfolioItemLinkForm
@@ -17,20 +15,6 @@ from .card import (
     seller_title_for_level,
     video_embed_url,
 )
-
-def _add_to_room_context(request):
-    projects = staffing_projects_for_user(request.user)
-    can_staff = projects.exists() and request.user.role in {
-        User.Roles.DIRECTOR,
-        User.Roles.TEAMLEAD,
-        User.Roles.ADMIN,
-    }
-    return {
-        'can_add_to_room': can_staff,
-        'staffing_projects': projects,
-        'add_to_room_form': AddToRoomForm(projects=projects) if can_staff else None,
-    }
-
 
 def _require_freelancer(user):
     if user.role != User.Roles.FREELANCER:
@@ -78,7 +62,6 @@ def freelancer_catalog(request):
         'selected_available': available,
         'search_query': q,
     }
-    ctx.update(_add_to_room_context(request))
     return render(request, 'profiles/catalog.html', ctx)
 
 
@@ -104,7 +87,6 @@ def profile_detail(request, user_id):
         'highlights': highlights_for_profile(profile),
         'video_embed_url': video_embed_url(profile.video_url),
     }
-    ctx.update(_add_to_room_context(request))
     return render(request, 'profiles/detail.html', ctx)
 
 
