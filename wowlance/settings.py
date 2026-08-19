@@ -18,9 +18,6 @@ from decouple import config
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
-
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get(
     'DJANGO_SECRET_KEY',
@@ -29,14 +26,8 @@ SECRET_KEY = os.environ.get(
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
-
-# PUBLIC_HOST = os.environ.get('PUBLIC_HOST', '195.19.209.121') # os.environ.get не работает
 PUBLIC_HOST = config('PUBLIC_HOST', default='195.19.209.121') # Используем config
-# По умолчанию http: на демо-VPS нет TLS (порт 443 не слушает).
-# После настройки HTTPS: PUBLIC_SCHEME=https и USE_HTTPS=1
-# PUBLIC_SCHEME = os.environ.get('PUBLIC_SCHEME', 'http') # os.environ.get не работает
 PUBLIC_SCHEME = config('PUBLIC_SCHEME', default='http') # Используем config
-# USE_HTTPS = os.environ.get('USE_HTTPS', '0') == '1' # os.environ.get не работает
 USE_HTTPS = config('USE_HTTPS', default='0', cast=lambda v: v == '1') # Используем config
 
 ALLOWED_HOSTS = [

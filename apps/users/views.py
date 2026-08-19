@@ -1,3 +1,6 @@
+# apps/users/views.py
+from django.conf import settings
+from django.core.mail import get_connection
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, authenticate, logout
 from django.contrib import messages
@@ -7,7 +10,6 @@ from django.utils.http import (
     url_has_allowed_host_and_scheme,
 )
 from django.utils.encoding import force_str
-from django.conf import settings
 
 from apps.profiles.services import get_or_create_freelancer_profile
 from .activation import send_activation_email
@@ -21,32 +23,26 @@ from .tokens import account_activation_token
 
 User = get_user_model()
 
-
-# apps/users/views.py
-from django.conf import settings
-from django.core.mail import get_connection # <-- Импортируем
-
-# ... остальной код ...
-
 def _registration_success_response(request, user, activation_url):
-    # Проверяем, используется ли консольный бэкенд
-    # Это более точный способ, чем просто DEBUG
+    # Определяем, используем ли мы console backend
     current_backend_path = settings.EMAIL_BACKEND
     is_console_backend = 'console' in current_backend_path.lower()
 
-    if settings.DEBUG and is_console_backend: # <-- Изменяем условие
+    # Возвращаем старое условие для DEBUG, но передаём is_console_backend в шаблон
+    if settings.DEBUG:
         return render(request, 'users/registration_success.html', {
             'email': user.email,
             'activation_url': activation_url,
-            'debug_mode': True, # <-- Теперь True только если DEBUG и используется console backend
+            'debug_mode': True, # <-- Это может остаться, если используется в шаблоне
+            'is_console_backend': is_console_backend, # <-- Передаём флаг в шаблон
         })
-    else:
-        # В остальных случаях (prod или dev с SMTP) показываем обычное сообщение
-        messages.success(
-            request,
-            'Регистрация успешна! На ваш email отправлено письмо с подтверждением. После активации аккаунта вы сможете войти в WowLance.',
-        )
-        return redirect('users:login')
+
+    # В остальных случаях (prod или dev с SMTP) показываем обычное сообщение
+    messages.success(
+        request,
+        'Регистрация успешна! На ваш email отправлено письмо с подтверждением. После активации аккаунта вы сможете войти в WowLance.',
+    )
+    return redirect('users:login')
 
 
 

@@ -8,10 +8,10 @@
         <h1>Аккаунт создан</h1>
         <p class="subtitle">Мы отправили письмо на <strong>{{ email }}</strong></p>
 
-        {% if debug_mode %}
+        {% if debug_mode and is_console_backend %} <!-- Изменяем условие -->
         <div class="alert alert-info" style="text-align: left; margin: 20px 0;">
-            <p><strong>Режим разработки (DEBUG):</strong></p>
-            <p>Реальная почта не настроена. Активируйте аккаунт по ссылке ниже
+            <p><strong>Режим разработки (DEBUG) и Console Backend:</strong></p>
+            <p>Так как EMAIL_BACKEND = console, реальная почта не используется. Активируйте аккаунт по ссылке ниже
                 (она также печатается в терминале сервера):</p>
             <p style="word-break: break-all; margin-top: 12px;">
                 <a href="{{ activation_url }}">{{ activation_url }}</a>
@@ -20,6 +20,11 @@
         <a href="{{ activation_url }}" class="btn btn-primary btn-block">
             Активировать аккаунт
         </a>
+        {% elif debug_mode and not is_console_backend %} <!-- Дополнительное условие для случая DEBUG, но SMTP -->
+        <div class="alert alert-warning" style="text-align: left; margin: 20px 0;">
+            <p><strong>Режим разработки (DEBUG), но используется SMTP Email Backend:</strong></p>
+            <p>Проверьте конфигурацию email и почтовый ящик {{ email }}, чтобы получить письмо активации.</p>
+        </div>
         {% else %}
         <p>Перейдите по ссылке в письме, чтобы подтвердить email.</p>
         {% endif %}
