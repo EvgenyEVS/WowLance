@@ -2,10 +2,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from apps.rooms.models import Project, RoomDocument, RoomMember
+from apps.rooms.models import Project, Room, RoomActivity, RoomDocument, RoomMember
 from apps.rooms.services import (
     add_freelancer_to_room,
     assign_teamlead,
+    handle_project_paid,
     launch_project,
     user_can_access_project,
 )
@@ -231,3 +232,238 @@ class RoomViewTests(TestCase):
         self.client.login(username='out@rooms.test', password=self.password)
         response = self.client.get(reverse('rooms:project_list'))
         self.assertNotContains(response, project.name)
+
+
+class ProjectPaidServiceTests(TestCase):
+    """Сервис-фасад оплаты: apps.rooms.services.handle_project_paid."""
+
+    def setUp(self):
+        self.director = make_director(email='paid-dir@rooms.test')
+        self.project = Project.objects.create(
+            owner=self.director,
+            name='Оплаченный проект',
+            input_data={
+                'offer': 'Оффер',
+                'utp': 'УТП',
+                'audience': 'ЦА',
+                'hot_criteria': 'Запросил демо',
+            },
+            status=Project.Status.DRAFT,
+        )
+
+    def test_handle_project_paid_starts_staffing_with_room_and_activity(self):
+        room = handle_project_paid(self.project, actor=self.director)
+        self.project.refresh_from_db()
+
+        self.assertEqual(self.project.status, Project.Status.STAFFING)
+        self.assertEqual(room.project_id, self.project.id)
+        self.assertTrue(
+            RoomActivity.objects.filter(
+                room=room,
+                event_type=RoomActivity.EventType.PROJECT_LAUNCHED,
+            ).exists()
+        )
+        self.assertTrue(
+            RoomMember.objects.filter(
+                room=room,
+                user=self.director,
+                role_in_room=RoomMember.RoleInRoom.DIRECTOR,
+            ).exists()
+        )
+
+    def test_repeated_payment_does_not_create_second_room(self):
+        first = handle_project_paid(self.project, actor=self.director)
+        second = handle_project_paid(self.project, actor=self.director)
+
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(Room.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(
+            RoomActivity.objects.filter(
+                room=first,
+                event_type=RoomActivity.EventType.PROJECT_LAUNCHED,
+            ).count(),
+            1,
+        )
+
+    def test_room_from_debug_launch_is_reused(self):
+        """Комната старого DEBUG-запуска не дублируется тестовой оплатой."""
+        launch_project(self.project, actor=self.director)
+        self.project.refresh_from_db()
+        room = handle_project_paid(self.project, actor=self.director)
+
+        self.assertEqual(Room.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(room.id, self.project.room.id)
+        self.assertEqual(self.project.status, Project.Status.STAFFING)
+
+
+class TestPaymentFlowTests(TestCase):
+    """Happy-path тестовой оплаты: из wizard и из карточки черновика."""
+
+    def setUp(self):
+        self.client = Client()
+        self.password = 'TestPass123!'
+        self.director = make_director(email='pay-dir@rooms.test', password=self.password)
+        self.other_director = make_director(
+            email='pay-other@rooms.test',
+            password=self.password,
+        )
+        self.freelancer = make_freelancer(email='pay-fr@rooms.test', password=self.password)
+
+    def _project_form_data(self, name):
+        return {
+            'name': name,
+            'project_type': Project.Type.BASE,
+            'seller_level': Project.SellerLevel.MIDDLE,
+            'tariff_plan': 'launch',
+            'budget': '1000',
+            'kpi_target': '',
+            'start_date': '',
+            'offer': 'Продаём SaaS',
+            'utp': 'Быстрый ROI',
+            'audience': 'CEO B2B',
+            'hot_criteria': 'Согласен на демо',
+        }
+
+    def _make_draft(self, name):
+        return Project.objects.create(
+            owner=self.director,
+            name=name,
+            input_data={
+                'offer': 'Оффер',
+                'utp': 'УТП',
+                'audience': 'ЦА',
+                'hot_criteria': 'Запросил демо',
+            },
+            status=Project.Status.DRAFT,
+        )
+
+    def _assert_paid_and_redirected(self, project, response):
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.STAFFING)
+        self.assertEqual(Room.objects.filter(project=project).count(), 1)
+        self.assertTrue(
+            RoomActivity.objects.filter(
+                room=project.room,
+                event_type=RoomActivity.EventType.PROJECT_LAUNCHED,
+            ).exists()
+        )
+        self.assertRedirects(
+            response,
+            reverse('rooms:room_overview', kwargs={'project_id': project.id}),
+        )
+
+    def test_wizard_test_payment_opens_room(self):
+        self.client.login(username='pay-dir@rooms.test', password=self.password)
+
+        step1 = self.client.post(
+            reverse('rooms:setup_wizard'),
+            {'step': '1', 'arch': 'cold_calling'},
+        )
+        self.assertEqual(step1.status_code, 302)
+
+        data = self._project_form_data('Проект из wizard')
+        data['step'] = '2'
+        data['arch'] = 'cold_calling'
+        self.client.post(reverse('rooms:setup_wizard'), data)
+
+        project = Project.objects.get(name='Проект из wizard')
+        self.assertEqual(project.status, Project.Status.DRAFT)
+
+        step3 = self.client.get(
+            reverse('rooms:setup_wizard'),
+            {'step': '3', 'project': str(project.id)},
+        )
+        self.assertContains(step3, 'Тестовая оплата запуска')
+        self.assertContains(step3, 'Оплатить и запустить')
+
+        response = self.client.post(
+            reverse('rooms:project_pay', kwargs={'project_id': project.id}),
+        )
+        self._assert_paid_and_redirected(project, response)
+
+    def test_draft_card_test_payment_opens_room(self):
+        self.client.login(username='pay-dir@rooms.test', password=self.password)
+        self.client.post(
+            reverse('rooms:project_create'),
+            self._project_form_data('Проект из черновика'),
+        )
+        project = Project.objects.get(name='Проект из черновика')
+
+        card = self.client.get(
+            reverse('rooms:project_detail', kwargs={'project_id': project.id}),
+        )
+        self.assertContains(card, 'Тестовая оплата запуска')
+        self.assertContains(card, 'Оплатить и запустить')
+
+        response = self.client.post(
+            reverse('rooms:project_pay', kwargs={'project_id': project.id}),
+        )
+        self._assert_paid_and_redirected(project, response)
+
+    def test_repeated_payment_request_keeps_single_room(self):
+        self.client.login(username='pay-dir@rooms.test', password=self.password)
+        project = self._make_draft('Проект для повтора')
+
+        first = self.client.post(
+            reverse('rooms:project_pay', kwargs={'project_id': project.id}),
+        )
+        self._assert_paid_and_redirected(project, first)
+
+        repeat = self.client.post(
+            reverse('rooms:project_pay', kwargs={'project_id': project.id}),
+        )
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.STAFFING)
+        self.assertEqual(Room.objects.filter(project=project).count(), 1)
+        self.assertEqual(
+            RoomActivity.objects.filter(
+                room=project.room,
+                event_type=RoomActivity.EventType.PROJECT_LAUNCHED,
+            ).count(),
+            1,
+        )
+        self.assertEqual(repeat.status_code, 302)
+
+    def test_other_users_cannot_pay_foreign_project(self):
+        project = self._make_draft('Чужой проект')
+
+        for email in ('pay-other@rooms.test', 'pay-fr@rooms.test'):
+            self.client.logout()
+            self.client.login(username=email, password=self.password)
+            response = self.client.post(
+                reverse('rooms:project_pay', kwargs={'project_id': project.id}),
+            )
+            self.assertEqual(response.status_code, 404)
+
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.DRAFT)
+        self.assertFalse(Room.objects.filter(project=project).exists())
+
+    def test_anonymous_cannot_pay(self):
+        project = self._make_draft('Аноним не платит')
+        response = self.client.post(
+            reverse('rooms:project_pay', kwargs={'project_id': project.id}),
+        )
+        self.assertEqual(response.status_code, 302)
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.DRAFT)
+        self.assertFalse(Room.objects.filter(project=project).exists())
+
+    def test_payment_requires_project_inputs(self):
+        self.client.login(username='pay-dir@rooms.test', password=self.password)
+        project = Project.objects.create(
+            owner=self.director,
+            name='Без вводных',
+            input_data={},
+            status=Project.Status.DRAFT,
+        )
+        response = self.client.post(
+            reverse('rooms:project_pay', kwargs={'project_id': project.id}),
+        )
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.DRAFT)
+        self.assertFalse(Room.objects.filter(project=project).exists())
+        self.assertRedirects(
+            response,
+            reverse('rooms:project_detail', kwargs={'project_id': project.id}),
+        )

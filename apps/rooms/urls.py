@@ -11,6 +11,7 @@ urlpatterns = [
     path('apply-architecture/', views.apply_architecture, name='apply_architecture'),
     path('projects/<uuid:project_id>/', views.project_detail, name='project_detail'),
     path('projects/<uuid:project_id>/launch/', views.project_launch, name='project_launch'),
+    path('projects/<uuid:project_id>/pay/', views.project_pay, name='project_pay'),
     path('projects/<uuid:project_id>/room/', views.room_overview, name='room_overview'),
     path('projects/<uuid:project_id>/room/documents/', views.room_documents, name='room_documents'),
     path(

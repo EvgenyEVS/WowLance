@@ -1,0 +1,14 @@
+{# Блок подтверждения тестовой оплаты запуска (stub, без реального платежа). #}
+<div class="info-block">
+    <h3>Тестовая оплата запуска</h3>
+    <p><strong>Тестовая оплата запуска — {{ test_payment_amount }}</strong></p>
+    <p class="help-text">
+        Демо-режим: деньги не списываются, карта не нужна. Платёжный шлюз подключим позже.
+        После оплаты проект переходит в подбор команды и открывается комната.
+    </p>
+    <form method="post" action="{% url 'rooms:project_pay' project.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-primary">Оплатить и запустить</button>
+        {% if cancel_url %}<a href="{{ cancel_url }}" class="btn btn-ghost">Отмена</a>{% endif %}
+    </form>
+</div>

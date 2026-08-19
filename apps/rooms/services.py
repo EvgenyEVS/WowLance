@@ -6,6 +6,10 @@ from django.utils import timezone
 from apps.users.models import User
 from .models import Project, Room, RoomActivity, RoomMember, TeamleadInvite
 
+# Заглушка суммы тестовой оплаты запуска проекта.
+# Без тарифной логики и расчётов: временная константа до боевого платёжного шлюза.
+TEST_LAUNCH_PAYMENT_AMOUNT_LABEL = '₽1 000'
+
 
 def log_room_activity(room: Room, message: str, event_type: str, actor=None) -> RoomActivity:
     return RoomActivity.objects.create(
@@ -158,3 +162,47 @@ def user_can_manage_team(user, project: Project) -> bool:
     if user.role == User.Roles.ADMIN:
         return True
     return False
+
+
+@transaction.atomic
+def handle_project_paid(project: Project, actor=None) -> Room:
+    """
+    Единая точка входа события «проект оплачен» (ADR-001).
+
+    Сейчас вызывается из stub тестовой оплаты (без Stripe, webhook и брокеров).
+    Результат успешной оплаты:
+    статус → Staffing, комната гарантированно существует (одна на проект),
+    в ленту комнаты пишется событие запуска.
+
+    Возвращает Room — по ней view делает redirect в комнату.
+    """
+    launched_now = project.status == Project.Status.DRAFT
+    if launched_now:
+        project.status = Project.Status.STAFFING
+        project.save(update_fields=['status', 'updated_at'])
+
+    room = ensure_room_for_project(project)
+
+    if launched_now:
+        log_room_activity(
+            room,
+            f'Оплата получена (тестовая). Проект «{project.name}» запущен, комната открыта.',
+            RoomActivity.EventType.PROJECT_LAUNCHED,
+            actor=actor or project.owner,
+        )
+        _after_project_paid(project, room, actor=actor or project.owner)
+
+    return room
+
+
+def _after_project_paid(project: Project, room: Room, actor=None) -> None:
+    """
+    Точка расширения потока оплаты: сюда добавляются шаги после запуска проекта.
+
+    Вызывается один раз — при переходе проекта из черновика в Staffing,
+    поэтому шаги здесь не дублируются при повторной обработке оплаты.
+
+    TODO (вне текущего scope): автоматический тимлид, стартовые задачи,
+    письма участникам. Добавлять их нужно здесь, без правок views и URL оплаты.
+    """
+    return None

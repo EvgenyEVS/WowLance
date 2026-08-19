@@ -24,6 +24,8 @@
 </div>
 
 {% if can_launch %}
+{% include 'rooms/_payment_stub.html' with cancel_url=project_list_url %}
+
 <form method="post" action="{% url 'rooms:project_launch' project.id %}">
     {% csrf_token %}
     <button type="submit" class="btn btn-primary">Запустить проект (создать комнату)</button>

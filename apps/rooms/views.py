@@ -25,11 +25,13 @@ from .presets import (
     get_architecture_preset,
 )
 from .services import (
+    TEST_LAUNCH_PAYMENT_AMOUNT_LABEL,
     accept_teamlead_invite,
     add_freelancer_to_room,
     assign_teamlead,
     create_teamlead_invite,
     ensure_room_for_project,
+    handle_project_paid,
     launch_project,
     log_room_activity,
     user_can_access_project,
@@ -52,6 +54,12 @@ def _get_accessible_project(user, project_id):
     if not user_can_access_project(user, project):
         raise PermissionDenied('Нет доступа к этому проекту.')
     return project
+
+
+def _missing_launch_inputs(project):
+    """Обязательные вводные, без которых проект нельзя запускать."""
+    required = ('offer', 'audience', 'hot_criteria')
+    return [key for key in required if not (project.input_data or {}).get(key)]
 
 
 def _kanban_columns(tasks):
@@ -195,6 +203,7 @@ def setup_wizard(request):
         'arch_key': arch_key or '',
         'form': form if step == '2' else None,
         'project': project,
+        'test_payment_amount': TEST_LAUNCH_PAYMENT_AMOUNT_LABEL,
     })
 
 
@@ -235,12 +244,15 @@ def project_detail(request, project_id):
     project = _get_accessible_project(request.user, project_id)
     if hasattr(project, 'room'):
         return redirect('rooms:room_overview', project_id=project.id)
+    can_launch = (
+        request.user.id == project.owner_id
+        and project.status == Project.Status.DRAFT
+    )
     return render(request, 'rooms/project_detail.html', {
         'project': project,
-        'can_launch': (
-            request.user.id == project.owner_id
-            and project.status == Project.Status.DRAFT
-        ),
+        'can_launch': can_launch,
+        'test_payment_amount': TEST_LAUNCH_PAYMENT_AMOUNT_LABEL,
+        'project_list_url': reverse('rooms:project_list'),
     })
 
 
@@ -266,6 +278,34 @@ def project_launch(request, project_id):
         '(Оплата будет подключена позже.)',
     )
     return redirect('rooms:room_overview', project_id=project.id)
+
+
+@login_required
+@require_POST
+def project_pay(request, project_id):
+    """
+    Тестовая оплата запуска (stub, без Stripe и webhook).
+
+    Проверяет доступ и черновик, отдаёт результат оплаты в rooms.services
+    и уводит директора в комнату проекта.
+    """
+    project = get_object_or_404(Project, id=project_id, owner=request.user)
+    if project.status != Project.Status.DRAFT:
+        messages.error(request, 'Оплатить запуск можно только для черновика.')
+        return redirect('rooms:project_detail', project_id=project.id)
+
+    if _missing_launch_inputs(project):
+        messages.error(request, 'Заполните обязательные вводные перед оплатой запуска.')
+        return redirect('rooms:project_detail', project_id=project.id)
+
+    room = handle_project_paid(project, actor=request.user)
+    request.session.pop('wizard_project_id', None)
+    messages.success(
+        request,
+        f'Тестовая оплата {TEST_LAUNCH_PAYMENT_AMOUNT_LABEL} прошла успешно. '
+        'Комната открыта — соберите команду. (Реальный платёж не проводился.)',
+    )
+    return redirect('rooms:room_overview', project_id=room.project_id)
 
 
 @login_required
