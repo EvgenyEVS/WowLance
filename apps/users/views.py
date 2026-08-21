@@ -18,6 +18,7 @@ from .forms import (
     ALLOWED_REGISTRATION_ROLES,
 )
 from .tokens import account_activation_token
+from .wowtalent_client import get_wowtalent_user_data
 
 User = get_user_model()
 
@@ -55,6 +56,14 @@ def register(request):
         role = request.GET.get('role', '')
         if role in ALLOWED_REGISTRATION_ROLES:
             initial['role'] = role
+        ref_code = request.GET.get('ref', '').strip()
+        is_wowtalent_ref = False
+
+        if ref_code:
+            wt_data = get_wowtalent_user_data(ref_code)
+            if wt_data:
+                initial.update(wt_data)  # Добавляем first_name, last_name, email в initial
+                is_wowtalent_ref = True
         form = RegistrationForm(initial=initial)
 
     arch = request.GET.get('arch', '').strip()
@@ -70,6 +79,7 @@ def register(request):
         'form': form,
         'selected_role': role if role in ALLOWED_REGISTRATION_ROLES else '',
         'arch': arch or request.session.get('architecture_preset', ''),
+        'is_wowtalent_ref': is_wowtalent_ref,
     })
 
 
