@@ -8,6 +8,13 @@
         <h1>Регистрация на WowLance</h1>
         <p class="subtitle">Создайте аккаунт директора или фрилансера</p>
 
+        {% if is_wowtalent_ref %}
+        <div class="alert alert-info" style="margin-bottom: 20px; text-align: center;">
+            <strong>🎉 Регистрация из WOW Talent</strong><br>
+            <small>Мы предварительно заполнили ваши данные для удобства.</small>
+        </div>
+        {% endif %}
+
         {% if form.non_field_errors %}
         <div class="alert alert-error">{{ form.non_field_errors }}</div>
         {% endif %}

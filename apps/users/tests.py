@@ -246,3 +246,39 @@ class LoginTests(TestCase):
             },
         )
         self.assertRedirects(response, reverse('core:home'))
+
+
+class WowTalentRefRegistrationTest(TestCase):
+    def test_wowtalent_ref_prefills_form_and_shows_banner(self):
+        """Тест: известный реферальный код заполняет форму и включает флаг баннера."""
+        url = reverse('users:register') + '?role=freelancer&ref=wowtalent_demo'
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+
+        # 1. Проверяем, что флаг для баннера передан в контекст
+        self.assertTrue(response.context['is_wowtalent_ref'])
+
+        # 2. Проверяем, что форма получила initial-данные из stub-клиента
+        form = response.context['form']
+        self.assertEqual(form.initial.get('first_name'), 'Иван')
+        self.assertEqual(form.initial.get('last_name'), 'Иванов')
+        self.assertEqual(form.initial.get('email'), 'ivan.ivanov@wowtalent.demo')
+        self.assertEqual(form.initial.get('role'), 'freelancer')
+
+    def test_unknown_ref_does_not_break_form(self):
+        """Тест: неизвестный реферальный код не ломает форму и не показывает баннер."""
+        url = reverse('users:register') + '?role=freelancer&ref=unknown_code_xyz'
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+
+        # 1. Флага баннера быть не должно
+        self.assertFalse(response.context.get('is_wowtalent_ref', False))
+
+        # 2. Форма должна содержать только role, остальные поля пустые
+        form = response.context['form']
+        self.assertEqual(form.initial.get('role'), 'freelancer')
+        self.assertIsNone(form.initial.get('first_name'))
+        self.assertIsNone(form.initial.get('last_name'))
+        self.assertIsNone(form.initial.get('email'))
