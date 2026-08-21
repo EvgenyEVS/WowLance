@@ -38,6 +38,13 @@ def _registration_success_response(request, user, activation_url):
 
 
 def register(request):
+    # Общая часть для GET и POST: определяем, пришёл ли пользователь из WOW Talent
+    ref_code = request.GET.get('ref', '').strip()
+    is_wowtalent_ref = False
+    wt_data = get_wowtalent_user_data(ref_code) if ref_code else None
+    if wt_data:
+        is_wowtalent_ref = True
+
     if request.method == 'POST':
         form = RegistrationForm(request.POST)
         if form.is_valid():
@@ -52,18 +59,13 @@ def register(request):
                 )
             return _registration_success_response(request, user, activation_url)
     else:
+        # GET-запрос: заполняем initial данными из stub и ролью
         initial = {}
         role = request.GET.get('role', '')
         if role in ALLOWED_REGISTRATION_ROLES:
             initial['role'] = role
-        ref_code = request.GET.get('ref', '').strip()
-        is_wowtalent_ref = False
-
-        if ref_code:
-            wt_data = get_wowtalent_user_data(ref_code)
-            if wt_data:
-                initial.update(wt_data)  # Добавляем first_name, last_name, email в initial
-                is_wowtalent_ref = True
+        if wt_data:
+            initial.update(wt_data)  # first_name, last_name, email
         form = RegistrationForm(initial=initial)
 
     arch = request.GET.get('arch', '').strip()
