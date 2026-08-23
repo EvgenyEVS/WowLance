@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -17,7 +18,14 @@ from .forms import (
     RoomDocumentForm,
     TeamleadInviteRegisterForm,
 )
-from .models import Project, RoomActivity, RoomDocument, RoomMember, TeamleadInvite
+from .models import (
+    Project,
+    RoomActivity,
+    RoomDocument,
+    RoomFunctionSlot,
+    RoomMember,
+    TeamleadInvite,
+)
 from .onboarding import staffing_projects_for_user
 from .presets import (
     ARCHITECTURE_PRESETS,
@@ -37,8 +45,20 @@ from .services import (
     user_can_access_project,
     user_can_manage_team,
 )
+from .staffing import matching, selectors
+from .staffing.services import (
+    STAFFING_MUTABLE_STATUSES,
+    StaffingError,
+    assign_candidate_to_slot,
+    auto_assign_best_candidate,
+    confirm_freelancer_readiness,
+    replace_slot_member,
+)
 
 SESSION_ARCH_KEY = 'architecture_preset'
+
+#: Сколько кандидатов показывать на одной странице пула «Выбрать из пула».
+CANDIDATE_POOL_PAGE_SIZE = 20
 
 
 def _require_director(user):
@@ -54,6 +74,51 @@ def _get_accessible_project(user, project_id):
     if not user_can_access_project(user, project):
         raise PermissionDenied('Нет доступа к этому проекту.')
     return project
+
+
+def _staffing_is_open(project) -> bool:
+    """Показывать ли кнопки подбора: команда ещё формируется.
+
+    Только про UI. Настоящая защита — та же проверка внутри сервисов подбора,
+    поэтому прямой POST в закрытый по статусу проект не пройдёт.
+    """
+    return project.status in STAFFING_MUTABLE_STATUSES
+
+
+def _get_slot_for_staffing(request, project_id, slot_id):
+    """Слот комнаты для операции подбора: доступ к проекту + права на команду.
+
+    Права проверяются и здесь, и в сервисе. Дублирования бизнес-логики нет:
+    view отвечает за 403 до выполнения операции, сервис — за то, что операцию
+    нельзя выполнить в обход view.
+    """
+    project = _get_accessible_project(request.user, project_id)
+    if not user_can_manage_team(request.user, project):
+        raise PermissionDenied('Подбором кандидатов управляют директор и тимлид.')
+    room = ensure_room_for_project(project)
+    slot = get_object_or_404(RoomFunctionSlot, id=slot_id, room=room)
+    return project, room, slot
+
+
+def _slot_action_response(request, project, slot, message, is_error=False):
+    """HTMX → свежий partial карточки слота, обычный POST → redirect с flash.
+
+    Fallback без HTMX обязателен: интерфейс должен работать и при выключенном
+    JavaScript, поэтому кнопки подбора остаются обычными формами.
+    """
+    if request.headers.get('HX-Request'):
+        return render(request, 'rooms/_slot_card.html', {
+            'project': project,
+            'card': selectors.slot_card_for(slot),
+            'can_staff_slots': _staffing_is_open(project),
+            'action_note': message,
+            'action_note_is_error': is_error,
+        })
+    if is_error:
+        messages.error(request, message)
+    else:
+        messages.success(request, message)
+    return redirect('rooms:room_team', project_id=project.id)
 
 
 def _missing_launch_inputs(project):
@@ -321,6 +386,9 @@ def room_overview(request, project_id):
     my_membership = members.filter(user=request.user).first()
     activities = room.activities.select_related('actor').all()[:20]
     tasks = Task.objects.filter(project=project).select_related('assignee')[:50]
+    # Обзор показывает те же карточки слотов только на чтение: собственной
+    # копии правил подбора у него нет, управление остаётся на вкладке «Команда».
+    cards = selectors.slot_cards(room)
 
     return render(request, 'rooms/room_overview.html', {
         'project': project,
@@ -328,6 +396,8 @@ def room_overview(request, project_id):
         'members': members,
         'my_membership': my_membership,
         'activities': activities,
+        'slot_cards': cards,
+        'staffing_summary': selectors.staffing_summary(cards),
         'kanban_preview': _kanban_columns(tasks)[:3],
         'can_manage_team': user_can_manage_team(request.user, project),
         'can_launch': (
@@ -419,10 +489,15 @@ def room_team(request, project_id):
             reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token}),
         )
 
+    cards = selectors.slot_cards(room)
+
     return render(request, 'rooms/room_team.html', {
         'project': project,
         'room': room,
         'members': members,
+        'slot_cards': cards,
+        'staffing_summary': selectors.staffing_summary(cards),
+        'can_staff_slots': can_manage and _staffing_is_open(project),
         'can_manage_team': can_manage,
         'my_membership': my_membership,
         'teamlead_form': AssignTeamleadForm() if can_manage else None,
@@ -568,21 +643,110 @@ def room_remove_member(request, project_id, member_id):
 @login_required
 @require_POST
 def room_confirm_ready(request, project_id):
-    """Фрилансер подтверждает готовность к работе."""
+    """Фрилансер подтверждает готовность к работе.
+
+    Вся логика (готовность участника + пересчёт активации проекта) живёт в
+    `staffing.services.confirm_freelancer_readiness`; view только показывает
+    результат.
+    """
     project = _get_accessible_project(request.user, project_id)
     room = ensure_room_for_project(project)
-    member = get_object_or_404(RoomMember, room=room, user=request.user)
-    if member.role_in_room != RoomMember.RoleInRoom.FREELANCER:
-        messages.error(request, 'Подтверждение готовности — для фрилансеров.')
+    member = get_object_or_404(
+        RoomMember.objects.select_related('room__project', 'user'),
+        room=room,
+        user=request.user,
+    )
+    try:
+        confirm_freelancer_readiness(member, request.user)
+    except StaffingError as exc:
+        messages.error(request, str(exc))
         return redirect('rooms:room_overview', project_id=project.id)
 
-    member.ready_status = RoomMember.ReadyStatus.READY
-    member.save(update_fields=['ready_status'])
-    log_room_activity(
-        room,
-        f'{request.user.full_name} готов к работе.',
-        RoomActivity.EventType.READY,
-        actor=request.user,
-    )
     messages.success(request, 'Статус: готов к работе.')
     return redirect('rooms:room_overview', project_id=project.id)
+
+
+@login_required
+@require_POST
+def room_slot_auto_assign(request, project_id, slot_id):
+    """«Подобрать лучшего»: auto top-1 на пустой функциональный слот."""
+    project, _room, slot = _get_slot_for_staffing(request, project_id, slot_id)
+    try:
+        outcome = auto_assign_best_candidate(slot, request.user)
+    except StaffingError as exc:
+        return _slot_action_response(request, project, slot, str(exc), is_error=True)
+    return _slot_action_response(
+        request,
+        project,
+        slot,
+        outcome.message,
+        is_error=not outcome.assigned,
+    )
+
+
+@login_required
+@require_POST
+def room_slot_replace(request, project_id, slot_id):
+    """«Другой сейлер»: следующий по ranking кандидат вместо текущего."""
+    project, _room, slot = _get_slot_for_staffing(request, project_id, slot_id)
+    try:
+        outcome = replace_slot_member(slot, request.user)
+    except StaffingError as exc:
+        return _slot_action_response(request, project, slot, str(exc), is_error=True)
+    return _slot_action_response(
+        request,
+        project,
+        slot,
+        outcome.message,
+        is_error=not outcome.assigned,
+    )
+
+
+@login_required
+def room_slot_candidates(request, project_id, slot_id):
+    """«Выбрать из пула»: ROOM-страница подходящих кандидатов слота.
+
+    Пул берётся из Matching Engine с теми же исключениями, что и «следующий
+    кандидат»: уже рассмотренные по ЭТОМУ слоту не показываются, история
+    других слотов на выборку не влияет. Страница ничего не пишет в БД —
+    просмотр не проставляет `shown` кандидатам.
+
+    Публичный каталог `/freelancers/` не при чём: это отдельная страница
+    комнаты со своими правами (директор и тимлид).
+    """
+    project, _room, slot = _get_slot_for_staffing(request, project_id, slot_id)
+    candidates = matching.get_ranked_candidates(slot, exclude_seen=True)
+    page = Paginator(candidates, CANDIDATE_POOL_PAGE_SIZE).get_page(
+        request.GET.get('page'),
+    )
+    return render(request, 'rooms/room_slot_candidates.html', {
+        'project': project,
+        'card': selectors.slot_card_for(slot),
+        'slot': slot,
+        'page_obj': page,
+        'active_tab': 'team',
+    })
+
+
+@login_required
+@require_POST
+def room_slot_assign_candidate(request, project_id, slot_id, candidate_id):
+    """Ручное назначение кандидата из пула.
+
+    Eligibility перепроверяется сервером внутри сервиса: то, что кандидат
+    подходил на момент GET страницы пула, ничего не гарантирует.
+    """
+    project, _room, slot = _get_slot_for_staffing(request, project_id, slot_id)
+    candidate = get_object_or_404(User, id=candidate_id, role=User.Roles.FREELANCER)
+    try:
+        member = assign_candidate_to_slot(slot, candidate, request.user)
+    except StaffingError as exc:
+        messages.error(request, str(exc))
+        return redirect(
+            'rooms:room_slot_candidates',
+            project_id=project.id,
+            slot_id=slot.id,
+        )
+
+    messages.success(request, f'{member.user.full_name} назначен на слот.')
+    return redirect('rooms:room_team', project_id=project.id)

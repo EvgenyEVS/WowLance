@@ -68,6 +68,33 @@
         {% endif %}
     </div>
 
+    {% if staffing_summary.total %}
+    <div class="info-block" style="margin-top: 16px;">
+        {% comment %}
+        Обзор — только чтение: те же карточки слотов в компактном режиме,
+        без действий подбора. Управление живёт на вкладке «Команда», поэтому
+        второй копии бизнес-логики здесь нет.
+        {% endcomment %}
+        <div class="section-head">
+            <h3>Подбор команды</h3>
+            {% if can_manage_team %}
+            <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-ghost btn-sm">Управлять</a>
+            {% endif %}
+        </div>
+        <ul class="staffing-stats">
+            <li><strong>{{ staffing_summary.total }}</strong> активных слотов</li>
+            <li><strong>{{ staffing_summary.filled }}</strong> заполнено</li>
+            <li><strong>{{ staffing_summary.ready }}</strong> готовы к работе</li>
+            <li><strong>{{ staffing_summary.searching }}</strong> в поиске</li>
+        </ul>
+        <div class="slot-cards">
+            {% for card in slot_cards %}
+            {% include 'rooms/_slot_card.html' with card=card can_staff_slots=False compact=True %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="info-block" style="margin-top: 16px;">
         <h3>Команда</h3>
         <ul>

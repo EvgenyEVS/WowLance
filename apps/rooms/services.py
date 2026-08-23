@@ -85,7 +85,14 @@ def assign_teamlead(project: Project, teamlead: User, actor=None) -> RoomMember:
 
 @transaction.atomic
 def add_freelancer_to_room(room: Room, freelancer: User, actor=None) -> RoomMember:
-    """Добавляет фрилансера в комнату."""
+    """Добавляет фрилансера в комнату.
+
+    Статус проекта здесь не меняется. Раньше первый добавленный фрилансер
+    переводил проект `STAFFING → ACTIVE`; теперь активация — результат
+    подтверждённой готовности всей функциональной команды
+    (`apps.rooms.staffing.services.sync_project_activation`), а не факта
+    появления одного участника.
+    """
     member, created = RoomMember.objects.get_or_create(
         room=room,
         user=freelancer,
@@ -94,13 +101,6 @@ def add_freelancer_to_room(room: Room, freelancer: User, actor=None) -> RoomMemb
             'ready_status': RoomMember.ReadyStatus.PENDING,
         },
     )
-    freelancers_count = room.members.filter(
-        role_in_room=RoomMember.RoleInRoom.FREELANCER,
-    ).count()
-    project = room.project
-    if project.status == Project.Status.STAFFING and freelancers_count >= 1:
-        project.status = Project.Status.ACTIVE
-        project.save(update_fields=['status', 'updated_at'])
     if created:
         log_room_activity(
             room,

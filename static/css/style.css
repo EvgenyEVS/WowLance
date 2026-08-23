@@ -1588,3 +1588,97 @@ textarea::placeholder {
         flex-direction: column;
     }
 }
+
+/* --- Функциональные слоты команды (staffing) --- */
+
+.slot-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.slot-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.slot-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.slot-card h4 {
+    font-family: var(--font-display);
+    font-size: 15px;
+}
+
+.slot-req,
+.slot-empty,
+.slot-sla {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.slot-status-ready { color: var(--success); border-color: rgba(15, 122, 74, 0.35); }
+.slot-status-declined { color: var(--danger); border-color: rgba(198, 40, 40, 0.35); }
+.slot-status-assigned { color: var(--info); border-color: rgba(26, 107, 181, 0.35); }
+.slot-status-empty { color: var(--text-muted); }
+
+.slot-person strong {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.slot-note {
+    font-size: 13px;
+    color: var(--success);
+}
+
+.slot-note-error {
+    color: var(--danger);
+}
+
+.slot-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: auto;
+    padding-top: 6px;
+}
+
+.staffing-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    list-style: none;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.staffing-stats strong {
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 18px;
+    margin-right: 4px;
+}
+
+.candidate-card .baseball-actions form {
+    display: inline;
+}
+
+.pool-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+}

@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block title %}Пул кандидатов — {{ project.name }}{% endblock %}
+
+{% block content %}
+{% include 'rooms/_room_header.html' %}
+
+<div class="info-block">
+    <div class="section-head">
+        <h3>Кандидаты на слот «{{ slot.role_key }} #{{ slot.slot_index }}»</h3>
+        <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-ghost btn-sm">← К команде</a>
+    </div>
+    <p class="help-text">
+        {{ slot.get_required_level_display }} · {{ slot.get_required_channel_display }}.
+        Показаны только подходящие кандидаты, которых по этому слоту ещё не рассматривали.
+    </p>
+</div>
+
+<div class="slot-cards" style="margin-top: 16px;">
+    {% include 'rooms/_slot_card.html' with card=card can_staff_slots=False compact=True %}
+</div>
+
+{% if page_obj.object_list %}
+<div class="catalog-grid baseball-grid" style="margin-top: 16px;">
+    {% for profile in page_obj %}
+    {% include 'rooms/_candidate_card.html' with profile=profile %}
+    {% endfor %}
+</div>
+
+{% if page_obj.has_other_pages %}
+<nav class="pool-pagination">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}" class="btn btn-ghost btn-sm">← Назад</a>
+    {% endif %}
+    <span class="muted">Страница {{ page_obj.number }} из {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}" class="btn btn-ghost btn-sm">Вперёд →</a>
+    {% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="empty-state">
+    <h3>Подходящих кандидатов нет</h3>
+    <p>Все подходящие продавцы по этому слоту уже рассмотрены или заняты.</p>
+    <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-primary">Вернуться к команде</a>
+</div>
+{% endif %}
+{% endblock %}

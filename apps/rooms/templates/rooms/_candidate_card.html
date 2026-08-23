@@ -1,0 +1,48 @@
+{% comment %}
+Карточка кандидата в пуле слота (ROOM).
+
+Партиал принадлежит комнате, а не каталогу BIZ: публичный `/freelancers/`
+не меняется и ничего про слоты не знает. Переиспользуются только CSS-классы
+общей «бейсбольной» карточки, чтобы вид совпадал с каталогом.
+
+Здесь нет фильтрации и ранжирования — кандидатов уже отобрал Matching Engine.
+Признаки каналов показываются как данные профиля, отбор по ним живёт
+только в `apps/rooms/staffing/matching.py`.
+{% endcomment %}
+<article class="baseball-card candidate-card">
+    {% if profile.avatar_url %}
+    <img class="baseball-avatar baseball-avatar-img" src="{{ profile.avatar_url }}"
+         alt="{{ profile.full_name }}" width="56" height="56">
+    {% else %}
+    <div class="baseball-avatar" aria-hidden="true">
+        {{ profile.user.first_name|default:profile.user.email|slice:":1"|upper }}{{ profile.user.last_name|slice:":1"|upper }}
+    </div>
+    {% endif %}
+
+    <h3><a href="{% url 'profiles:detail' profile.user.id %}">{{ profile.full_name }}</a></h3>
+
+    <div class="profile-badges">
+        <span class="badge level">{{ profile.get_level_display }}</span>
+        <span class="badge rating">★ {{ profile.rating }}</span>
+        <span class="badge">Принято отчётов: {{ profile.acceptance_rate }}%</span>
+        <span class="badge">Проектов: {{ profile.experience_projects }}</span>
+    </div>
+
+    <div class="profile-badges">
+        {% if profile.does_cold_calling %}<span class="badge">Холодные звонки</span>{% endif %}
+        {% if profile.does_linkedin_outreach %}<span class="badge">LinkedIn</span>{% endif %}
+    </div>
+
+    {% if profile.video_url %}
+    <p><a href="{{ profile.video_url }}" target="_blank" rel="noopener">Видеопрезентация</a></p>
+    {% endif %}
+
+    <div class="baseball-actions">
+        <a href="{% url 'profiles:detail' profile.user.id %}" class="btn btn-secondary btn-sm">Карточка</a>
+        <form method="post"
+              action="{% url 'rooms:room_slot_assign_candidate' project.id slot.id profile.user.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary btn-sm">Назначить</button>
+        </form>
+    </div>
+</article>

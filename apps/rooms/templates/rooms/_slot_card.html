@@ -1,0 +1,80 @@
+{% comment %}
+Карточка функционального слота команды.
+
+Один и тот же partial используется тремя способами:
+* список слотов на вкладке «Команда» (с действиями подбора);
+* компактный read-only блок на «Обзоре» (`compact=True`);
+* ответ на HTMX-POST «Подобрать лучшего» / «Другой сейлер» — тогда шаблон
+  рендерится отдельно и заменяет свой же корневой div по id.
+
+Действия показываются только при `can_staff_slots` (директор/тимлид и проект
+ещё набирает команду). Фрилансер видит те же данные без кнопок.
+{% endcomment %}
+<div class="slot-card slot-card-{{ card.status }}" id="slot-card-{{ card.slot.id }}">
+    <div class="slot-card-head">
+        <div>
+            <h4>{{ card.slot.role_key }} <span class="muted">#{{ card.slot.slot_index }}</span></h4>
+            <p class="slot-req">
+                {{ card.slot.get_required_level_display }} · {{ card.slot.get_required_channel_display }}
+            </p>
+        </div>
+        <span class="badge slot-status slot-status-{{ card.status }}">{{ card.status_label }}</span>
+    </div>
+
+    {% if card.member %}
+    <div class="slot-person">
+        <strong>{{ card.member.user.full_name }}</strong>
+        <div class="profile-badges">
+            {% if card.profile %}
+            <span class="badge rating">★ {{ card.profile.rating }}</span>
+            <span class="badge">Принято отчётов: {{ card.profile.acceptance_rate }}%</span>
+            <span class="badge">Проектов: {{ card.profile.experience_projects }}</span>
+            {% endif %}
+            <span class="badge">{{ card.member.get_ready_status_display }}</span>
+        </div>
+        {% if card.profile.video_url %}
+        <p><a href="{{ card.profile.video_url }}" target="_blank" rel="noopener">Видеопрезентация</a></p>
+        {% endif %}
+        {% if card.status == 'assigned' %}
+        {% comment %}
+        Отдельной колонки под SLA-таймер нет: показываем реальное время
+        назначения (`RoomMember.joined_at`), а не выдуманный обратный отсчёт —
+        согласованного порога в проекте пока не зафиксировано.
+        {% endcomment %}
+        <p class="slot-sla">Ожидает подтверждения · назначен {{ card.assigned_at|timesince }} назад</p>
+        {% endif %}
+    </div>
+    {% else %}
+    <p class="slot-empty">Исполнитель не назначен.</p>
+    {% endif %}
+
+    {% if action_note %}
+    <p class="slot-note {% if action_note_is_error %}slot-note-error{% endif %}">{{ action_note }}</p>
+    {% endif %}
+
+    {% if can_staff_slots and not compact %}
+    <div class="slot-actions">
+        {% if card.member %}
+        <form method="post"
+              action="{% url 'rooms:room_slot_replace' project.id card.slot.id %}"
+              hx-post="{% url 'rooms:room_slot_replace' project.id card.slot.id %}"
+              hx-target="#slot-card-{{ card.slot.id }}"
+              hx-swap="outerHTML">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-secondary btn-sm">Другой сейлер</button>
+        </form>
+        {% else %}
+        <form method="post"
+              action="{% url 'rooms:room_slot_auto_assign' project.id card.slot.id %}"
+              hx-post="{% url 'rooms:room_slot_auto_assign' project.id card.slot.id %}"
+              hx-target="#slot-card-{{ card.slot.id }}"
+              hx-swap="outerHTML">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary btn-sm">Подобрать лучшего</button>
+        </form>
+        {% endif %}
+        <a href="{% url 'rooms:room_slot_candidates' project.id card.slot.id %}"
+           class="btn btn-ghost btn-sm">Выбрать из пула</a>
+    </div>
+    {% endif %}
+</div>
