@@ -21,7 +21,10 @@ class FreelancerProfileAdmin(admin.ModelAdmin):
         'full_name', 'user', 'level', 'country', 'rating',
         'acceptance_rate', 'is_verified', 'is_available',
     ]
-    list_filter = ['level', 'is_verified', 'is_available', 'country']
+    list_filter = [
+        'level', 'is_verified', 'is_available', 'country',
+        'does_cold_calling', 'does_linkedin_outreach',
+    ]
     search_fields = ['user__email', 'user__first_name', 'user__last_name']
     readonly_fields = ['created_at', 'updated_at']
     inlines = [PortfolioInline]
@@ -29,6 +32,7 @@ class FreelancerProfileAdmin(admin.ModelAdmin):
         ('Пользователь', {'fields': ('user',)}),
         ('Профиль', {'fields': ('country', 'level', 'experience_years', 'experience_projects')}),
         ('Навыки', {'fields': ('skills', 'key_advantages', 'languages', 'portfolio_links')}),
+        ('Каналы работы', {'fields': ('does_cold_calling', 'does_linkedin_outreach')}),
         ('Ссылки', {'fields': ('avatar_url', 'linkedin_url', 'video_url')}),
         ('Метрики', {'fields': ('rating', 'acceptance_rate', 'is_verified', 'is_available')}),
         ('Системные', {'fields': ('created_at', 'updated_at'), 'classes': ('collapse',)}),
