@@ -164,6 +164,19 @@ class UserProfileForm(forms.ModelForm):
             profile.save()
         return profile
 
+    def clean(self):
+        cleaned_data = super().clean()
+        is_available = cleaned_data.get('is_available')
+        video_url = cleaned_data.get('video_url')
+
+        # Если профиль помечен как доступный, но видео не добавлено
+        if is_available and not video_url:
+            self.add_error(
+                'video_url',
+                _('Чтобы отметить профиль как «доступен», необходимо добавить ссылку на видеопрезентацию.')
+            )
+
+        return cleaned_data
 
 FreelancerProfileForm = UserProfileForm
 
