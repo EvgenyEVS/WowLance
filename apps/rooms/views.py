@@ -3,18 +3,21 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_safe
 
 from apps.core.absolute_uri import absolute_uri
 from apps.pipeline.models import Task
 from apps.users.models import User
+from . import chat
 from .forms import (
     AddFreelancerForm,
     AddToRoomForm,
     AssignTeamleadForm,
     ProjectCreateForm,
+    RoomChatMessageForm,
     RoomDocumentForm,
     TeamleadInviteRegisterForm,
 )
@@ -500,14 +503,15 @@ def room_document_delete(request, project_id, document_id):
 
 @login_required
 def room_comms(request, project_id):
-    """Вкладка «Коммуникации»: каркас видеовстречи и чата комнаты.
+    """Вкладка «Коммуникации»: чат комнаты и заглушка видеовстречи.
 
-    Страница только читает состояние. В этом шаге нет ни внешнего Jitsi, ни
-    модели сообщений, ни сокетов: вкладка существует, чтобы комната была одним
-    пространством из шести разделов, а подключение придёт следующим шагом.
+    Страница только читает состояние: сообщения отправляет отдельный POST
+    (`room_chat_send`), а обновляет ленту отдельный GET (`room_chat_messages`).
+    Видеовстреча остаётся заглушкой — подключение придёт отдельным шагом.
 
-    `Room.chat_enabled` показывается как есть — это отображаемое состояние
-    комнаты, скрытых правил за ним не появляется.
+    При выключенном `chat_enabled` вкладка остаётся доступной и честно
+    показывает, что чат отключён: сама секция чата не рендерится, поэтому
+    опрос выключенного чата не запускается.
     """
     project = _get_accessible_project(request.user, project_id)
     room = getattr(project, 'room', None)
@@ -520,8 +524,85 @@ def room_comms(request, project_id):
     return render(request, 'rooms/room_comms.html', {
         'project': project,
         'room': room,
+        'chat_form': RoomChatMessageForm() if room.chat_enabled else None,
+        'chat_messages': (
+            chat.recent_chat_messages(room) if room.chat_enabled else []
+        ),
         'active_tab': 'comms',
     })
+
+
+def _get_chat_room(request, project_id):
+    """Комната для chat endpoints: доступ по RBAC ROOM + включённый чат.
+
+    Правила ролей не переписываются: доступ решает тот же
+    `_get_accessible_project` / `user_can_access_project`, что и остальные
+    вкладки. Поэтому удалённый из комнаты фрилансер теряет и чат — отдельного
+    списка «кому можно писать» не существует.
+
+    `chat_enabled=False` — это 403 на обоих endpoints, а не просто скрытый
+    блок в шаблоне: иначе выключение чата не защищало бы от прямого запроса.
+    """
+    project = _get_accessible_project(request.user, project_id)
+    room = getattr(project, 'room', None)
+    if room is None:
+        raise Http404('Комната проекта ещё не создана.')
+    if not room.chat_enabled:
+        raise PermissionDenied('Чат этой комнаты выключен.')
+    return project, room
+
+
+def _chat_partial(request, project, room, error=None):
+    """Свежий список сообщений — общий ответ и для опроса, и для отправки."""
+    return render(request, 'rooms/_chat_messages.html', {
+        'project': project,
+        'chat_messages': chat.recent_chat_messages(room),
+        'chat_error': error,
+    })
+
+
+@login_required
+@require_safe
+def room_chat_messages(request, project_id):
+    """Лента сообщений чата для HTMX-опроса.
+
+    `require_safe` — не украшение: этот адрес вызывается каждые несколько
+    секунд, и он обязан оставаться строго read-only. Ни одной записи в БД
+    здесь нет, комната по пути тоже не создаётся.
+    """
+    project, room = _get_chat_room(request, project_id)
+    return _chat_partial(request, project, room)
+
+
+@login_required
+@require_POST
+def room_chat_send(request, project_id):
+    """Отправка сообщения в чат комнаты.
+
+    Доступ проверяется здесь заново, на сервере: HTMX-запрос ничем не
+    привилегированнее прямого POST, поэтому чужая комната отсекается до
+    валидации формы.
+
+    Ответ зависит от клиента: HTMX получает обновлённый список сообщений,
+    обычная форма — redirect обратно на вкладку с flash-сообщением. Без
+    JavaScript чат остаётся рабочим.
+    """
+    project, room = _get_chat_room(request, project_id)
+    form = RoomChatMessageForm(request.POST)
+    error = None
+    if form.is_valid():
+        chat.post_chat_message(room, request.user, form.cleaned_data['text'])
+    else:
+        error = ' '.join(
+            str(message) for errors in form.errors.values() for message in errors
+        )
+
+    if request.headers.get('HX-Request'):
+        return _chat_partial(request, project, room, error=error)
+
+    if error:
+        messages.error(request, error)
+    return redirect('rooms:room_comms', project_id=project.id)
 
 
 @login_required

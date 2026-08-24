@@ -1,0 +1,33 @@
+{% comment %}
+Лента сообщений чата комнаты.
+
+Partial отдаётся тремя способами: внутри вкладки «Коммуникации», ответом на
+HTMX-опрос и ответом на HTMX-отправку. Поэтому здесь нет ни шапки комнаты,
+ни навигации по вкладкам — иначе HTMX-обновление вложило бы страницу в себя.
+
+Безопасность: текст выводится обычным autoescape Django, без `|safe` и без
+`{% templatetag openblock %} autoescape off {% templatetag closeblock %}`.
+Переносы строк сохраняет CSS (`white-space: pre-wrap` у .chat-text), а не
+фильтр linebreaks — фильтру пришлось бы отдавать разметку.
+{% endcomment %}
+{% if chat_error %}
+<p class="chat-error" role="alert">{{ chat_error }}</p>
+{% endif %}
+
+{% for message in chat_messages %}
+<article class="chat-message">
+    <div class="chat-message-head">
+        <span class="chat-author">
+            {% if message.author %}{{ message.author.full_name }}{% else %}Удалённый участник{% endif %}
+        </span>
+        <time class="chat-time" datetime="{{ message.created_at|date:'c' }}">
+            {{ message.created_at|date:'d.m.Y H:i' }}
+        </time>
+    </div>
+    <p class="chat-text">{{ message.text }}</p>
+</article>
+{% empty %}
+<p class="chat-empty muted">
+    Сообщений пока нет. Напишите первое — его увидит вся команда проекта.
+</p>
+{% endfor %}

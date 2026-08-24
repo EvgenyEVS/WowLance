@@ -1,11 +1,15 @@
 {% extends 'base.html' %}
 
 {% comment %}
-Вкладка «Коммуникации» — каркас.
+Вкладка «Коммуникации»: рабочий чат комнаты + заглушка видеовстречи.
 
-Здесь сознательно нет ни встроенного Jitsi, ни поля ввода сообщения: пустая
-форма и мёртвая кнопка выглядели бы как поломка. Вместо этого секции честно
-описывают, что появится, и страница остаётся полноценной шестой вкладкой.
+Видеовстреча пока остаётся честной заглушкой — Jitsi этим шагом не
+подключается, и секция ниже не изменена.
+
+Чат работает без SPA и сокетов: обычные Django-формы плюс HTMX-опрос
+(ADR-001). Разметка ленты живёт в одном месте — rooms/_chat_messages.html,
+который одинаково используется при первой отрисовке страницы, при опросе
+и в ответе на отправку.
 {% endcomment %}
 
 {% block title %}Коммуникации — {{ project.name }}{% endblock %}
@@ -32,27 +36,56 @@
     <section class="info-block comms-section" id="comms-chat">
         <div class="section-head">
             <h3>Чат комнаты</h3>
-            <span class="comms-status">Следующий этап</span>
+            {% if not room.chat_enabled %}<span class="comms-status">Отключён</span>{% endif %}
         </div>
-        <p class="muted">
-            Чат комнаты будет доступен здесь: общая переписка команды проекта
-            рядом с задачами и лидами, без отдельного мессенджера.
-        </p>
+
+        {% if room.chat_enabled %}
+        {% comment %}
+        Контейнер ленты сам себя обновляет: hx-get раз в 7 секунд и только
+        когда вкладка браузера видима — фоновая вкладка не должна опрашивать
+        сервер. Ответ — тот же partial, поэтому swap идёт в innerHTML.
+        Без JavaScript опроса не будет, но лента отрисована сервером и
+        обновляется обычной перезагрузкой страницы.
+        {% endcomment %}
+        <div class="chat-log"
+             id="chat-messages"
+             role="log"
+             aria-live="polite"
+             hx-get="{% url 'rooms:room_chat_messages' project.id %}"
+             hx-trigger="every 7s [document.visibilityState === 'visible']"
+             hx-swap="innerHTML">
+            {% include 'rooms/_chat_messages.html' %}
+        </div>
+
+        {% comment %}
+        Форма остаётся обычным POST с action и csrf_token: при выключенном
+        JavaScript браузер отправит её сам, а view ответит редиректом.
+        HTMX перехватывает ту же форму и подменяет только ленту.
+        {% endcomment %}
+        <form class="chat-form"
+              method="post"
+              action="{% url 'rooms:room_chat_send' project.id %}"
+              hx-post="{% url 'rooms:room_chat_send' project.id %}"
+              hx-target="#chat-messages"
+              hx-swap="innerHTML"
+              hx-on::after-request="this.reset()">
+            {% csrf_token %}
+            {{ chat_form.text }}
+            <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
+        </form>
+        {% else %}
+        <p class="muted">Чат отключён для этой комнаты.</p>
         <p class="help-text">
-            {% comment %}
-            chat_enabled показывается как есть — это отображаемое состояние
-            комнаты, а не переключатель функциональности.
-            {% endcomment %}
-            Чат в настройках комнаты сейчас
-            {% if room.chat_enabled %}включён{% else %}выключен{% endif %}.
+            Сообщения не отправляются и не читаются, пока чат выключен.
+            Включить его можно в настройках комнаты в админке платформы.
         </p>
+        {% endif %}
     </section>
 </div>
 
 <div class="info-block" style="margin-top: 16px;">
     <p class="help-text">
-        Пока коммуникации не подключены, работа команды идёт на соседних
-        вкладках:
+        Остальная работа команды идёт на соседних вкладках:
         <a href="{% url 'rooms:room_team' project.id %}">Команда</a>,
         <a href="{% url 'pipeline:room_tasks' project.id %}">Задачи</a>,
         <a href="{% url 'pipeline:room_leads' project.id %}">Лиды</a>.

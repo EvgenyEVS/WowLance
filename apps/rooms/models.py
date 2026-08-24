@@ -555,3 +555,51 @@ class RoomSlotCandidate(models.Model):
     def __str__(self):
         return f'{self.candidate} → {self.slot} ({self.get_outcome_display()})'
 
+
+
+class RoomChatMessage(models.Model):
+    """Сообщение в чате комнаты.
+
+    Минимальная переписка команды проекта: автор, текст, время. Правки,
+    удаление, вложения, реакции и счётчики непрочитанного сознательно не
+    заводятся — чат MVP по ADR-001 обновляется HTMX-опросом, без сокетов,
+    и не должен обрастать полями раньше подтверждённого спроса.
+
+    Отправка сообщения **не** пишет `RoomActivity`: лента комнаты остаётся
+    лентой значимых событий, а не копией переписки.
+
+    Автор удаляется через `SET_NULL`: сообщение — часть истории комнаты и
+    переживает уход участника, в UI показываясь как «Удалённый участник».
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    room = models.ForeignKey(
+        Room,
+        on_delete=models.CASCADE,
+        related_name='chat_messages',
+        verbose_name=_('Комната'),
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='room_chat_messages',
+        verbose_name=_('Автор'),
+    )
+    text = models.TextField(verbose_name=_('Сообщение'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Отправлено'))
+
+    class Meta:
+        verbose_name = _('Сообщение чата')
+        verbose_name_plural = _('Сообщения чата')
+        ordering = ['created_at']
+        indexes = [
+            models.Index(
+                fields=['room', 'created_at'],
+                name='room_chat_room_created_idx',
+            ),
+        ]
+
+    def __str__(self):
+        author = self.author.full_name if self.author else 'Удалённый участник'
+        return f'{author}: {self.text[:40]}'
