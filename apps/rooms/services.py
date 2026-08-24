@@ -5,6 +5,18 @@ from django.utils import timezone
 
 from apps.users.models import User
 from .models import Project, Room, RoomActivity, RoomMember, TeamleadInvite
+from .unit_economics import (  # noqa: F401  (публичный фасад модуля ROOM)
+    get_unit_economics_summary,
+    update_project_functional_roles,
+)
+
+# Состав функциональных ролей и юнит-экономика реализованы в
+# `apps.rooms.unit_economics`, но публичной точкой входа модуля ROOM остаётся
+# `apps.rooms.services` — как и для остальных операций над проектом.
+# Реэкспорт, а не перенос кода: держать снапшот, каталог и расчёты рядом
+# друг с другом полезнее, чем сваливать их в общий сервисный модуль.
+# Цикла импорта нет: `unit_economics` зависит от `models` и `presets`,
+# но не от `services`.
 
 # Заглушка суммы тестовой оплаты запуска проекта.
 # Без тарифной логики и расчётов: временная константа до боевого платёжного шлюза.

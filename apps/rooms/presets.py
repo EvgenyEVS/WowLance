@@ -1,8 +1,34 @@
-"""Пресеты архитектуры продаж для Apply Architecture / wizard."""
+"""Продуктовые пресеты комнаты.
 
+Два независимых набора:
+
+* `ARCHITECTURE_PRESETS` — заготовки проекта для Apply Architecture / wizard
+  (название, тип, тариф, вводные);
+* `FUNCTIONAL_ROLE_PACKAGES` — готовые составы функциональных ролей
+  (Issue #11): «Быстрый старт», «Масштабирование», «Enterprise аутрич».
+
+Пакет — это только заготовка состава, а не тариф и не сущность в БД: после
+применения директор правит `count` вручную, и связь проекта с пакетом нигде
+не хранится. Поэтому таблицы пакетов нет и админского редактирования
+пакетов тоже нет.
+"""
+
+from dataclasses import dataclass
 from decimal import Decimal
+from types import MappingProxyType
 
+from . import functional_roles
 from .models import Project
+
+__all__ = [
+    'ARCHITECTURE_PRESETS',
+    'FUNCTIONAL_ROLE_PACKAGES',
+    'FunctionalRolePackage',
+    'apply_preset_to_form_initial',
+    'functional_role_package_composition',
+    'get_architecture_preset',
+    'get_functional_role_package',
+]
 
 
 ARCHITECTURE_PRESETS = {
@@ -93,3 +119,77 @@ def apply_preset_to_form_initial(preset: dict) -> dict:
         'audience': data.get('audience', ''),
         'hot_criteria': data.get('hot_criteria', ''),
     }
+
+
+@dataclass(frozen=True)
+class FunctionalRolePackage:
+    """Готовый состав функциональных ролей."""
+
+    key: str
+    label: str
+    #: role_key → count. Порядок словаря — порядок структурного каталога.
+    composition: MappingProxyType
+
+
+def _package(key: str, label: str, composition: dict[str, int]) -> FunctionalRolePackage:
+    """Собирает пакет, проверяя его по структурному каталогу на импорте модуля.
+
+    Опечатка в `role_key` или пакет без обязательного Teamlead падают при
+    загрузке приложения, а не при первом клике директора по кнопке пакета.
+    """
+    unknown = set(composition) - set(functional_roles.FUNCTIONAL_ROLES)
+    if unknown:
+        raise ValueError(f'Пакет {key}: неизвестные role_key {sorted(unknown)}')
+    missing_fixed = functional_roles.FIXED_ROLE_KEYS - set(composition)
+    if missing_fixed:
+        raise ValueError(
+            f'Пакет {key}: отсутствуют обязательные роли {sorted(missing_fixed)}'
+        )
+    return FunctionalRolePackage(
+        key=key,
+        label=label,
+        composition=MappingProxyType(dict(composition)),
+    )
+
+
+#: Коммерческие пакеты MVP (Issue #11).
+FUNCTIONAL_ROLE_PACKAGES: MappingProxyType = MappingProxyType({
+    package.key: package
+    for package in (
+        _package('quick_start', 'Быстрый старт', {
+            'teamlead': 1,
+            'seller_middle': 1,
+        }),
+        _package('scaling', 'Масштабирование', {
+            'teamlead': 1,
+            'seller_middle': 2,
+            'linkedin_leadgen': 1,
+        }),
+        _package('enterprise', 'Enterprise аутрич', {
+            'teamlead': 1,
+            'seller_senior': 2,
+            'linkedin_leadgen': 1,
+        }),
+    )
+})
+
+
+def get_functional_role_package(package_key: str) -> FunctionalRolePackage | None:
+    """Пакет по ключу или None. Имя не сокращаем до `get_package`: рядом
+    живёт `get_architecture_preset`, и две «просто заготовки» перепутать легко."""
+    return FUNCTIONAL_ROLE_PACKAGES.get(package_key)
+
+
+def functional_role_package_composition(package_key: str) -> list[dict]:
+    """Состав пакета в формате входных данных `update_project_functional_roles`.
+
+    Возвращает новый список словарей: вызывающий код может править его,
+    не рискуя изменить сам пакет.
+    """
+    package = get_functional_role_package(package_key)
+    if package is None:
+        raise KeyError(f'Неизвестный пакет: {package_key!r}')
+    return [
+        {'role_key': role_key, 'count': count}
+        for role_key, count in package.composition.items()
+    ]

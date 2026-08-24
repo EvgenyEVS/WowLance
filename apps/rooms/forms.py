@@ -66,13 +66,23 @@ class ProjectCreateForm(forms.ModelForm):
         return name
 
     def save(self, commit=True):
+        """Обновляет вводные, **не затирая** остальной `input_data`.
+
+        `input_data` — общий словарь проекта: кроме четырёх полей формы там
+        живут `architecture` и снапшот состава команды
+        (`functional_roles`, см. `apps.rooms.unit_economics`). Раньше форма
+        присваивала словарь целиком, и любое сохранение вводных уносило
+        с собой всё остальное. Теперь редактируются только свои ключи.
+        """
         project = super().save(commit=False)
-        project.input_data = {
+        input_data = dict(project.input_data or {})
+        input_data.update({
             'offer': self.cleaned_data['offer'].strip(),
             'utp': self.cleaned_data['utp'].strip(),
             'audience': self.cleaned_data['audience'].strip(),
             'hot_criteria': self.cleaned_data['hot_criteria'].strip(),
-        }
+        })
+        project.input_data = input_data
         if commit:
             project.save()
         return project

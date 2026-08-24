@@ -9,6 +9,8 @@ from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from . import functional_roles
+
 
 class Project(models.Model):
     """Проект директора, в рамках которого запускаются продажи."""
@@ -603,3 +605,132 @@ class RoomChatMessage(models.Model):
     def __str__(self):
         author = self.author.full_name if self.author else 'Удалённый участник'
         return f'{author}: {self.text[:40]}'
+
+
+class FunctionalRoleConfig(models.Model):
+    """Бизнес-значения функциональной роли, редактируемые администратором.
+
+    В таблице лежит **только то, что администратор вправе менять на проде**:
+    стоимость, часы, текст продуктивности и Hot-лиды. Структура роли
+    (`label`, `grade`, `channel`, `is_fixed`) живёт в коде —
+    `apps.rooms.functional_roles.FUNCTIONAL_ROLES` — и сюда не копируется:
+    от неё зависят будущая проекция в `RoomFunctionSlot` и подбор, поэтому
+    менять её через админку нельзя. Структурные поля доступны здесь
+    свойствами (`label`, `grade`, `channel`, `is_fixed`) для read-only показа.
+
+    Отдельной таксономии грейдов и каналов в БД нет намеренно: это
+    фиксированные enum'ы продукта, а не справочник, который кто-то ведёт.
+
+    Строк ровно пять — по числу ролей каталога; они создаются data-миграцией.
+    Шестую роль завести нельзя (`choices` на `role_key` + запреты в админке),
+    системную роль нельзя удалить (`delete()` ниже + запрет в админке).
+
+    `productivity_text` — свободная строка. Числовой «охват / производительность»
+    здесь сознательно не считается: эта математика будет переработана
+    Product Owner отдельно.
+    """
+
+    role_key = models.CharField(
+        max_length=64,
+        unique=True,
+        choices=functional_roles.FUNCTIONAL_ROLE_KEY_CHOICES,
+        verbose_name=_('Ключ функции'),
+        help_text=_('Структурный ключ из каталога. После создания не меняется.'),
+    )
+    monthly_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+        verbose_name=_('Стоимость, ₽/мес'),
+    )
+    monthly_hours = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_('Часов в месяц'),
+    )
+    productivity_text = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        verbose_name=_('Продуктивность'),
+        help_text=_('Текстовое описание строки, например «60 звонков / день».'),
+    )
+    hot_leads_per_month = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_('Hot-лидов в месяц'),
+    )
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_('Обновлено'))
+
+    class Meta:
+        verbose_name = _('Бизнес-параметры функции')
+        verbose_name_plural = _('Бизнес-параметры функций')
+        ordering = ['role_key']
+
+    def __str__(self):
+        return f'{self.label} ({self.role_key})'
+
+    # --- Структурные поля каталога (read-only) ---------------------------
+
+    @property
+    def structural(self):
+        """Структурное описание роли из каталога кода или None."""
+        return functional_roles.get_structural_role(self.role_key)
+
+    @property
+    def label(self) -> str:
+        role = self.structural
+        return role.label if role else self.role_key
+
+    @property
+    def grade(self) -> str | None:
+        role = self.structural
+        return role.grade if role else None
+
+    @property
+    def channel(self) -> str | None:
+        role = self.structural
+        return role.channel if role else None
+
+    @property
+    def is_fixed(self) -> bool:
+        role = self.structural
+        return bool(role and role.is_fixed)
+
+    # --- Защита структурных инвариантов ----------------------------------
+
+    def clean(self):
+        """Держит таблицу в согласии со структурным каталогом.
+
+        Проверяется в том числе смена `role_key` у существующей записи:
+        `choices` разрешили бы переименовать «Тимлид проекта» в «Сейлер Senior»,
+        и сохранённые проекты молча получили бы чужую экономику при
+        следующем сохранении состава.
+        """
+        super().clean()
+        if not functional_roles.is_known_role_key(self.role_key):
+            raise ValidationError({
+                'role_key': _('Неизвестная функция: %(key)s. Каталог задаётся в коде.')
+                % {'key': self.role_key},
+            })
+        if self.pk:
+            stored = (
+                type(self)
+                .objects.filter(pk=self.pk)
+                .values_list('role_key', flat=True)
+                .first()
+            )
+            if stored is not None and stored != self.role_key:
+                raise ValidationError({
+                    'role_key': _('role_key системной функции менять нельзя.'),
+                })
+
+    def delete(self, *args, **kwargs):
+        """Системные роли не удаляются.
+
+        Каталог из пяти функций — часть продукта: удалённая строка сломала бы
+        сохранение состава проектов, которые на неё ссылаются. Админка тоже
+        запрещает удаление, эта проверка закрывает shell и случайный код.
+        """
+        raise ValidationError(
+            _('Системную функцию «%(label)s» удалить нельзя.') % {'label': self.label}
+        )
