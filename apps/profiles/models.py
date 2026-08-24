@@ -74,6 +74,20 @@ class FreelancerProfile(models.Model):
         help_text='Например: ["https://linkedin.com/in/...", "https://drive.google.com/..."]',
     )
 
+    # Структурированные каналы работы для будущего подбора (staffing/matching).
+    # В отличие от свободного текста `skills`, эти признаки пригодны
+    # для жёсткого ORM-фильтра. Оба признака независимы и могут быть True вместе.
+    does_cold_calling = models.BooleanField(
+        default=False,
+        verbose_name=_('Работает с холодными звонками'),
+        help_text=_('Cold Calling — структурированный признак для подбора'),
+    )
+    does_linkedin_outreach = models.BooleanField(
+        default=False,
+        verbose_name=_('Работает с LinkedIn-аутричем'),
+        help_text=_('LinkedIn — структурированный признак для подбора'),
+    )
+
     linkedin_url = models.URLField(
         blank=True,
         verbose_name=_('LinkedIn'),
@@ -125,6 +139,8 @@ class FreelancerProfile(models.Model):
             models.Index(fields=['is_verified']),
             models.Index(fields=['is_available']),
             models.Index(fields=['country']),
+            models.Index(fields=['does_cold_calling']),
+            models.Index(fields=['does_linkedin_outreach']),
         ]
 
     def __str__(self):

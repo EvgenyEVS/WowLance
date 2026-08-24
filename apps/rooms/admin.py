@@ -1,6 +1,15 @@
 from django.contrib import admin
 
-from .models import Project, Room, RoomActivity, RoomDocument, RoomMember, TeamleadInvite
+from .models import (
+    Project,
+    Room,
+    RoomActivity,
+    RoomDocument,
+    RoomFunctionSlot,
+    RoomMember,
+    RoomSlotCandidate,
+    TeamleadInvite,
+)
 
 
 class RoomMemberInline(admin.TabularInline):
@@ -43,10 +52,38 @@ class RoomAdmin(admin.ModelAdmin):
 
 @admin.register(RoomMember)
 class RoomMemberAdmin(admin.ModelAdmin):
-    list_display = ['user', 'room', 'role_in_room', 'ready_status', 'joined_at']
-    list_filter = ['role_in_room', 'ready_status']
+    list_display = [
+        'user', 'room', 'role_in_room', 'role_key',
+        'function_slot', 'ready_status', 'joined_at',
+    ]
+    list_filter = ['role_in_room', 'ready_status', 'role_key']
     search_fields = ['user__email', 'room__project__name']
     autocomplete_fields = ['user', 'room']
+
+
+@admin.register(RoomFunctionSlot)
+class RoomFunctionSlotAdmin(admin.ModelAdmin):
+    list_display = [
+        'room', 'role_key', 'slot_index', 'required_level',
+        'required_channel', 'is_active', 'assigned_member',
+    ]
+    list_filter = ['role_key', 'required_level', 'required_channel', 'is_active']
+    search_fields = ['role_key', 'room__project__name']
+    autocomplete_fields = ['room']
+    readonly_fields = ['created_at', 'updated_at']
+
+    @admin.display(description='Занят участником')
+    def assigned_member(self, obj):
+        return obj.assigned_member or '—'
+
+
+@admin.register(RoomSlotCandidate)
+class RoomSlotCandidateAdmin(admin.ModelAdmin):
+    list_display = ['slot', 'candidate', 'outcome', 'actor', 'created_at', 'updated_at']
+    list_filter = ['outcome']
+    search_fields = ['candidate__email', 'slot__role_key', 'slot__room__project__name']
+    autocomplete_fields = ['candidate', 'actor']
+    readonly_fields = ['created_at', 'updated_at']
 
 
 @admin.register(RoomDocument)
