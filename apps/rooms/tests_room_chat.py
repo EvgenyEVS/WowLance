@@ -147,7 +147,7 @@ class RoomChatFeatureToggleTests(RoomChatTestCase):
         legacy_room = Room.objects.create(project=legacy_project, chat_enabled=False)
 
         migration = importlib.import_module(
-            'apps.rooms.migrations.0006_enable_chat_for_existing_rooms'
+            'apps.rooms.migrations.0008_enable_chat_for_existing_rooms'
         )
         migration.enable_chat_for_existing_rooms(django_apps, connection.schema_editor())
 
