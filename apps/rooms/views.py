@@ -127,6 +127,30 @@ def _missing_launch_inputs(project):
     return [key for key in required if not (project.input_data or {}).get(key)]
 
 
+#: Заголовок единственной пока группы материалов.
+#: У RoomDocument нет поля категории, и заводить его миграцией — отдельный шаг.
+#: Страница уже рендерит *список групп*, поэтому появление категорий сведётся
+#: к другой реализации `_material_groups`, без переделки шаблона.
+MATERIALS_DEFAULT_GROUP_KEY = 'all'
+MATERIALS_DEFAULT_GROUP_TITLE = 'Все материалы'
+
+
+def _material_groups(documents):
+    """Материалы комнаты, сгруппированные для отображения.
+
+    Сейчас группа одна: категорий у документа нет. Пустой список означает
+    «материалов нет» — шаблон показывает empty state.
+    """
+    docs = list(documents)
+    if not docs:
+        return []
+    return [{
+        'key': MATERIALS_DEFAULT_GROUP_KEY,
+        'title': MATERIALS_DEFAULT_GROUP_TITLE,
+        'documents': docs,
+    }]
+
+
 def _kanban_columns(tasks):
     review_statuses = {Task.Status.READY_FOR_REVIEW}
     done_statuses = {Task.Status.APPROVED, Task.Status.CLOSED}
@@ -410,7 +434,11 @@ def room_overview(request, project_id):
 
 @login_required
 def room_documents(request, project_id):
-    """Документы / Dropbox-lite комнаты."""
+    """Вкладка «Материалы»: файлы комнаты.
+
+    Имя view и URL остаются documents — переименование ради подписи вкладки
+    сломало бы reverse и существующие ссылки, ничего не дав пользователю.
+    """
     project = _get_accessible_project(request.user, project_id)
     room = ensure_room_for_project(project)
     documents = room.documents.select_related('uploaded_by').all()
@@ -419,6 +447,7 @@ def room_documents(request, project_id):
         'project': project,
         'room': room,
         'documents': documents,
+        'material_groups': _material_groups(documents),
         'form': form,
         'can_upload': user_can_access_project(request.user, project),
         'can_manage_team': user_can_manage_team(request.user, project),
@@ -441,11 +470,11 @@ def room_document_upload(request, project_id):
         doc.save()
         log_room_activity(
             room,
-            f'Документ «{doc.title}» загружен.',
+            f'Материал «{doc.title}» загружен.',
             RoomActivity.EventType.DOCUMENT_UPLOADED,
             actor=request.user,
         )
-        messages.success(request, 'Документ загружен.')
+        messages.success(request, 'Материал загружен.')
     else:
         for errors in form.errors.values():
             for error in errors:
@@ -463,10 +492,36 @@ def room_document_delete(request, project_id, document_id):
         user_can_manage_team(request.user, project)
         or doc.uploaded_by_id == request.user.id
     ):
-        raise PermissionDenied('Нельзя удалить этот документ.')
+        raise PermissionDenied('Нельзя удалить этот материал.')
     doc.delete()
-    messages.success(request, 'Документ удалён.')
+    messages.success(request, 'Материал удалён.')
     return redirect('rooms:room_documents', project_id=project.id)
+
+
+@login_required
+def room_comms(request, project_id):
+    """Вкладка «Коммуникации»: каркас видеовстречи и чата комнаты.
+
+    Страница только читает состояние. В этом шаге нет ни внешнего Jitsi, ни
+    модели сообщений, ни сокетов: вкладка существует, чтобы комната была одним
+    пространством из шести разделов, а подключение придёт следующим шагом.
+
+    `Room.chat_enabled` показывается как есть — это отображаемое состояние
+    комнаты, скрытых правил за ним не появляется.
+    """
+    project = _get_accessible_project(request.user, project_id)
+    room = getattr(project, 'room', None)
+    if room is None:
+        # Комнаты ещё нет (проект в черновике). Вкладка коммуникаций ничего
+        # не создаёт, поэтому отправляем на карточку проекта, а не создаём
+        # комнату побочным эффектом GET-запроса.
+        return redirect('rooms:project_detail', project_id=project.id)
+
+    return render(request, 'rooms/room_comms.html', {
+        'project': project,
+        'room': room,
+        'active_tab': 'comms',
+    })
 
 
 @login_required

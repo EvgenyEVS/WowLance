@@ -24,6 +24,7 @@ urlpatterns = [
         views.room_document_delete,
         name='room_document_delete',
     ),
+    path('projects/<uuid:project_id>/room/comms/', views.room_comms, name='room_comms'),
     path('projects/<uuid:project_id>/room/team/', views.room_team, name='room_team'),
     path(
         'projects/<uuid:project_id>/room/team/assign-teamlead/',

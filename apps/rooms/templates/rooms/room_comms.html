@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% comment %}
+Вкладка «Коммуникации» — каркас.
+
+Здесь сознательно нет ни встроенного Jitsi, ни поля ввода сообщения: пустая
+форма и мёртвая кнопка выглядели бы как поломка. Вместо этого секции честно
+описывают, что появится, и страница остаётся полноценной шестой вкладкой.
+{% endcomment %}
+
+{% block title %}Коммуникации — {{ project.name }}{% endblock %}
+
+{% block content %}
+{% include 'rooms/_room_header.html' %}
+
+<div class="room-grid">
+    <section class="info-block comms-section" id="comms-video">
+        <div class="section-head">
+            <h3>Видеовстреча</h3>
+            <span class="comms-status">Следующий этап</span>
+        </div>
+        <p class="muted">
+            Видеовстреча комнаты будет доступна здесь: одна постоянная ссылка
+            на всю команду проекта — без пересылки приглашений в мессенджерах.
+        </p>
+        <p class="help-text">
+            Пока созванивайтесь привычным способом. Когда встречи подключат,
+            вкладка не изменится — ссылка появится в этой же секции.
+        </p>
+    </section>
+
+    <section class="info-block comms-section" id="comms-chat">
+        <div class="section-head">
+            <h3>Чат комнаты</h3>
+            <span class="comms-status">Следующий этап</span>
+        </div>
+        <p class="muted">
+            Чат комнаты будет доступен здесь: общая переписка команды проекта
+            рядом с задачами и лидами, без отдельного мессенджера.
+        </p>
+        <p class="help-text">
+            {% comment %}
+            chat_enabled показывается как есть — это отображаемое состояние
+            комнаты, а не переключатель функциональности.
+            {% endcomment %}
+            Чат в настройках комнаты сейчас
+            {% if room.chat_enabled %}включён{% else %}выключен{% endif %}.
+        </p>
+    </section>
+</div>
+
+<div class="info-block" style="margin-top: 16px;">
+    <p class="help-text">
+        Пока коммуникации не подключены, работа команды идёт на соседних
+        вкладках:
+        <a href="{% url 'rooms:room_team' project.id %}">Команда</a>,
+        <a href="{% url 'pipeline:room_tasks' project.id %}">Задачи</a>,
+        <a href="{% url 'pipeline:room_leads' project.id %}">Лиды</a>.
+    </p>
+</div>
+{% endblock %}
