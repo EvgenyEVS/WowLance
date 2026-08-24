@@ -1,35 +1,48 @@
 {% extends 'base.html' %}
 
-{% block title %}Документы — {{ project.name }}{% endblock %}
+{% comment %}
+Вкладка «Материалы». Шаблон и URL остаются documents: переименован только UI.
+
+Файлы рендерятся по группам (`material_groups`), хотя группа сейчас одна —
+у RoomDocument нет поля категории. Когда категории появятся, изменится только
+`_material_groups` во view, а разметка страницы останется прежней.
+{% endcomment %}
+
+{% block title %}Материалы — {{ project.name }}{% endblock %}
 
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
 <div class="dropbox-lite">
     <div class="section-head">
-        <h3>Файлы комнаты</h3>
-        <p class="subtitle">Общее хранилище вводных, скриптов и материалов</p>
+        <h3>Материалы комнаты</h3>
+        <p class="subtitle">Общее хранилище вводных, скриптов и презентаций</p>
     </div>
 
-    {% if documents %}
-    <div class="dropbox-grid">
-        {% for doc in documents %}
-        <article class="dropbox-card">
-            <div class="dropbox-icon">📄</div>
-            <h4><a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a></h4>
-            <p class="muted">{{ doc.uploaded_by.full_name|default:"—" }} · {{ doc.created_at|date:"d.m.Y H:i" }}</p>
-            {% if can_manage_team or doc.uploaded_by_id == user.id %}
-            <form method="post"
-                  action="{% url 'rooms:room_document_delete' project.id doc.id %}"
-                  onsubmit="return confirm('Удалить документ?');">
-                {% csrf_token %}
-                <button type="submit" class="btn-delete">Удалить</button>
-            </form>
-            {% endif %}
-        </article>
-        {% endfor %}
-    </div>
-    {% else %}
+    {% for group in material_groups %}
+    <section class="materials-group">
+        {% if material_groups|length > 1 %}
+        <h4 class="materials-group-title">{{ group.title }}</h4>
+        {% endif %}
+        <div class="dropbox-grid">
+            {% for doc in group.documents %}
+            <article class="dropbox-card">
+                <div class="dropbox-icon">📄</div>
+                <h4><a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a></h4>
+                <p class="muted">{{ doc.uploaded_by.full_name|default:"—" }} · {{ doc.created_at|date:"d.m.Y H:i" }}</p>
+                {% if can_manage_team or doc.uploaded_by_id == user.id %}
+                <form method="post"
+                      action="{% url 'rooms:room_document_delete' project.id doc.id %}"
+                      onsubmit="return confirm('Удалить материал?');">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-delete">Удалить</button>
+                </form>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% empty %}
     <div class="empty-state">
         <h3>Папка пуста</h3>
         <p>Загрузите презентацию, скрипт звонка или бриф — как в Dropbox комнаты.</p>
@@ -37,12 +50,12 @@
         <a href="#upload" class="btn btn-primary" onclick="document.getElementById('upload').scrollIntoView({behavior:'smooth'}); return false;">Загрузить файл</a>
         {% endif %}
     </div>
-    {% endif %}
+    {% endfor %}
 </div>
 
 {% if can_upload %}
 <div class="upload-form" id="upload">
-    <h4>Загрузить документ</h4>
+    <h4>Загрузить материал</h4>
     <form method="post" enctype="multipart/form-data" action="{% url 'rooms:room_document_upload' project.id %}">
         {% csrf_token %}
         <div class="form-group">
