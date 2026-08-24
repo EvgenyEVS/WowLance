@@ -4,6 +4,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from apps.users.models import User
+from .chat import CHAT_MESSAGE_MAX_LENGTH
 from .models import Project, RoomDocument
 
 
@@ -202,3 +203,37 @@ class TeamleadInviteRegisterForm(forms.Form):
         user.set_password(self.cleaned_data['password1'])
         user.save()
         return user
+
+
+class RoomChatMessageForm(forms.Form):
+    """Отправка сообщения в чат комнаты.
+
+    Обычная форма, а не ModelForm: у сообщения из всех полей пользователь
+    задаёт только текст, а автора, комнату и время проставляет сервис.
+    ModelForm здесь дал бы редактируемыми ровно те поля, которые
+    пользователю трогать нельзя.
+
+    `strip=True` вместе с `required=True` отсекает сообщения из одних
+    пробелов и переводов строки: после strip остаётся пустая строка,
+    и форма становится невалидной.
+    """
+
+    text = forms.CharField(
+        label=_('Сообщение'),
+        required=True,
+        strip=True,
+        max_length=CHAT_MESSAGE_MAX_LENGTH,
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 2,
+            'maxlength': CHAT_MESSAGE_MAX_LENGTH,
+            'placeholder': _('Написать сообщение команде…'),
+            'aria-label': _('Текст сообщения'),
+        }),
+        error_messages={
+            'required': _('Сообщение не может быть пустым.'),
+            'max_length': _(
+                'Сообщение длиннее %(limit)d символов.'
+            ) % {'limit': CHAT_MESSAGE_MAX_LENGTH},
+        },
+    )

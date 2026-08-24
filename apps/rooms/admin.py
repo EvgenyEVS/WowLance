@@ -5,6 +5,7 @@ from .models import (
     Project,
     Room,
     RoomActivity,
+    RoomChatMessage,
     RoomDocument,
     RoomFunctionSlot,
     RoomMember,
@@ -190,3 +191,23 @@ class FunctionalRoleConfigAdmin(admin.ModelAdmin):
         actions.pop('delete_selected', None)
         return actions
 
+
+@admin.register(RoomChatMessage)
+class RoomChatMessageAdmin(admin.ModelAdmin):
+    """Минимальный просмотр переписки комнаты.
+
+    Поиска по полному тексту сообщений нет намеренно: продуктовой модерации
+    чата сейчас не существует, а полнотекстовый поиск по всей переписке — это
+    отдельное решение о доступе к личным данным, а не деталь админки.
+    Найти нужную комнату можно по проекту, автора — по email.
+    """
+
+    list_display = ['room', 'author', 'short_text', 'created_at']
+    list_filter = ['created_at']
+    search_fields = ['room__project__name', 'author__email']
+    autocomplete_fields = ['room', 'author']
+    readonly_fields = ['created_at']
+
+    @admin.display(description='Текст')
+    def short_text(self, obj):
+        return obj.text[:80] + ('…' if len(obj.text) > 80 else '')

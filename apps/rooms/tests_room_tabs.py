@@ -302,16 +302,26 @@ class RoomCommsTabTests(RoomTabsTestCase):
         self.assertContains(response, 'id="comms-video"')
         self.assertContains(response, 'id="comms-chat"')
 
-    def test_page_shows_chat_enabled_as_read_only_state(self):
-        """chat_enabled только отображается: GET его не переключает."""
-        self.client.force_login(self.director)
-        self.assertFalse(self.project.room.chat_enabled)
-        self.assertContains(self.client.get(self.url), 'выключен')
+    def test_page_reflects_chat_enabled_and_get_never_changes_it(self):
+        """chat_enabled управляет секцией чата, но GET его не переключает.
 
-        Room.objects.filter(pk=self.project.room.pk).update(chat_enabled=True)
-        self.assertContains(self.client.get(self.url), 'включён')
+        Ожидание обновлено вместе с чатом: новая комната открывается с
+        включённым чатом (`services.ensure_room_for_project`), поэтому
+        прежняя проверка «по умолчанию выключен» больше не описывает продукт.
+        Read-only характер вкладки проверяется по-прежнему.
+        """
+        self.client.force_login(self.director)
+        self.assertTrue(self.project.room.chat_enabled)
+        self.assertContains(self.client.get(self.url), 'id="chat-messages"')
         self.project.room.refresh_from_db()
         self.assertTrue(self.project.room.chat_enabled)
+
+        Room.objects.filter(pk=self.project.room.pk).update(chat_enabled=False)
+        response = self.client.get(self.url)
+        self.assertContains(response, 'Чат отключён')
+        self.assertNotContains(response, 'id="chat-messages"')
+        self.project.room.refresh_from_db()
+        self.assertFalse(self.project.room.chat_enabled)
 
     def test_get_does_not_create_or_change_data(self):
         """Каркас ничего не пишет: ни комнат, ни участников, ни событий."""

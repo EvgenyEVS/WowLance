@@ -36,8 +36,19 @@ def log_room_activity(room: Room, message: str, event_type: str, actor=None) -> 
 
 @transaction.atomic
 def ensure_room_for_project(project: Project) -> Room:
-    """Создаёт комнату и добавляет директора участником, если ещё нет."""
-    room, created = Room.objects.get_or_create(project=project)
+    """Создаёт комнату и добавляет директора участником, если ещё нет.
+
+    Новая комната открывается с включённым чатом: он часть комнаты, а не
+    дополнительная опция, которую кто-то должен не забыть включить.
+    Значение задаётся здесь, в `defaults`, а не в `Room.chat_enabled.default` —
+    так у уже существующих комнат ничего не меняется молча, а выключить чат
+    конкретной комнате через админку по-прежнему можно: `get_or_create`
+    применяет `defaults` только при создании и не перезаписывает их потом.
+    """
+    room, created = Room.objects.get_or_create(
+        project=project,
+        defaults={'chat_enabled': True},
+    )
     RoomMember.objects.get_or_create(
         room=room,
         user=project.owner,
