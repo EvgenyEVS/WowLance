@@ -1,9 +1,12 @@
 """Сервисы для проектов и комнат."""
 
+from dataclasses import dataclass
+
 from django.db import transaction
 from django.utils import timezone
 
 from apps.users.models import User
+from . import presets
 from .models import Project, Room, RoomActivity, RoomMember, TeamleadInvite
 from .unit_economics import (  # noqa: F401  (публичный фасад модуля ROOM)
     apply_package_to_project,
@@ -61,6 +64,69 @@ def ensure_room_for_project(project: Project) -> Room:
             defaults={'role_in_room': RoomMember.RoleInRoom.TEAMLEAD},
         )
     return room
+
+
+# ---------------------------------------------------------------------------
+# Состав функциональных ролей + проекция в слоты комнаты
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CompositionSaveResult:
+    """Итог одного сохранения состава: экономика проекта и что стало со слотами.
+
+    Две части одной операции возвращаются вместе, потому что вместе и
+    происходят: `summary` — то, что купил директор, `projection` — то, во
+    что это превратилось в комнате.
+    """
+
+    #: `apps.rooms.unit_economics.UnitEconomicsSummary`.
+    summary: object
+    #: `apps.rooms.staffing.projection.SlotProjectionResult`.
+    projection: object
+
+
+@transaction.atomic
+def save_functional_roles_and_sync_slots(project: Project, roles_data, user):
+    """Единственная точка изменения состава команды: снапшот + слоты комнаты.
+
+    Все write-path конфигуратора (числовой ввод, «+», «−», добавление и
+    удаление функции, применение пакета) заканчиваются здесь. Иначе
+    появился бы сценарий «кнопкой слоты создаются, пакетом — нет».
+
+    Атомарность обязательна и в этом весь смысл сервиса. Состав, бюджет
+    проекта и слоты комнаты — одно состояние: если проекция упирается в
+    занятый слот, `Project.input_data` и `Project.budget` тоже обязаны
+    остаться прежними. Поэтому `@transaction.atomic` стоит над **обоими**
+    шагами, а не только внутри каждого из них.
+
+    Обратите внимание: python-объект `project` после отката остаётся с
+    новыми значениями в памяти — БД откатывается, а атрибуты нет. Тот, кто
+    строит ответ после ошибки, обязан перечитать проект из БД
+    (`_configurator_response` это делает).
+
+    Импорт проекции — функцией: `apps.rooms.staffing` импортирует
+    `apps.rooms.services`, и модульный импорт обратно замкнул бы граф.
+    """
+    from .staffing.projection import sync_functional_roles_to_slots
+
+    summary = update_project_functional_roles(project, roles_data, user)
+    projection = sync_functional_roles_to_slots(project)
+    return CompositionSaveResult(summary=summary, projection=projection)
+
+
+def apply_package_and_sync_slots(project: Project, package_key: str, user):
+    """Пакет — то же самое сохранение состава, той же оркестрацией.
+
+    Состав пакета берётся из `apps.rooms.presets` (единственный источник) и
+    дальше идёт общим путём: второй копии ни состава пакета, ни проекции
+    здесь не появляется.
+    """
+    return save_functional_roles_and_sync_slots(
+        project,
+        presets.functional_role_package_composition(package_key),
+        user,
+    )
 
 
 @transaction.atomic

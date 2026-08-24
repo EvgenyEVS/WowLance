@@ -39,14 +39,14 @@ from .services import (
     TEST_LAUNCH_PAYMENT_AMOUNT_LABEL,
     accept_teamlead_invite,
     add_freelancer_to_room,
-    apply_package_to_project,
+    apply_package_and_sync_slots,
     assign_teamlead,
     create_teamlead_invite,
     ensure_room_for_project,
     handle_project_paid,
     launch_project,
     log_room_activity,
-    update_project_functional_roles,
+    save_functional_roles_and_sync_slots,
     user_can_access_project,
     user_can_edit_functional_roles,
     user_can_manage_team,
@@ -450,14 +450,20 @@ def _configurator_response(request, project, *, error=None, notice=None):
     Fallback без HTMX обязателен: таблица остаётся рабочей формой при
     выключенном JavaScript, как и кнопки подбора на вкладке «Команда».
 
-    Ответ всегда строится по **сохранённому** состоянию проекта, поэтому при
-    ошибке пользователь видит реальный состав, а не оптимистично изменённый.
+    Ответ всегда строится по **свежему** состоянию из БД: проект
+    перечитывается, потому что после отката транзакции (например, состав
+    уменьшили ниже занятого слота) python-объект остался бы с несохранёнными
+    значениями и partial показал бы состав, которого в базе нет.
     Ошибка операции отдаётся вместе с partial (статус 200) — тем же способом,
     что и `StaffingError` в `_slot_action_response`: ответ 4xx htmx по
     умолчанию не подставляет, и пользователь остался бы вообще без обратной
     связи. Нехватки прав это не касается: она поднимает `PermissionDenied`
     до начала работы и отдаётся существующим 403.
     """
+    # `refresh_from_db` заодно сбрасывает кэш обратной связи `room`,
+    # поэтому только что созданная проекцией комната и её слоты видны здесь,
+    # а не подставляются из объекта, прочитанного до POST.
+    project.refresh_from_db()
     room = getattr(project, 'room', None)
     context = configurator.build_configurator_context(
         request.user, project, room, error=error, notice=notice,
@@ -494,6 +500,11 @@ def room_functional_roles_update(request, project_id):
     сервер досчитывает от сохранённого состава, а цену, часы, продуктивность
     и Hot берёт из своего каталога — экономика из запроса не принимается
     вообще (см. `update_project_functional_roles`).
+
+    Состав и слоты комнаты меняются одной атомарной операцией
+    `save_functional_roles_and_sync_slots`: логике проекции во view делать
+    нечего, а «состав сохранился, слоты — нет» не должно существовать
+    как состояние.
     """
     project = _project_for_configurator(request, project_id)
     try:
@@ -503,7 +514,7 @@ def room_functional_roles_update(request, project_id):
             request.POST.get('action', configurator.ACTION_SET),
             request.POST.get('count'),
         )
-        update_project_functional_roles(project, counts, request.user)
+        save_functional_roles_and_sync_slots(project, counts, request.user)
     except FunctionalRolesError as exc:
         return _configurator_response(request, project, error=str(exc))
     return _configurator_response(request, project, notice='Состав команды обновлён.')
@@ -516,10 +527,16 @@ def room_functional_roles_apply_package(request, project_id):
 
     В запросе только ключ пакета. Сам состав берётся из `apps.rooms.presets`,
     поэтому подменить количества или экономику пакета из браузера нельзя.
+
+    Путь тот же самый, что и у ручного изменения: пакет доходит до
+    `save_functional_roles_and_sync_slots`, поэтому слоты комнаты появляются
+    и здесь, а не только у кнопок «+» / «−».
     """
     project = _project_for_configurator(request, project_id)
     try:
-        apply_package_to_project(project, request.POST.get('package', ''), request.user)
+        apply_package_and_sync_slots(
+            project, request.POST.get('package', ''), request.user
+        )
     except KeyError:
         return _configurator_response(request, project, error='Неизвестный пакет.')
     except FunctionalRolesError as exc:
