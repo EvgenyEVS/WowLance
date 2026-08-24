@@ -134,8 +134,11 @@ class CatalogAddToRoomTests(TestCase):
                 role_in_room=RoomMember.RoleInRoom.FREELANCER,
             ).exists()
         )
+        # Добавление из каталога наполняет команду, но не активирует проект:
+        # ACTIVE наступает только когда функциональная команда подтвердила
+        # готовность (apps.rooms.staffing.services.sync_project_activation).
         self.project.refresh_from_db()
-        self.assertEqual(self.project.status, Project.Status.ACTIVE)
+        self.assertEqual(self.project.status, Project.Status.STAFFING)
 
     def test_baseball_card_page_contains_skills_and_cta(self):
         response = self.client.get(

@@ -47,14 +47,20 @@ class RoomServiceTests(TestCase):
             ).exists()
         )
 
-    def test_assign_teamlead_and_add_freelancer_activates_project(self):
+    def test_assign_teamlead_and_add_freelancer_keeps_project_in_staffing(self):
+        """Добавление фрилансера больше не активирует проект.
+
+        Раньше первый фрилансер переводил проект `STAFFING → ACTIVE`.
+        Теперь активация — результат подтверждённой готовности всей
+        функциональной команды (см. `tests_staffing_workflow`).
+        """
         launch_project(self.project)
         assign_teamlead(self.project, self.teamlead)
         self.project.refresh_from_db()
         self.assertEqual(self.project.teamlead_id, self.teamlead.id)
         add_freelancer_to_room(self.project.room, self.freelancer)
         self.project.refresh_from_db()
-        self.assertEqual(self.project.status, Project.Status.ACTIVE)
+        self.assertEqual(self.project.status, Project.Status.STAFFING)
         self.assertTrue(
             RoomMember.objects.filter(
                 room=self.project.room,
@@ -169,7 +175,7 @@ class RoomViewTests(TestCase):
             reverse('rooms:room_team', kwargs={'project_id': project.id}),
         )
         project.refresh_from_db()
-        self.assertEqual(project.status, Project.Status.ACTIVE)
+        self.assertEqual(project.status, Project.Status.STAFFING)
 
         self.client.logout()
         self.client.login(username='fr@rooms.test', password=self.password)
@@ -182,6 +188,10 @@ class RoomViewTests(TestCase):
         )
         member = RoomMember.objects.get(room=project.room, user=self.freelancer)
         self.assertEqual(member.ready_status, RoomMember.ReadyStatus.READY)
+        # Функциональных слотов в этом ручном потоке нет, поэтому «команда
+        # собрана на 100%» не выполняется и проект остаётся в подборе.
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.STAFFING)
 
     def test_outsider_cannot_access_room(self):
         project = self._create_project_via_form()

@@ -46,6 +46,27 @@ urlpatterns = [
         name='room_remove_member',
     ),
     path(
+        'projects/<uuid:project_id>/room/team/slots/<uuid:slot_id>/auto-assign/',
+        views.room_slot_auto_assign,
+        name='room_slot_auto_assign',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/team/slots/<uuid:slot_id>/replace/',
+        views.room_slot_replace,
+        name='room_slot_replace',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/team/slots/<uuid:slot_id>/candidates/',
+        views.room_slot_candidates,
+        name='room_slot_candidates',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/team/slots/<uuid:slot_id>/candidates/'
+        '<uuid:candidate_id>/assign/',
+        views.room_slot_assign_candidate,
+        name='room_slot_assign_candidate',
+    ),
+    path(
         'projects/<uuid:project_id>/room/ready/',
         views.room_confirm_ready,
         name='room_confirm_ready',

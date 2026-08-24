@@ -6,6 +6,27 @@
 {% include 'rooms/_room_header.html' %}
 
 <div class="info-block">
+    <div class="section-head">
+        <h3>Функциональные слоты</h3>
+        {% if staffing_summary.total %}
+        <span class="muted">
+            Заполнено {{ staffing_summary.filled }} из {{ staffing_summary.total }} ·
+            готовы {{ staffing_summary.ready }} · в поиске {{ staffing_summary.searching }}
+        </span>
+        {% endif %}
+    </div>
+    {% if slot_cards %}
+    <div class="slot-cards">
+        {% for card in slot_cards %}
+        {% include 'rooms/_slot_card.html' %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="help-text">Функциональные слоты для этой комнаты пока не заведены.</p>
+    {% endif %}
+</div>
+
+<div class="info-block" style="margin-top: 16px;">
     <h3>Участники</h3>
     {% if members %}
     <table class="data-table">
