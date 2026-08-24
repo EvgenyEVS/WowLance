@@ -23,7 +23,7 @@ def _require_freelancer(user):
 
 @login_required
 def freelancer_catalog(request):
-    """Каталог фрилансеров с фильтрами по уровню, доступности и поиску."""
+    """Каталог фрилансеров с фильтрами по уровню, доступности, видео и поиску."""
     profiles = (
         FreelancerProfile.objects
         .select_related('user')
@@ -37,6 +37,9 @@ def freelancer_catalog(request):
     available = request.GET.get('available', '').strip()
     q = request.GET.get('q', '').strip()
 
+    # НОВОЕ: Чекбокс "Только с видео". По умолчанию '1' (включен)
+    video_only = request.GET.get('video_only', '1').strip()
+
     if level in FreelancerProfile.Level.values:
         profiles = profiles.filter(level=level)
 
@@ -44,6 +47,10 @@ def freelancer_catalog(request):
         profiles = profiles.filter(is_available=True)
     elif available == '0':
         profiles = profiles.filter(is_available=False)
+
+    # НОВОЕ: Фильтрация по наличию видео (исключаем null и пустые строки)
+    if video_only == '1':
+        profiles = profiles.exclude(video_url__isnull=True).exclude(video_url='')
 
     if q:
         profiles = profiles.filter(
@@ -60,6 +67,7 @@ def freelancer_catalog(request):
         'levels': FreelancerProfile.Level.choices,
         'selected_level': level,
         'selected_available': available,
+        'selected_video_only': video_only,  # НОВОЕ: передаём в шаблон
         'search_query': q,
     }
     return render(request, 'profiles/catalog.html', ctx)
