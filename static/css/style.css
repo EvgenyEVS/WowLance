@@ -1782,3 +1782,317 @@ textarea::placeholder {
     gap: 12px;
     margin-top: 16px;
 }
+
+/* --- Конфигуратор функциональной команды / юнит-экономика (Issue #11) --- */
+
+.fr-configurator-slot {
+    margin-top: 16px;
+}
+
+.fr-configurator {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.fr-readonly-hint {
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.fr-note {
+    font-size: 13px;
+    color: var(--success);
+    margin: 0;
+}
+
+.fr-note-error {
+    color: var(--danger);
+}
+
+.fr-packages {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.fr-packages form {
+    display: inline;
+}
+
+.fr-packages-label {
+    font-size: 13px;
+}
+
+/* Широкая таблица прокручивается внутри себя, а не растягивает страницу. */
+.fr-table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.fr-table {
+    min-width: 760px;
+    border: 0;
+    border-radius: 0;
+}
+
+.fr-table th[scope="row"] {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: none;
+    color: var(--text);
+    letter-spacing: 0;
+}
+
+.fr-table tbody tr:last-child th,
+.fr-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.fr-num {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.fr-productivity {
+    color: var(--text-muted);
+}
+
+.fr-badge-fixed {
+    margin-left: 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 8px;
+    white-space: nowrap;
+}
+
+/* Компактные +/− и числовой ввод */
+.fr-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.fr-step {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+    background: var(--soft-fill);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, opacity 0.2s;
+}
+
+.fr-step:hover:not([disabled]) {
+    background: var(--soft-fill-strong);
+}
+
+.fr-step[disabled] {
+    opacity: 0.4;
+    color: var(--text-dim);
+    background: transparent;
+    cursor: not-allowed;
+}
+
+.fr-count-input {
+    width: 62px;
+    padding: 5px 8px;
+    text-align: center;
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+
+.fr-count-input:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+}
+
+.fr-count-static {
+    font-variant-numeric: tabular-nums;
+}
+
+.fr-staffing {
+    white-space: nowrap;
+    font-size: 13px;
+}
+
+.fr-staffing span {
+    margin-left: 4px;
+}
+
+.fr-staffing-ready { color: var(--success); }
+.fr-staffing-assigned { color: var(--info); }
+.fr-staffing-searching { color: var(--warning); }
+.fr-staffing-none { color: var(--text-dim); }
+
+.fr-cell-actions {
+    text-align: right;
+}
+
+.fr-remove {
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+}
+
+.fr-remove:hover {
+    background: rgba(198, 40, 40, 0.08);
+}
+
+.fr-cell-actions form {
+    display: inline;
+}
+
+/* Итоги */
+.fr-totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.fr-totals li {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    background: var(--soft-fill);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.fr-total-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+}
+
+.fr-totals strong {
+    font-family: var(--font-display);
+    font-size: 20px;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.fr-add-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.fr-add select {
+    padding: 7px 10px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--text);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+
+.fr-add-empty {
+    font-size: 13px;
+}
+
+.fr-empty {
+    margin: 0;
+}
+
+/* Ячейка «норматив × count = итог» */
+.fr-metric {
+    line-height: 1.35;
+}
+
+.fr-unit-rate {
+    display: block;
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.fr-subtotal {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Ячейка подбора: только факты существующих слотов */
+.fr-staffing-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.fr-staffing-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.fr-staffing-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 auto;
+}
+
+.fr-staffing-person {
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border-strong);
+}
+
+.fr-staffing-person:hover {
+    color: var(--text);
+    border-bottom-color: var(--text);
+}
+
+.fr-staffing-pending {
+    color: var(--warning);
+}
+
+.fr-staffing-empty {
+    color: var(--text-dim);
+}
+
+@media (max-width: 700px) {
+    .fr-totals strong {
+        font-size: 18px;
+    }
+    .fr-packages,
+    .fr-add-wrap {
+        width: 100%;
+    }
+    .fr-add,
+    .fr-add select,
+    .fr-add button {
+        width: 100%;
+    }
+}

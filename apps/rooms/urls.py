@@ -13,6 +13,16 @@ urlpatterns = [
     path('projects/<uuid:project_id>/launch/', views.project_launch, name='project_launch'),
     path('projects/<uuid:project_id>/pay/', views.project_pay, name='project_pay'),
     path('projects/<uuid:project_id>/room/', views.room_overview, name='room_overview'),
+    path(
+        'projects/<uuid:project_id>/room/functional-roles/update/',
+        views.room_functional_roles_update,
+        name='room_functional_roles_update',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/functional-roles/apply-package/',
+        views.room_functional_roles_apply_package,
+        name='room_functional_roles_apply_package',
+    ),
     path('projects/<uuid:project_id>/room/documents/', views.room_documents, name='room_documents'),
     path(
         'projects/<uuid:project_id>/room/documents/upload/',
