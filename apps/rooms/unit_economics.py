@@ -24,9 +24,12 @@
 Чего здесь нет
 --------------
 
-* `RoomFunctionSlot` не создаётся и не меняется — проекция состава в слоты
-  и подбор это отдельный следующий этап (в частности, для
-  `database_assistant` с каналом `base` в enum слота варианта пока нет);
+* `RoomFunctionSlot` не создаётся и не меняется **этим модулем**: слоты
+  приводит к составу `apps.rooms.staffing.projection`, а держит их в одной
+  транзакции с составом `apps.rooms.services.save_functional_roles_and_sync_slots`.
+  Проецируются только `seller_middle`, `seller_senior` и `linkedin_leadgen`;
+  `teamlead` (ручной инвайт) и `database_assistant` (канал `base`, которого
+  нет в enum слота) слотов не получают — см. docstring проекции;
 * числовой «охват / производительность» не считается: `productivity_text`
   остаётся текстом до переработки этой математики Product Owner;
 * побочных записей в БД при чтении summary не происходит.
@@ -313,8 +316,11 @@ def update_project_functional_roles(project: Project, roles_data, user):
       (offer / utp / audience / hot_criteria / architecture);
     * приводит `Project.budget` к рассчитанному `total_budget`.
 
-    Слоты комнаты (`RoomFunctionSlot`) не создаются и не трогаются — это
-    отдельный следующий этап.
+    Слоты комнаты (`RoomFunctionSlot`) здесь не трогаются: их приводит
+    к составу проекция `apps.rooms.staffing.projection`. Продуктовые
+    write-path обязаны вызывать не этот сервис напрямую, а оркестрацию
+    `apps.rooms.services.save_functional_roles_and_sync_slots` — она
+    держит состав, бюджет и слоты в одной транзакции.
 
     Возвращает `UnitEconomicsSummary` по сохранённому снапшоту.
     """
@@ -349,6 +355,9 @@ def apply_package_to_project(project: Project, package_key: str, user):
 
     Пакет нигде не запоминается: после применения это просто состав, который
     директор дальше правит вручную.
+
+    Слоты комнаты, как и в `update_project_functional_roles`, не трогаются:
+    продуктовый путь пакета — `apps.rooms.services.apply_package_and_sync_slots`.
     """
     return update_project_functional_roles(
         project,

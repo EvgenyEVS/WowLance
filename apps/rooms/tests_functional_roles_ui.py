@@ -14,8 +14,10 @@ Backend-правила (валидация, снапшот, бюджет, RBAC �
 `tests_functional_roles.py` и здесь не переписываются — проверяется, что UI
 их не обходит и не дублирует.
 
-Синхронизация `RoomFunctionSlot`, канал `base` и подбор в этот этап не
-входят: колонка «Подбор» читает только уже существующие слоты.
+Колонка «Подбор» читает только уже существующие слоты и ничего не создаёт.
+Сама синхронизация состава со слотами (`functional_roles → RoomFunctionSlot`)
+проверяется в `tests_functional_role_projection.py`; здесь — лишь то, что
+продуктовые кнопки конфигуратора до неё доходят и не обходят её стороной.
 """
 
 from decimal import Decimal
@@ -585,8 +587,13 @@ class ConfiguratorAddRemoveTests(ConfiguratorTestCase):
         self.assertContains(response, 'обязательна: минимум 1')
         self.assertEqual(composition_of(self.project)['teamlead'], 1)
 
-    def test_remove_does_not_touch_room_function_slots(self):
-        """Удаление функции из состава не трогает слоты комнаты (следующий этап)."""
+    def test_remove_closes_the_slot_without_deleting_it(self):
+        """Удаление функции закрывает её пустой слот, но строку не удаляет.
+
+        Подробности проекции — в `tests_functional_role_projection.py`;
+        здесь проверяется только то, что продуктовая кнопка «✕» до неё
+        доходит.
+        """
         slot = RoomFunctionSlot.objects.create(
             room=self.room, role_key='seller_middle', slot_index=1
         )
@@ -594,7 +601,7 @@ class ConfiguratorAddRemoveTests(ConfiguratorTestCase):
             user=self.director, role_key='seller_middle', action='set', count='0'
         )
         slot.refresh_from_db()
-        self.assertTrue(slot.is_active)
+        self.assertFalse(slot.is_active)
         self.assertEqual(RoomFunctionSlot.objects.filter(room=self.room).count(), 1)
 
     def test_confirm_is_shown_only_when_someone_is_assigned(self):
@@ -877,10 +884,18 @@ class ConfiguratorRegressionTests(ConfiguratorTestCase):
         self.assertEqual(RoomMember.objects.count(), members_before)
         self.assertEqual(Room.objects.count(), rooms_before)
 
-    def test_update_never_creates_room_function_slots(self):
-        """Сохранение состава не проецируется в слоты — это следующий этап."""
+    def test_package_apply_goes_through_the_same_slot_projection(self):
+        """Пакет — такой же write-path состава: слоты появляются и здесь.
+
+        Сценария «кнопкой слоты создаются, пакетом — нет» существовать не
+        должно. Сама проекция проверяется в
+        `tests_functional_role_projection.py`.
+        """
         self.post_package('enterprise', user=self.director)
-        self.assertEqual(RoomFunctionSlot.objects.filter(room=self.room).count(), 0)
+        active = RoomFunctionSlot.objects.filter(room=self.room, is_active=True)
+        self.assertEqual(active.filter(role_key='seller_senior').count(), 2)
+        self.assertEqual(active.filter(role_key='linkedin_leadgen').count(), 1)
+        self.assertEqual(active.filter(role_key='teamlead').count(), 0)
 
 
 # ---------------------------------------------------------------------------
@@ -1177,13 +1192,24 @@ class ConfiguratorStaffingCellTests(ConfiguratorTestCase):
             members_before,
         )
 
-    def test_configurator_post_does_not_touch_slots_or_assignments(self):
-        """Изменение состава не трогает существующие слоты и назначения."""
+    def test_configurator_post_does_not_touch_existing_assignments(self):
+        """Увеличение состава добавляет слот и не трогает уже назначенного.
+
+        Проекция создаёт недостающий слот, но существующий занятый остаётся
+        активным вместе со своим участником: подбор ничего не переигрывает.
+        """
         slot = self.assign(self.make_slot()).function_slot
         self.post_update(user=self.director, role_key='seller_middle', action='inc')
         slot.refresh_from_db()
         self.assertTrue(slot.is_active)
-        self.assertEqual(RoomFunctionSlot.objects.count(), 1)
+        self.assertEqual(
+            sorted(
+                RoomFunctionSlot.objects.filter(
+                    room=self.room, role_key='seller_middle', is_active=True
+                ).values_list('slot_index', flat=True)
+            ),
+            [1, 2],
+        )
         self.assertEqual(
             RoomMember.objects.get(user=self.freelancer).function_slot_id, slot.id
         )
