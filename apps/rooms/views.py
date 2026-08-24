@@ -10,6 +10,7 @@ from django.views.decorators.http import require_POST
 from apps.core.absolute_uri import absolute_uri
 from apps.pipeline.models import Task
 from apps.users.models import User
+from . import configurator
 from .forms import (
     AddFreelancerForm,
     AddToRoomForm,
@@ -36,13 +37,16 @@ from .services import (
     TEST_LAUNCH_PAYMENT_AMOUNT_LABEL,
     accept_teamlead_invite,
     add_freelancer_to_room,
+    apply_package_to_project,
     assign_teamlead,
     create_teamlead_invite,
     ensure_room_for_project,
     handle_project_paid,
     launch_project,
     log_room_activity,
+    update_project_functional_roles,
     user_can_access_project,
+    user_can_edit_functional_roles,
     user_can_manage_team,
 )
 from .staffing import matching, selectors
@@ -54,6 +58,7 @@ from .staffing.services import (
     confirm_freelancer_readiness,
     replace_slot_member,
 )
+from .unit_economics import FunctionalRolesError
 
 SESSION_ARCH_KEY = 'architecture_preset'
 
@@ -429,7 +434,97 @@ def room_overview(request, project_id):
             and project.status == Project.Status.DRAFT
         ),
         'active_tab': 'overview',
+        # Конфигуратор функциональной команды собирается тем же билдером, что
+        # и HTMX-ответ, — второй копии context у страницы нет. Чтение состава
+        # ничего не пишет: проект без сохранённого состава показывает
+        # empty state, а не созданный на лету состав по умолчанию.
+        **configurator.build_configurator_context(request.user, project, room),
     })
+
+
+def _configurator_response(request, project, *, error=None, notice=None):
+    """HTMX → свежий partial конфигуратора, обычный POST → redirect с flash.
+
+    Fallback без HTMX обязателен: таблица остаётся рабочей формой при
+    выключенном JavaScript, как и кнопки подбора на вкладке «Команда».
+
+    Ответ всегда строится по **сохранённому** состоянию проекта, поэтому при
+    ошибке пользователь видит реальный состав, а не оптимистично изменённый.
+    Ошибка операции отдаётся вместе с partial (статус 200) — тем же способом,
+    что и `StaffingError` в `_slot_action_response`: ответ 4xx htmx по
+    умолчанию не подставляет, и пользователь остался бы вообще без обратной
+    связи. Нехватки прав это не касается: она поднимает `PermissionDenied`
+    до начала работы и отдаётся существующим 403.
+    """
+    room = getattr(project, 'room', None)
+    context = configurator.build_configurator_context(
+        request.user, project, room, error=error, notice=notice,
+    )
+    if request.headers.get('HX-Request'):
+        return render(request, 'rooms/_unit_economics_table.html', context)
+    if error:
+        messages.error(request, error)
+    elif notice:
+        messages.success(request, notice)
+    return redirect('rooms:room_overview', project_id=project.id)
+
+
+def _project_for_configurator(request, project_id):
+    """Проект для операции над составом: доступ к проекту + права на состав.
+
+    Права проверяются и здесь, и в сервисе: view отдаёт 403 до начала работы,
+    сервис гарантирует, что состав нельзя изменить в обход view. Статус
+    проекта здесь **не** проверяется — «сейчас менять нельзя» это ошибка
+    операции, а не отсутствие прав, и различает их сервис.
+    """
+    project = _get_accessible_project(request.user, project_id)
+    if not user_can_edit_functional_roles(request.user, project):
+        raise PermissionDenied('Состав команды меняет только директор проекта.')
+    return project
+
+
+@login_required
+@require_POST
+def room_functional_roles_update(request, project_id):
+    """Одно изменение состава функциональных ролей: +1, −1 или точное число.
+
+    Клиент присылает только `role_key` и намерение. Количество для «+»/«−»
+    сервер досчитывает от сохранённого состава, а цену, часы, продуктивность
+    и Hot берёт из своего каталога — экономика из запроса не принимается
+    вообще (см. `update_project_functional_roles`).
+    """
+    project = _project_for_configurator(request, project_id)
+    try:
+        counts = configurator.build_counts(
+            project,
+            request.POST.get('role_key', ''),
+            request.POST.get('action', configurator.ACTION_SET),
+            request.POST.get('count'),
+        )
+        update_project_functional_roles(project, counts, request.user)
+    except FunctionalRolesError as exc:
+        return _configurator_response(request, project, error=str(exc))
+    return _configurator_response(request, project, notice='Состав команды обновлён.')
+
+
+@login_required
+@require_POST
+def room_functional_roles_apply_package(request, project_id):
+    """Применение готового пакета: состав целиком заменяется серверным.
+
+    В запросе только ключ пакета. Сам состав берётся из `apps.rooms.presets`,
+    поэтому подменить количества или экономику пакета из браузера нельзя.
+    """
+    project = _project_for_configurator(request, project_id)
+    try:
+        apply_package_to_project(project, request.POST.get('package', ''), request.user)
+    except KeyError:
+        return _configurator_response(request, project, error='Неизвестный пакет.')
+    except FunctionalRolesError as exc:
+        return _configurator_response(request, project, error=str(exc))
+    return _configurator_response(
+        request, project, notice='Пакет применён к составу команды.',
+    )
 
 
 @login_required

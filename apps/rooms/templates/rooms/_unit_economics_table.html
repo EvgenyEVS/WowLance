@@ -1,0 +1,270 @@
+{% comment %}
+Конфигуратор функциональной команды и юнит-экономика проекта (Issue #11).
+
+Единственный источник разметки конфигуратора. Partial отдаётся двумя
+способами: внутри вкладки «Обзор» и ответом на HTMX-POST, который заменяет
+корневой div целиком по id. Поэтому здесь нет ни шапки комнаты, ни навигации
+по вкладкам — иначе обновление вложило бы страницу в саму себя.
+
+Ни одной цифры экономики шаблон не считает и ни одного названия функции не
+дублирует: и то и другое приходит из серверного context
+(`apps.rooms.configurator.build_configurator_context`) поверх сохранённого
+снапшота проекта. Ни `data-*` с ценой, ни расчёта в JS здесь нет и быть не
+должно: клиент выбирает только состав.
+
+Редактирование целиком управляется одним флагом `can_edit_functional_roles`
+(владелец + директор + статус DRAFT/STAFFING). Флаг решает только что видно;
+настоящая защита — те же проверки внутри `update_project_functional_roles`,
+поэтому прямой POST мимо интерфейса ничего не даст.
+{% endcomment %}
+{% url 'rooms:room_functional_roles_update' project.id as fr_update_url %}
+{% url 'rooms:room_functional_roles_apply_package' project.id as fr_package_url %}
+<section class="info-block fr-configurator" id="functional-roles-configurator"
+         aria-labelledby="fr-configurator-title">
+    <div class="section-head">
+        <h3 id="fr-configurator-title">Функциональная команда / Юнит-экономика</h3>
+        {% if not can_edit_functional_roles %}
+        <span class="muted fr-readonly-hint">Только просмотр</span>
+        {% endif %}
+    </div>
+
+    {% if fr_error %}
+    <p class="fr-note fr-note-error" role="alert">{{ fr_error }}</p>
+    {% elif fr_notice %}
+    <p class="fr-note" role="status">{{ fr_notice }}</p>
+    {% endif %}
+
+    {% if can_edit_functional_roles %}
+    {% comment %}
+    Пакеты приходят из `apps.rooms.presets` целиком: в шаблоне нет ни их
+    состава, ни количеств — клик отправляет только ключ пакета, а состав
+    подставляет сервер.
+    {% endcomment %}
+    <div class="fr-packages">
+        <span class="fr-packages-label muted">Готовые пакеты:</span>
+        {% for package in fr_packages %}
+        <form method="post" action="{{ fr_package_url }}"
+              hx-post="{{ fr_package_url }}"
+              hx-target="#functional-roles-configurator"
+              hx-swap="outerHTML">
+            {% csrf_token %}
+            <input type="hidden" name="package" value="{{ package.key }}">
+            <button type="submit" class="btn btn-secondary btn-sm">{{ package.label }}</button>
+        </form>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if fr_rows %}
+    <div class="fr-table-scroll">
+        <table class="data-table fr-table">
+            <thead>
+                <tr>
+                    <th scope="col">Функция</th>
+                    <th scope="col">Количество</th>
+                    <th scope="col">Стоимость / мес</th>
+                    <th scope="col">Часы / мес</th>
+                    <th scope="col">Производительность</th>
+                    <th scope="col">Hot leads / мес</th>
+                    <th scope="col">Подбор</th>
+                    <th scope="col"><span class="sr-only">Действия</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in fr_rows %}
+                <tr id="fr-row-{{ row.role_key }}" class="fr-row{% if row.is_fixed %} fr-row-fixed{% endif %}">
+                    <th scope="row" class="fr-role">
+                        {{ row.label }}
+                        {% if row.is_fixed %}<span class="badge fr-badge-fixed">обязательная</span>{% endif %}
+                    </th>
+
+                    <td class="fr-cell-count">
+                        {% if can_edit_functional_roles %}
+                        <form class="fr-count" method="post" action="{{ fr_update_url }}"
+                              hx-post="{{ fr_update_url }}"
+                              hx-target="#functional-roles-configurator"
+                              hx-swap="outerHTML">
+                            {% csrf_token %}
+                            <input type="hidden" name="role_key" value="{{ row.role_key }}">
+                            {% comment %}
+                            Скрытая кнопка стоит первой намеренно: Enter в поле
+                            количества отправляет форму её действием (`set`),
+                            а не соседним «−». Заодно форма остаётся рабочей
+                            без JavaScript.
+                            {% endcomment %}
+                            <button type="submit" name="action" value="set" class="sr-only">Сохранить количество</button>
+                            <button type="submit" name="action" value="dec"
+                                    class="fr-step"
+                                    aria-label="Уменьшить количество: {{ row.label }}"
+                                    {% if row.is_fixed %}disabled aria-disabled="true" title="Обязательная функция: количество не опускается ниже 1"{% endif %}>−</button>
+                            <input type="number" class="fr-count-input" name="count"
+                                   value="{{ row.count }}" min="{{ row.min_count }}" step="1"
+                                   inputmode="numeric"
+                                   aria-label="Количество: {{ row.label }}"
+                                   hx-post="{{ fr_update_url }}"
+                                   hx-trigger="change"
+                                   hx-include="closest form"
+                                   hx-target="#functional-roles-configurator"
+                                   hx-swap="outerHTML">
+                            <button type="submit" name="action" value="inc"
+                                    class="fr-step"
+                                    aria-label="Увеличить количество: {{ row.label }}"
+                                    {% if row.is_fixed %}disabled aria-disabled="true" title="Обязательная функция: количество меняется вводом числа"{% endif %}>+</button>
+                        </form>
+                        {% else %}
+                        <span class="fr-count-static">{{ row.count }}</span>
+                        {% endif %}
+                    </td>
+
+                    {% comment %}
+                    Каждая экономическая ячейка показывает и норматив на одну
+                    единицу, и итог строки для текущего count. Умножение
+                    приходит готовым из серверной сводки (`subtotal_*`) —
+                    в шаблоне нет ни одной арифметической операции.
+                    {% endcomment %}
+                    <td class="fr-num fr-metric">
+                        <span class="fr-unit-rate">{{ row.cost_per_unit_display }} {{ row.times_label }}</span>
+                        <strong class="fr-subtotal fr-subtotal-cost">{{ row.subtotal_cost_display }}</strong>
+                    </td>
+                    <td class="fr-num fr-metric">
+                        <span class="fr-unit-rate">{{ row.hours_per_unit_display }} {{ row.times_label }}</span>
+                        <strong class="fr-subtotal fr-subtotal-hours">{{ row.subtotal_hours_display }}</strong>
+                    </td>
+                    {% comment %}
+                    Продуктивность НЕ умножается на count: эта математика будет
+                    определена Product Owner отдельно, до тех пор — текст.
+                    {% endcomment %}
+                    <td class="fr-productivity">{{ row.productivity_text|default:"—" }}</td>
+                    <td class="fr-num fr-metric">
+                        <span class="fr-unit-rate">{{ row.hot_per_unit_display }} {{ row.times_label }}</span>
+                        <strong class="fr-subtotal fr-subtotal-hot">{{ row.subtotal_hot_display }}</strong>
+                    </td>
+
+                    {% comment %}
+                    Ячейка подбора показывает только факты уже существующих
+                    слотов комнаты: назначенного исполнителя либо «идёт подбор»
+                    для пустого слота. Слотов нет — прочерк, а не намёк на
+                    запущенный подбор. Ни слоты, ни назначения отсюда не
+                    создаются; SLA-таймер относится к следующему этапу.
+                    {% endcomment %}
+                    <td class="fr-staffing fr-staffing-{{ row.staffing.status }}">
+                        {% if row.staffing.has_slots %}
+                        <ul class="fr-staffing-list">
+                            {% for card in row.staffing.cards %}
+                            <li class="fr-staffing-item">
+                                {% if card.member %}
+                                {% if card.profile.avatar_url %}
+                                <img class="fr-staffing-avatar" src="{{ card.profile.avatar_url }}"
+                                     alt="" width="24" height="24" loading="lazy">
+                                {% endif %}
+                                <a href="{% url 'profiles:detail' card.member.user.id %}"
+                                   class="fr-staffing-person">{{ card.member.user.full_name }}</a>
+                                {% else %}
+                                <span class="fr-staffing-pending">{{ fr_searching_label }}</span>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <span class="fr-staffing-empty">{{ fr_empty_value }}</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="fr-cell-actions">
+                        {% if can_edit_functional_roles and not row.is_fixed %}
+                        <form method="post" action="{{ fr_update_url }}"
+                              hx-post="{{ fr_update_url }}"
+                              hx-target="#functional-roles-configurator"
+                              hx-swap="outerHTML"
+                              {% if row.staffing.has_assigned %}hx-confirm="На эту функцию уже назначен исполнитель. Убрать функцию из состава команды?"{% endif %}>
+                            {% csrf_token %}
+                            <input type="hidden" name="role_key" value="{{ row.role_key }}">
+                            <input type="hidden" name="count" value="0">
+                            <button type="submit" name="action" value="set"
+                                    class="btn-delete fr-remove"
+                                    aria-label="Убрать функцию: {{ row.label }}">✕</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state compact fr-empty">
+        <p>Функциональная команда ещё не собрана.</p>
+        {% if can_edit_functional_roles %}
+        {% comment %}
+        Название обязательной функции подставляется из каталога кода, а не
+        пишется в шаблоне: второй копии публичных названий быть не должно.
+        {% endcomment %}
+        <p class="muted">
+            Примените готовый пакет или добавьте функцию — обязательная функция
+            {% for role in fr_fixed_roles %}«{{ role.label }}»{% if not forloop.last %}, {% endif %}{% endfor %}
+            добавится в состав автоматически при первом сохранении.
+        </p>
+        {% else %}
+        <p class="muted">Состав команды собирает директор проекта.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% comment %}
+    Итоги показываются всегда, в том числе для пустого состава: «0 ₽» и «—»
+    честнее исчезающего блока. Числового суммарного «охвата» здесь нет —
+    производительность остаётся текстом в строках ролей.
+    {% endcomment %}
+    <ul class="fr-totals">
+        <li>
+            <span class="fr-total-label">Общий бюджет / мес</span>
+            <strong class="fr-total-budget">{{ fr_total_budget_display }}</strong>
+        </li>
+        <li>
+            <span class="fr-total-label">Часы / мес</span>
+            <strong class="fr-total-hours">{{ fr_summary.total_hours }}</strong>
+        </li>
+        <li>
+            <span class="fr-total-label">Прогноз Hot leads / мес</span>
+            <strong class="fr-total-hot">{{ fr_summary.forecast_hot_leads }}</strong>
+        </li>
+        <li>
+            <span class="fr-total-label">CPL</span>
+            <strong class="fr-total-cpl">{{ fr_cpl_display }}</strong>
+        </li>
+    </ul>
+
+    {% if can_edit_functional_roles %}
+    <div class="fr-add-wrap">
+        {% if fr_available_roles %}
+        <form class="inline-add-form fr-add" method="post" action="{{ fr_update_url }}"
+              hx-post="{{ fr_update_url }}"
+              hx-target="#functional-roles-configurator"
+              hx-swap="outerHTML">
+            {% csrf_token %}
+            {% comment %}
+            Новая функция всегда приходит с количеством 1: «добавить» — это
+            обычный `set`, отдельного действия для него нет. В списке только
+            те функции, которых ещё нет в составе, поэтому вторая строка той
+            же функции не создаётся.
+            {% endcomment %}
+            <input type="hidden" name="count" value="1">
+            <label class="sr-only" for="fr-add-role">Функция для добавления</label>
+            {% comment %}
+            Подпись пункта меню включает базовые ставку, часы и Hot — они
+            собраны на сервере (`option_label`). В форму по-прежнему уходит
+            только `role_key`: экономику из браузера сервис не принимает.
+            {% endcomment %}
+            <select id="fr-add-role" name="role_key">
+                {% for role in fr_available_roles %}
+                <option value="{{ role.role_key }}">{{ role.option_label }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" name="action" value="set" class="btn btn-primary btn-sm">Добавить функцию</button>
+        </form>
+        {% else %}
+        <p class="muted fr-add-empty">Все функции каталога уже в составе команды.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</section>

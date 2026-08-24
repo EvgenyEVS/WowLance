@@ -6,8 +6,10 @@ from django.utils import timezone
 from apps.users.models import User
 from .models import Project, Room, RoomActivity, RoomMember, TeamleadInvite
 from .unit_economics import (  # noqa: F401  (публичный фасад модуля ROOM)
+    apply_package_to_project,
     get_unit_economics_summary,
     update_project_functional_roles,
+    user_can_edit_functional_roles,
 )
 
 # Состав функциональных ролей и юнит-экономика реализованы в
