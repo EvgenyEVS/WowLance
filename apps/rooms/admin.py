@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    FunctionalRoleConfig,
     Project,
     Room,
     RoomActivity,
@@ -105,3 +106,87 @@ class TeamleadInviteAdmin(admin.ModelAdmin):
     list_display = ['project', 'token', 'is_active', 'expires_at', 'accepted_by', 'created_at']
     list_filter = ['is_active']
     search_fields = ['project__name', 'token']
+
+
+@admin.register(FunctionalRoleConfig)
+class FunctionalRoleConfigAdmin(admin.ModelAdmin):
+    """Каталог функций: администратор правит только бизнес-значения.
+
+    Что разрешено: стоимость, часы, текст продуктивности, Hot-лиды.
+
+    Что запрещено и почему:
+
+    * **добавление** — состав каталога структурный, шестая функция без
+      грейда, канала и правил проекции сломала бы будущий подбор;
+    * **удаление** — на роль ссылаются сохранённые составы проектов;
+    * **смена `role_key` у существующей записи** — она бы переписала
+      экономику проектов, ссылающихся на этот ключ.
+
+    Структурные поля (`label`, `grade`, `channel`, `is_fixed`) показываются
+    рядом read-only: администратору видно, что он правит, но не через что
+    он это меняет — их источник истины в коде.
+
+    Изменения применяются к проектам не сразу: экономика проекта живёт
+    снапшотом и обновится при следующем явном сохранении состава
+    (см. `apps.rooms.unit_economics`).
+    """
+
+    list_display = [
+        'label', 'role_key', 'grade_display', 'channel_display', 'is_fixed',
+        'monthly_cost', 'monthly_hours', 'hot_leads_per_month', 'updated_at',
+    ]
+    list_display_links = ['label', 'role_key']
+    search_fields = ['role_key']
+    ordering = ['role_key']
+    fields = [
+        'role_key',
+        'label',
+        'grade_display',
+        'channel_display',
+        'is_fixed',
+        'monthly_cost',
+        'monthly_hours',
+        'productivity_text',
+        'hot_leads_per_month',
+        'updated_at',
+    ]
+    readonly_fields = [
+        'label', 'grade_display', 'channel_display', 'is_fixed', 'updated_at',
+    ]
+
+    @admin.display(description='Название')
+    def label(self, obj):
+        return obj.label
+
+    @admin.display(description='Грейд')
+    def grade_display(self, obj):
+        return obj.grade or 'N/A'
+
+    @admin.display(description='Канал')
+    def channel_display(self, obj):
+        return obj.channel or '—'
+
+    @admin.display(description='Обязательная', boolean=True)
+    def is_fixed(self, obj):
+        return obj.is_fixed
+
+    def get_readonly_fields(self, request, obj=None):
+        """`role_key` фиксируется сразу после создания записи."""
+        readonly = list(super().get_readonly_fields(request, obj))
+        if obj is not None:
+            readonly.append('role_key')
+        return readonly
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_actions(self, request):
+        """Убирает массовое удаление: оно не проходит через has_delete_permission
+        объекта и обошло бы запрет выше."""
+        actions = super().get_actions(request)
+        actions.pop('delete_selected', None)
+        return actions
+
