@@ -605,9 +605,20 @@ class ConfiguratorAddRemoveTests(ConfiguratorTestCase):
         self.assertFalse(slot.is_active)
         self.assertEqual(RoomFunctionSlot.objects.filter(room=self.room).count(), 1)
 
-    def test_confirm_is_shown_only_when_someone_is_assigned(self):
-        """Browser confirm появляется только при уже назначенном исполнителе."""
-        self.assertNotContains(self.get_overview(self.director), 'hx-confirm')
+    def test_remove_is_blocked_when_someone_is_assigned(self):
+        """Ожидание обновлено вместе с продуктом (Issue #11, финальный этап).
+
+        Раньше на назначенной функции показывался браузерный confirm, после
+        которого backend всё равно отказывал: удаление функции закрывает её
+        слоты, а слот с исполнителем проекция не закрывает. Теперь кнопка
+        удаления просто недоступна и объясняет причину — обещания, которое
+        продукт не может выполнить, больше нет.
+
+        Подробности этого UX — в `tests_issue11_tabs_completion`.
+        """
+        free = self.get_overview(self.director)
+        self.assertNotContains(free, 'hx-confirm')
+        self.assertNotContains(free, 'Сначала снимите исполнителя')
 
         slot = RoomFunctionSlot.objects.create(
             room=self.room, role_key='seller_middle', slot_index=1
@@ -615,7 +626,9 @@ class ConfiguratorAddRemoveTests(ConfiguratorTestCase):
         RoomMember.objects.filter(room=self.room, user=self.freelancer).update(
             function_slot=slot, role_key='seller_middle'
         )
-        self.assertContains(self.get_overview(self.director), 'hx-confirm')
+        assigned = self.get_overview(self.director)
+        self.assertNotContains(assigned, 'hx-confirm')
+        self.assertContains(assigned, 'Сначала снимите исполнителя')
 
     def test_first_save_adds_teamlead_automatically(self):
         """Первое сохранение пустого состава само добавляет Тимлида."""

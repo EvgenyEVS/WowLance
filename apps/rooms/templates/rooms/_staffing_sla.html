@@ -1,0 +1,24 @@
+{% comment %}
+Отсчёт SLA подбора для одного пустого слота. Единственная копия разметки:
+включается и ячейкой подбора конфигуратора, и карточкой слота.
+
+Ожидает в контексте `card` (`apps.rooms.staffing.selectors.SlotCard`) и
+необязательный `sla_extra_class` для оформления в конкретном месте.
+
+Всё, что здесь выводится, посчитал сервер: и дедлайн, и признак просрочки,
+и сам текст. Машинный ISO уходит в `data-staffing-sla` — по нему работает
+только визуальный отсчёт (`rooms/_staffing_sla_countdown.html`). Без
+JavaScript видна серверная строка и абсолютный дедлайн, поэтому блок
+остаётся правдивым.
+
+Это SLA **подбора** (1 час от появления слота), а не SLA стартовой задачи
+проекта (24 часа): у того собственный баннер на «Обзоре» и собственные
+атрибуты `data-sla-*`.
+{% endcomment %}
+<span class="staffing-sla {{ sla_extra_class }}{% if card.search_is_overdue %} staffing-sla-overdue{% endif %}"
+      data-staffing-sla="{{ card.search_deadline|date:'c' }}"
+      data-staffing-sla-prefix="{{ card.search_sla_prefix }}"
+      data-staffing-sla-overdue-label="{{ card.search_sla_overdue_label }}"
+      title="Дедлайн подбора: {{ card.search_deadline|date:'d.m.Y H:i' }}">
+    <span data-staffing-sla-countdown>{{ card.search_sla_display }}</span>
+</span>

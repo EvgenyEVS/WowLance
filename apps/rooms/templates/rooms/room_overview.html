@@ -58,8 +58,22 @@ SLA-блок стартовой задачи. Раньше здесь стоял
     </div>
 
     <div class="room-grid">
-        <div class="info-block">
-            <h3>Вводные проекта</h3>
+        {% comment %}
+        Вводные проекта. Четыре поля вижена — `offer`, `utp`, `audience`,
+        `hot_criteria` — это ключи `Project.input_data`, которые читают
+        одноимённые свойства модели. Форма правки использует ровно их: новых
+        ключей не появляется, и показанное совпадает с сохраняемым.
+
+        Правка — обычный POST в `rooms:room_vision_update` внутри
+        `<details>`: ни модалки, ни HTMX, ни JavaScript. Форма показывается
+        только владельцу-директору (`can_edit_vision`); остальные роли
+        видят те же вводные на чтение. Настоящая защита — та же проверка
+        во view и в `services.update_project_vision`.
+        {% endcomment %}
+        <div class="info-block" id="project-vision">
+            <div class="section-head">
+                <h3>Вводные проекта</h3>
+            </div>
             <p><strong>Тип:</strong> {{ project.get_project_type_display }}</p>
             <p><strong>Уровень продавцов:</strong> {{ project.get_seller_level_display }}</p>
             <p><strong>Оффер:</strong> {{ project.offer|linebreaksbr }}</p>
@@ -67,8 +81,40 @@ SLA-блок стартовой задачи. Раньше здесь стоял
             <p><strong>ЦА:</strong> {{ project.audience|linebreaksbr }}</p>
             <p><strong>Критерии горячего лида:</strong> {{ project.hot_criteria|linebreaksbr }}</p>
             {% if project.kpi_target %}<p><strong>KPI:</strong> {{ project.kpi_target }}</p>{% endif %}
+
+            {% if can_edit_vision and vision_form %}
+            <details class="vision-edit">
+                <summary class="btn btn-secondary btn-sm vision-edit-toggle">Редактировать</summary>
+                <form class="vision-form" method="post"
+                      action="{% url 'rooms:room_vision_update' project.id %}">
+                    {% csrf_token %}
+                    <div class="form-group">
+                        <label for="{{ vision_form.offer.id_for_label }}">{{ vision_form.offer.label }}</label>
+                        {{ vision_form.offer }}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ vision_form.utp.id_for_label }}">{{ vision_form.utp.label }}</label>
+                        {{ vision_form.utp }}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ vision_form.audience.id_for_label }}">{{ vision_form.audience.label }}</label>
+                        {{ vision_form.audience }}
+                    </div>
+                    <div class="form-group">
+                        <label for="{{ vision_form.hot_criteria.id_for_label }}">{{ vision_form.hot_criteria.label }}</label>
+                        {{ vision_form.hot_criteria }}
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">Сохранить вводные</button>
+                </form>
+            </details>
+            {% endif %}
         </div>
 
+        {% comment %}
+        Лента показывает последние 10 событий комнаты (Issue #11). Срез
+        задаётся во view константой `ROOM_ACTIVITY_FEED_LIMIT`; сама модель
+        `RoomActivity` и запись событий не меняются — в БД лента полная.
+        {% endcomment %}
         <div class="info-block">
             <h3>Лента событий</h3>
             {% if activities %}
@@ -94,6 +140,10 @@ SLA-блок стартовой задачи. Раньше здесь стоял
             <h3>Задачи (канбан)</h3>
             <a href="{% url 'pipeline:room_tasks' project.id %}" class="btn btn-ghost btn-sm">Все задачи</a>
         </div>
+        {% comment %}
+        Те же четыре колонки, что и на вкладке «Задачи»: раскладка приходит
+        из `apps.pipeline.kanban.task_columns`, поэтому доски не расходятся.
+        {% endcomment %}
         <div class="kanban-board">
             {% for col in kanban_preview %}
             <div class="kanban-col">
@@ -169,6 +219,15 @@ SLA-блок стартовой задачи. Раньше здесь стоял
 {% endblock %}
 
 {% block extra_js %}
+{% comment %}
+Скрипт отсчёта подключается, только когда ему есть что отсчитывать:
+на странице уже есть пустой активный слот либо директор может создать его
+здесь же, изменив состав (конфигуратор подменяется HTMX-ответом, и скрипт
+подхватит новые элементы сам — он перезапрашивает DOM каждый тик).
+Мёртвого таймера на странице без слотов не появляется — так же, как и у
+SLA стартовой задачи.
+{% endcomment %}
+{% if staffing_summary.searching or can_edit_functional_roles %}{% include 'rooms/_staffing_sla_countdown.html' %}{% endif %}
 {% if start_calls_task and not start_calls_is_done %}
 {% comment %}
 Обратный отсчёт SLA. Сознательно один маленький inline-скрипт, а не файл и

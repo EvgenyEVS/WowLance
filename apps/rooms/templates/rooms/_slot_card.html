@@ -9,13 +9,18 @@
 
 Действия показываются только при `can_staff_slots` (директор/тимлид и проект
 ещё набирает команду). Фрилансер видит те же данные без кнопок.
+
+Машинный `role_key` пользователю не показывается: заголовок берёт
+`card.role_label` из структурного каталога функций. Исторический ключ,
+которого в каталоге нет, отображается как есть — страница обязана
+открыться.
 {% endcomment %}
 <div class="slot-card slot-card-{{ card.status }}" id="slot-card-{{ card.slot.id }}">
     <div class="slot-card-head">
         <div>
-            <h4>{{ card.slot.role_key }} <span class="muted">#{{ card.slot.slot_index }}</span></h4>
+            <h4>{{ card.role_label }} <span class="muted">#{{ card.slot.slot_index }}</span></h4>
             <p class="slot-req">
-                {{ card.slot.get_required_level_display }} · {{ card.slot.get_required_channel_display }}
+                {{ card.grade_label }} · {{ card.slot.get_required_channel_display }}
             </p>
         </div>
         <span class="badge slot-status slot-status-{{ card.status }}">{{ card.status_label }}</span>
@@ -37,15 +42,27 @@
         {% endif %}
         {% if card.status == 'assigned' %}
         {% comment %}
-        Отдельной колонки под SLA-таймер нет: показываем реальное время
-        назначения (`RoomMember.joined_at`), а не выдуманный обратный отсчёт —
-        согласованного порога в проекте пока не зафиксировано.
+        У ожидания подтверждения готовности отсчёта нет: согласованного
+        порога для него в проекте не зафиксировано, поэтому показывается
+        реальное время назначения (`RoomMember.joined_at`), а не выдуманный
+        дедлайн. SLA подбора (1 час) к занятому слоту не относится — подбор
+        по нему уже состоялся.
         {% endcomment %}
         <p class="slot-sla">Ожидает подтверждения · назначен {{ card.assigned_at|timesince }} назад</p>
         {% endif %}
     </div>
     {% else %}
     <p class="slot-empty">Исполнитель не назначен.</p>
+    {% if card.is_searching %}
+    {% comment %}
+    SLA подбора пустого слота — тот же partial, что и в ячейке подбора
+    конфигуратора: разметка таймера в проекте одна.
+    {% endcomment %}
+    <p class="slot-sla">
+        {% include 'rooms/_staffing_sla.html' with sla_extra_class='slot-search-sla' %}
+        <span class="muted">до {{ card.search_deadline|date:"d.m.Y H:i" }}</span>
+    </p>
+    {% endif %}
     {% endif %}
 
     {% if action_note %}

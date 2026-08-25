@@ -1,5 +1,20 @@
 {% extends 'base.html' %}
 
+{% comment %}
+Вкладка «Лиды»: доска Cold / Warm / Hot.
+
+Раньше здесь была плоская таблица. Изменена только подача: статусы остаются
+существующим `Lead.Qualification`, раскладку по колонкам делает сервер
+(`apps.pipeline.kanban.lead_columns`) — шаблон не знает ни списка статусов,
+ни их порядка и ничего не фильтрует сам.
+
+Данные и действия карточки те же, что были в строке таблицы: контакт,
+источник, автор, назначенный менеджер и переход в карточку лида. Правила
+квалификации не меняются: перевод в Hot (и передача менеджеру со сроком
+24 часа) по-прежнему живёт в `pipeline.services.set_lead_qualification` и
+делается на странице лида.
+{% endcomment %}
+
 {% block title %}Лиды — {{ project.name }}{% endblock %}
 
 {% block content %}
@@ -37,30 +52,25 @@
 <div class="info-block" style="margin-top: 16px;">
     <h3>Список лидов</h3>
     {% if leads %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Контакт</th>
-                <th>Источник</th>
-                <th>Квалификация</th>
-                <th>Создал</th>
-                <th>Менеджер</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for lead in leads %}
-            <tr>
-                <td>{{ lead.contact_name|default:lead.contact_email|default:lead.contact_phone|default:"—" }}</td>
-                <td>{{ lead.get_source_display }}</td>
-                <td>{{ lead.get_qualification_status_display }}</td>
-                <td>{{ lead.creator.full_name }}</td>
-                <td>{{ lead.assigned_manager.full_name|default:"—" }}</td>
-                <td><a href="{% url 'pipeline:lead_detail' project.id lead.id %}" class="btn btn-secondary">Открыть</a></td>
-            </tr>
+    <div class="kanban-board kanban-board-leads">
+        {% for col in lead_columns %}
+        <div class="kanban-col kanban-col-{{ col.key }}">
+            <h4>{{ col.title }} <span class="muted">({{ col.leads|length }})</span></h4>
+            {% for lead in col.leads %}
+            <a class="kanban-card lead-card"
+               href="{% url 'pipeline:lead_detail' project.id lead.id %}">
+                <strong>{{ lead.contact_name|default:lead.contact_email|default:lead.contact_phone|default:"—" }}</strong>
+                <span>{{ lead.get_source_display }} · {{ lead.creator.full_name }}</span>
+                {% if lead.assigned_manager %}
+                <span>Менеджер: {{ lead.assigned_manager.full_name }}</span>
+                {% endif %}
+            </a>
+            {% empty %}
+            <p class="empty compact">Пусто</p>
             {% endfor %}
-        </tbody>
-    </table>
+        </div>
+        {% endfor %}
+    </div>
     {% else %}
     <p class="empty">Лидов пока нет.</p>
     {% endif %}

@@ -4,19 +4,67 @@
 ranking живут только в `matching.py`, транзакции — только в `services.py`.
 Модуль отвечает за то, чтобы вкладка «Команда» и «Обзор» получали готовые
 карточки слотов одним набором запросов, без N+1 на участника и его профиль.
+
+SLA подбора (MVP)
+-----------------
+
+Пустой активный слот показывает обратный отсчёт «сколько осталось на подбор».
+**Якорь отсчёта — `RoomFunctionSlot.created_at`**: отдельного
+`search_started_at` в модели сейчас нет, а заводить его — миграция и
+отдельное продуктовое решение (когда именно «начался поиск»: создание слота,
+освобождение слота, первый показанный кандидат). Пока честно: слот появился —
+подбор пошёл.
+
+Дедлайн вычисляется при каждом чтении и **нигде не сохраняется**: GET не
+пишет в БД и не трогает слот. Просрочка считается на сервере, поэтому
+страница остаётся правдивой при выключенном JavaScript, а таймер в браузере
+только перерисовывает уже полученное значение.
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 
+from django.utils import timezone
+
+from .. import functional_roles
 from ..models import RoomFunctionSlot, RoomMember
 
 __all__ = [
+    'SEARCH_SLA',
+    'SEARCH_SLA_OVERDUE_LABEL',
+    'SEARCH_SLA_PREFIX',
     'SLOT_STATUS_LABELS',
     'SlotCard',
+    'format_countdown',
     'slot_card_for',
     'slot_cards',
     'staffing_summary',
 ]
+
+#: Сколько времени MVP отводит на подбор исполнителя в пустой активный слот.
+#: Не путать с SLA стартовой задачи проекта (24 часа,
+#: `apps.pipeline.services.START_CALLS_SLA`): это разные сроки разных
+#: сущностей, и общей константы у них быть не должно.
+SEARCH_SLA = timedelta(hours=1)
+
+#: Подписи таймера. Константы, а не литералы шаблона: их проверяют тесты.
+SEARCH_SLA_PREFIX = 'SLA'
+SEARCH_SLA_OVERDUE_LABEL = 'SLA 1ч просрочен'
+
+
+def format_countdown(seconds: int) -> str:
+    """Остаток секунд → `HH:MM:SS`.
+
+    Собственное форматирование, а не `timeuntil`: продукту нужен именно
+    секундный отсчёт («00:42:17»), а фильтр Django округляет до минут и
+    часов. Отрицательный остаток сюда не попадает — просрочка это отдельная
+    подпись, а не «-00:00:05».
+    """
+    seconds = max(int(seconds), 0)
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f'{hours:02d}:{minutes:02d}:{secs:02d}'
+
 
 #: Статус слота для UI. Ключи стабильны (используются в шаблоне и тестах),
 #: подписи — русские, как и остальной интерфейс.
@@ -54,6 +102,88 @@ class SlotCard:
         потому что «Другой сейлер» создаёт нового участника.
         """
         return self.member.joined_at if self.member else None
+
+    @property
+    def role_label(self) -> str:
+        """Публичное название функции слота вместо машинного `role_key`.
+
+        Берётся из структурного каталога (`functional_roles.role_label`),
+        поэтому подписи слота и строки состава не расходятся, а исторический
+        ключ старой комнаты не роняет страницу — он показывается как есть.
+        """
+        return functional_roles.role_label(self.slot.role_key)
+
+    @property
+    def grade_label(self) -> str:
+        """Подпись требуемого грейда слота — из его же enum, не из каталога.
+
+        Требования зафиксированы в самом слоте (`required_level`), и именно
+        по ним идёт подбор; каталог мог измениться после создания слота.
+        """
+        return self.slot.get_required_level_display()
+
+    # --- SLA подбора --------------------------------------------------
+    #
+    # Показывается только пустому активному слоту: занятый слот уже
+    # подобран, а закрытый в подборе не участвует. Ни одно из свойств ниже
+    # ничего не пишет и не меняет слот.
+
+    @property
+    def is_searching(self) -> bool:
+        """Идёт ли по этому слоту подбор прямо сейчас."""
+        return self.member is None and self.slot.is_active
+
+    @property
+    def search_deadline(self):
+        """Абсолютный дедлайн SLA подбора или None.
+
+        `created_at + SEARCH_SLA`. Значение вычисляемое: в БД дедлайна нет
+        и появляться от чтения страницы он не должен.
+        """
+        if not self.is_searching:
+            return None
+        return self.slot.created_at + SEARCH_SLA
+
+    @property
+    def search_seconds_left(self) -> int:
+        """Остаток SLA в секундах (не меньше нуля). Считает сервер."""
+        deadline = self.search_deadline
+        if deadline is None:
+            return 0
+        return max(int((deadline - timezone.now()).total_seconds()), 0)
+
+    @property
+    def search_is_overdue(self) -> bool:
+        """Истёк ли час на подбор. Вычисляется на сервере, а не в браузере."""
+        deadline = self.search_deadline
+        return deadline is not None and deadline <= timezone.now()
+
+    @property
+    def search_sla_prefix(self) -> str:
+        """Подпись «SLA» для разметки — из константы, не из шаблона."""
+        return SEARCH_SLA_PREFIX
+
+    @property
+    def search_sla_overdue_label(self) -> str:
+        """Текст просрочки для разметки и для визуального отсчёта.
+
+        Отдаётся в data-атрибут, поэтому скрипт в браузере не содержит
+        собственного написания той же фразы.
+        """
+        return SEARCH_SLA_OVERDUE_LABEL
+
+    @property
+    def search_sla_display(self) -> str:
+        """Готовая подпись таймера: `SLA: 00:42:17` либо `SLA 1ч просрочен`.
+
+        Собирается на сервере, поэтому строка видна и без JavaScript —
+        скрипт в браузере только перерисовывает её раз в секунду.
+        """
+        if not self.is_searching:
+            return ''
+        if self.search_is_overdue:
+            return SEARCH_SLA_OVERDUE_LABEL
+        return f'{SEARCH_SLA_PREFIX}: {format_countdown(self.search_seconds_left)}'
 
 
 def _status_for(member: RoomMember | None) -> str:

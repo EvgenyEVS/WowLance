@@ -25,6 +25,14 @@
 </div>
 {% endif %}
 
+{% comment %}
+Доска задач: «К работе» / «В работе» / «На проверке» / «Готово».
+
+Колонки и раскладку задаёт сервер (`apps.pipeline.kanban.task_columns`) —
+тот же helper используется превью на «Обзоре», поэтому две доски не
+расходятся. Шаблон не знает ни статусов задачи, ни их порядка и ничего
+не фильтрует сам; правила переходов остаются в `pipeline.services`.
+{% endcomment %}
 {% if tasks %}
 <div class="kanban-board" style="margin-top: 16px;">
     {% for col in kanban_columns %}

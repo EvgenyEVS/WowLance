@@ -20,6 +20,7 @@ from .forms import (
     ReportSubmitForm,
     TaskCreateForm,
 )
+from .kanban import lead_columns, task_columns
 from .models import Lead, Report, Task
 from .services import (
     TaskCloseError,
@@ -31,24 +32,6 @@ from .services import (
     start_task,
     submit_report,
 )
-
-
-def _kanban_columns(tasks):
-    review_statuses = {Task.Status.READY_FOR_REVIEW}
-    done_statuses = {Task.Status.APPROVED, Task.Status.CLOSED}
-    columns = [
-        {'key': 'todo', 'title': 'К работе', 'tasks': []},
-        {'key': 'review', 'title': 'На проверке', 'tasks': []},
-        {'key': 'done', 'title': 'Готово', 'tasks': []},
-    ]
-    for task in tasks:
-        if task.status in review_statuses:
-            columns[1]['tasks'].append(task)
-        elif task.status in done_statuses:
-            columns[2]['tasks'].append(task)
-        else:
-            columns[0]['tasks'].append(task)
-    return columns
 
 
 def _get_project(user, project_id):
@@ -80,7 +63,7 @@ def room_tasks(request, project_id):
     return render(request, 'pipeline/room_tasks.html', {
         'project': project,
         'tasks': task_list,
-        'kanban_columns': _kanban_columns(task_list),
+        'kanban_columns': task_columns(task_list),
         'can_manage_team': can_manage,
         'create_form': TaskCreateForm(project=project) if can_manage else None,
         'active_tab': 'tasks',
@@ -239,9 +222,13 @@ def room_leads(request, project_id):
     can_create = request.user.role in {
         User.Roles.FREELANCER, User.Roles.TEAMLEAD, User.Roles.ADMIN,
     }
+    lead_list = list(leads)
     return render(request, 'pipeline/room_leads.html', {
         'project': project,
-        'leads': leads,
+        'leads': lead_list,
+        # Cold / Warm / Hot раскладывает сервер по существующему
+        # `Lead.Qualification`: шаблон не знает ни статусов, ни их порядка.
+        'lead_columns': lead_columns(lead_list),
         'can_manage_team': user_can_manage_team(request.user, project),
         'can_create_lead': can_create and user_can_access_project(request.user, project),
         'create_form': LeadCreateForm() if can_create else None,
