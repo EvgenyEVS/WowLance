@@ -23,6 +23,11 @@ urlpatterns = [
         views.room_functional_roles_apply_package,
         name='room_functional_roles_apply_package',
     ),
+    path(
+        'projects/<uuid:project_id>/room/vision/update/',
+        views.room_vision_update,
+        name='room_vision_update',
+    ),
     path('projects/<uuid:project_id>/room/documents/', views.room_documents, name='room_documents'),
     path(
         'projects/<uuid:project_id>/room/documents/upload/',

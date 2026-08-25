@@ -562,21 +562,30 @@ class RoomChatPartialRenderingTests(RoomChatTestCase):
 
 
 class RoomChatRegressionTests(RoomChatTestCase):
-    """Пункты 28–29: чат не сломал видео-заглушку и навигацию комнаты."""
+    """Пункты 28–29: чат не сломал секцию видео и навигацию комнаты.
+
+    Ожидание про видео обновлено вместе с продуктом: на финальном этапе
+    Issue #11 заглушка «Следующий этап» заменена ссылкой на комнату Jitsi
+    (`rooms.services.room_video_call_url`). Прежняя формулировка описывала
+    состояние, которого в продукте больше нет. Сам чат этим не затронут —
+    именно это здесь и проверяется, а детали видеокомнаты живут в
+    `tests_issue11_tabs_completion.JitsiVideoRoomTests`.
+    """
 
     def setUp(self):
         super().setUp()
         self.client.force_login(self.director)
 
-    def test_video_placeholder_is_untouched(self):
+    def test_video_section_is_untouched_by_chat(self):
         response = self.client.get(self.comms_url)
         self.assertContains(response, 'id="comms-video"')
         self.assertContains(response, 'Видеовстреча')
-        self.assertContains(response, 'Следующий этап')
+        self.assertContains(response, 'Открыть видеокомнату')
 
-    def test_jitsi_is_not_implemented_in_this_step(self):
+    def test_video_is_a_link_and_not_an_iframe(self):
+        """Выбран минимальный вариант из ADR-001: ссылка, а не встраивание."""
         body = self.client.get(self.comms_url).content.decode()
-        self.assertNotIn('jit.si', body)
+        self.assertIn(f'https://meet.jit.si/wowlance-room-{self.room.id}', body)
         self.assertNotIn('<iframe', body)
 
     def test_six_tab_navigation_still_works(self):

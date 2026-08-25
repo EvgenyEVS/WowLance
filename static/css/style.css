@@ -1188,10 +1188,17 @@ textarea::placeholder {
     font-size: 12px;
 }
 
+/* Доска задач: четыре колонки (К работе / В работе / На проверке / Готово).
+   Колонки задаёт сервер (apps.pipeline.kanban), сетка только их раскладывает. */
 .kanban-board {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
+}
+
+/* Доска лидов — те же карточки, но колонок три: Cold / Warm / Hot. */
+.kanban-board-leads {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .kanban-col {
@@ -1722,9 +1729,18 @@ textarea::placeholder {
     }
 }
 
+/* На средних экранах четыре колонки складываются в две, а не сразу в одну:
+   доска остаётся доской, пока для этого хватает ширины. */
+@media (max-width: 1100px) {
+    .kanban-board {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 @media (max-width: 900px) {
     .metrics-strip,
-    .kanban-board {
+    .kanban-board,
+    .kanban-board-leads {
         grid-template-columns: 1fr;
     }
     .baseball-hero {
@@ -2138,4 +2154,103 @@ textarea::placeholder {
     .fr-add button {
         width: 100%;
     }
+}
+
+/* --- Issue #11: грейд, SLA подбора, план команды, правка вводных --- */
+
+/* Компактный бейдж грейда рядом с названием функции. Значение приходит из
+   серверного каталога (functional_roles.grade_display), включая N/A. */
+.fr-badge-grade {
+    margin-left: 6px;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    color: var(--text-muted);
+}
+
+/* Отсчёт SLA подбора (1 час). Общий класс для ячейки конфигуратора и
+   карточки слота: разметка таймера в проекте одна. */
+.staffing-sla {
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--text-muted);
+}
+
+.fr-staffing-sla {
+    margin-left: 6px;
+}
+
+.slot-search-sla {
+    margin-right: 6px;
+}
+
+.staffing-sla-overdue {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+/* Заблокированное удаление функции: кнопка видна, но не работает, и рядом
+   написано почему. */
+.fr-remove[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.fr-remove-hint {
+    display: block;
+    font-size: 11px;
+    line-height: 1.3;
+    margin-top: 2px;
+}
+
+/* «Требуется по плану проекта» — display-only таблица на вкладке «Команда». */
+.planned-team-table th[scope="row"] {
+    font-weight: 600;
+}
+
+.planned-slot-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.planned-slot-item {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.planned-role-pending {
+    font-size: 13px;
+}
+
+/* Inline-правка вводных проекта: обычный <details>, без модалки и JS. */
+.vision-edit {
+    margin-top: 12px;
+}
+
+.vision-edit > summary {
+    display: inline-block;
+    cursor: pointer;
+    list-style: none;
+}
+
+.vision-edit > summary::-webkit-details-marker {
+    display: none;
+}
+
+.vision-form {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }

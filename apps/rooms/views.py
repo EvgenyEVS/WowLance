@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST, require_safe
 
 from apps.core.absolute_uri import absolute_uri
+from apps.pipeline.kanban import task_columns
 from apps.pipeline.models import Task
 from apps.pipeline.services import get_start_calls_task
 from apps.users.models import User
@@ -19,6 +20,7 @@ from .forms import (
     AddToRoomForm,
     AssignTeamleadForm,
     ProjectCreateForm,
+    ProjectVisionForm,
     RoomChatMessageForm,
     RoomDocumentForm,
     TeamleadInviteRegisterForm,
@@ -43,14 +45,18 @@ from .services import (
     add_freelancer_to_room,
     apply_package_and_sync_slots,
     assign_teamlead,
+    confirm_freelancer_readiness,
     create_teamlead_invite,
     ensure_room_for_project,
     handle_project_paid,
     launch_project,
     log_room_activity,
+    room_video_call_url,
     save_functional_roles_and_sync_slots,
+    update_project_vision,
     user_can_access_project,
     user_can_edit_functional_roles,
+    user_can_edit_project_vision,
     user_can_manage_team,
 )
 from .staffing import matching, selectors
@@ -59,7 +65,6 @@ from .staffing.services import (
     StaffingError,
     assign_candidate_to_slot,
     auto_assign_best_candidate,
-    confirm_freelancer_readiness,
     replace_slot_member,
 )
 from .unit_economics import FunctionalRolesError
@@ -160,22 +165,10 @@ def _material_groups(documents):
     }]
 
 
-def _kanban_columns(tasks):
-    review_statuses = {Task.Status.READY_FOR_REVIEW}
-    done_statuses = {Task.Status.APPROVED, Task.Status.CLOSED}
-    columns = [
-        {'key': 'todo', 'title': 'К работе', 'tasks': []},
-        {'key': 'review', 'title': 'На проверке', 'tasks': []},
-        {'key': 'done', 'title': 'Готово', 'tasks': []},
-    ]
-    for task in tasks:
-        if task.status in review_statuses:
-            columns[1]['tasks'].append(task)
-        elif task.status in done_statuses:
-            columns[2]['tasks'].append(task)
-        else:
-            columns[0]['tasks'].append(task)
-    return columns
+#: Сколько последних событий комнаты показывает «Обзор» (Issue #11).
+#: Ограничивается только вывод: модель `RoomActivity` и запись событий
+#: не меняются, лента остаётся полной в БД.
+ROOM_ACTIVITY_FEED_LIMIT = 10
 
 
 @login_required
@@ -417,7 +410,9 @@ def room_overview(request, project_id):
     room = ensure_room_for_project(project)
     members = room.members.select_related('user').all()
     my_membership = members.filter(user=request.user).first()
-    activities = room.activities.select_related('actor').all()[:20]
+    activities = (
+        room.activities.select_related('actor').all()[:ROOM_ACTIVITY_FEED_LIMIT]
+    )
     tasks = Task.objects.filter(project=project).select_related('assignee')[:50]
     # Обзор показывает те же карточки слотов только на чтение: собственной
     # копии правил подбора у него нет, управление остаётся на вкладке «Команда».
@@ -440,6 +435,8 @@ def room_overview(request, project_id):
         and start_calls_deadline <= timezone.now()
     )
 
+    can_edit_vision = user_can_edit_project_vision(request.user, project)
+
     return render(request, 'rooms/room_overview.html', {
         'project': project,
         'room': room,
@@ -452,19 +449,70 @@ def room_overview(request, project_id):
         'start_calls_deadline': start_calls_deadline,
         'start_calls_is_overdue': start_calls_is_overdue,
         'start_calls_is_done': start_calls_is_done,
-        'kanban_preview': _kanban_columns(tasks)[:3],
+        # Те же четыре колонки, что и на вкладке «Задачи»: определение одно
+        # (`apps.pipeline.kanban`), поэтому доски не расходятся. Урезания
+        # списка колонок здесь больше нет — «В работе» пропала бы первой.
+        'kanban_preview': task_columns(tasks),
         'can_manage_team': user_can_manage_team(request.user, project),
         'can_launch': (
             request.user.id == project.owner_id
             and project.status == Project.Status.DRAFT
         ),
         'active_tab': 'overview',
+        # Правка вводных: форма отдаётся только тому, кто действительно
+        # вправе сохранить (владелец + директор). Остальные получают `None`
+        # и видят те же вводные на чтение. Настоящая защита — та же проверка
+        # внутри `update_project_vision`.
+        'can_edit_vision': can_edit_vision,
+        'vision_form': (
+            ProjectVisionForm.from_project(project) if can_edit_vision else None
+        ),
         # Конфигуратор функциональной команды собирается тем же билдером, что
         # и HTMX-ответ, — второй копии context у страницы нет. Чтение состава
         # ничего не пишет: проект без сохранённого состава показывает
         # empty state, а не созданный на лету состав по умолчанию.
         **configurator.build_configurator_context(request.user, project, room),
     })
+
+
+@login_required
+@require_POST
+def room_vision_update(request, project_id):
+    """Сохранение четырёх вводных проекта директором-владельцем.
+
+    Только POST: `@require_POST` гарантирует, что GET страницы «Обзора»
+    ничего не мутирует, а форма редактирования — обычный Django-`<form>`
+    с `csrf_token`, без модалки, HTMX и JavaScript.
+
+    Права проверяются дважды: здесь — чтобы отдать 403 до начала работы,
+    и внутри `update_project_vision` — чтобы вводные нельзя было изменить
+    в обход view. Доступ к самому проекту проверяет
+    `_get_accessible_project`, поэтому посторонний получает 403 и на этом
+    адресе.
+
+    Из запроса берутся только поля формы (`ProjectVisionForm.vision`), а
+    сервис кладёт их поверх прочитанного из БД `input_data` — состав
+    команды, бюджет и `architecture` остаются на месте.
+    """
+    project = _get_accessible_project(request.user, project_id)
+    if not user_can_edit_project_vision(request.user, project):
+        raise PermissionDenied('Менять вводные проекта может только директор проекта.')
+
+    form = ProjectVisionForm(request.POST)
+    if not form.is_valid():
+        messages.error(
+            request,
+            ' '.join(
+                str(message)
+                for errors in form.errors.values()
+                for message in errors
+            ),
+        )
+        return redirect('rooms:room_overview', project_id=project.id)
+
+    update_project_vision(project, form.vision(), request.user)
+    messages.success(request, 'Вводные проекта обновлены.')
+    return redirect('rooms:room_overview', project_id=project.id)
 
 
 def _configurator_response(request, project, *, error=None, notice=None):
@@ -637,11 +685,12 @@ def room_document_delete(request, project_id, document_id):
 
 @login_required
 def room_comms(request, project_id):
-    """Вкладка «Коммуникации»: чат комнаты и заглушка видеовстречи.
+    """Вкладка «Коммуникации»: чат комнаты и ссылка на видеокомнату.
 
     Страница только читает состояние: сообщения отправляет отдельный POST
     (`room_chat_send`), а обновляет ленту отдельный GET (`room_chat_messages`).
-    Видеовстреча остаётся заглушкой — подключение придёт отдельным шагом.
+    Видеовстреча — внешняя ссылка на Jitsi, собранная сервером; ни iframe,
+    ни JWT, ни собственного хостинга здесь нет (ADR-001, MVP).
 
     При выключенном `chat_enabled` вкладка остаётся доступной и честно
     показывает, что чат отключён: сама секция чата не рендерится, поэтому
@@ -658,6 +707,9 @@ def room_comms(request, project_id):
     return render(request, 'rooms/room_comms.html', {
         'project': project,
         'room': room,
+        # Адрес видеокомнаты собирает сервер из `Room.id` — из браузера
+        # он не приходит и подмене не подлежит (`services.room_video_call_url`).
+        'video_call_url': room_video_call_url(room),
         'chat_form': RoomChatMessageForm() if room.chat_enabled else None,
         'chat_messages': (
             chat.recent_chat_messages(room) if room.chat_enabled else []
@@ -767,6 +819,11 @@ def room_team(request, project_id):
         'members': members,
         'slot_cards': cards,
         'staffing_summary': selectors.staffing_summary(cards),
+        # «Требуется по плану проекта» — display-only: что и в каком
+        # количестве заказал директор, включая функции без слотов
+        # execution (`teamlead`, `database_assistant`). Context собирается
+        # на сервере, шаблон `input_data` не разбирает и слотов не создаёт.
+        **configurator.build_planned_team_context(project, room),
         'can_staff_slots': can_manage and _staffing_is_open(project),
         'can_manage_team': can_manage,
         'my_membership': my_membership,

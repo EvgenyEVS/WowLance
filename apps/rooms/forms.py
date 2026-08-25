@@ -6,6 +6,7 @@ from django.utils.translation import gettext_lazy as _
 from apps.users.models import User
 from .chat import CHAT_MESSAGE_MAX_LENGTH
 from .models import Project, RoomDocument
+from .services import VISION_INPUT_KEYS
 
 
 class ProjectCreateForm(forms.ModelForm):
@@ -86,6 +87,74 @@ class ProjectCreateForm(forms.ModelForm):
         if commit:
             project.save()
         return project
+
+
+class ProjectVisionForm(forms.Form):
+    """Редактирование четырёх вводных проекта («вижен») директором.
+
+    Обычная `Form`, а не `ModelForm`: редактируемые значения — не поля
+    модели, а **ключи** `Project.input_data`
+    (`services.VISION_INPUT_KEYS`). `ModelForm` предложил бы редактировать
+    `input_data` целиком, то есть отдать браузеру и снапшот состава
+    команды, и `architecture`.
+
+    Имена полей совпадают с ключами `input_data` буквально: `offer`, `utp`,
+    `audience`, `hot_criteria` — те самые, которые читают свойства
+    `Project.offer` / `utp` / `audience` / `hot_criteria` и «Обзор». Новых
+    ключей форма не заводит.
+
+    Обязательность повторяет `_missing_launch_inputs` во views: без оффера,
+    ЦА и критериев Hot проект нельзя запускать, поэтому очистить их
+    редактированием нельзя. `utp` необязателен — в требования запуска он не
+    входит, и заставлять директора выдумывать УТП, чтобы поправить оффер,
+    незачем. Сохранение записывает `''`, а не «поле пропущено»: пустое
+    значение — это осознанный ответ формы, и merge применит его как есть.
+    """
+
+    offer = forms.CharField(
+        label=_('Оффер'),
+        widget=forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
+        help_text=_('Что продаём и на каких условиях'),
+    )
+    utp = forms.CharField(
+        label=_('УТП'),
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 2, 'class': 'form-control'}),
+        help_text=_('Уникальное торговое предложение'),
+    )
+    audience = forms.CharField(
+        label=_('Целевая аудитория'),
+        widget=forms.Textarea(attrs={'rows': 2, 'class': 'form-control'}),
+    )
+    hot_criteria = forms.CharField(
+        label=_('Критерии горячего лида'),
+        widget=forms.Textarea(attrs={'rows': 2, 'class': 'form-control'}),
+        help_text=_('Например: запросил демо, согласен на встречу, интерес к КП'),
+    )
+
+    @classmethod
+    def from_project(cls, project):
+        """Форма, заполненная текущими вводными проекта.
+
+        Значения читаются одноимёнными свойствами модели (`project.offer`
+        и т. д.) по ключам `VISION_INPUT_KEYS` — теми же, что показывает
+        «Обзор». Второго разбора `input_data` в шаблоне или во view не
+        появляется, а совпадение «ключ = имя поля = свойство модели»
+        перестаёт быть договорённостью и становится структурой.
+        """
+        return cls(initial={key: getattr(project, key) for key in VISION_INPUT_KEYS})
+
+    def vision(self) -> dict:
+        """Только разрешённые ключи вводных, уже очищенные от пробелов.
+
+        Всё, что браузер прислал сверх этих полей, до сервиса не доходит:
+        словарь собирается из `cleaned_data` по `VISION_INPUT_KEYS`, а не
+        из `request.POST`.
+        """
+        return {
+            key: (self.cleaned_data.get(key) or '').strip()
+            for key in VISION_INPUT_KEYS
+        }
 
 
 class RoomDocumentForm(forms.ModelForm):
