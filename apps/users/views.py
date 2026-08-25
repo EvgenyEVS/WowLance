@@ -23,16 +23,28 @@ from .wowtalent_client import get_wowtalent_user_data
 User = get_user_model()
 
 
+def _is_console_email_backend() -> bool:
+    """True, если письма пишутся в консоль сервера, а не уходят по SMTP."""
+    return 'console' in (settings.EMAIL_BACKEND or '').lower()
+
+
 def _registration_success_response(request, user, activation_url):
+    """
+    После регистрации / повторной отправки письма:
+    - DEBUG: страница успеха (ссылка на экране, если backend = console);
+    - не DEBUG: сообщение и редирект на логин (ожидаем реальное письмо).
+    """
     if settings.DEBUG:
         return render(request, 'users/registration_success.html', {
             'email': user.email,
             'activation_url': activation_url,
             'debug_mode': True,
+            'is_console_backend': _is_console_email_backend(),
         })
     messages.success(
         request,
-        'Регистрация успешна! На ваш email отправлено письмо с подтверждением.',
+        'Регистрация успешна! На ваш email отправлено письмо с подтверждением. '
+        'После активации аккаунта вы сможете войти в WowLance.',
     )
     return redirect('users:login')
 

@@ -17,6 +17,24 @@ from pathlib import Path
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+def _load_dotenv(path: Path) -> None:
+    """Подхватывает локальный .env без python-decouple (не перетирает уже заданные env)."""
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding='utf-8').splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+_load_dotenv(BASE_DIR / '.env')
+
 # `manage.py test` (и явный DJANGO_TESTING=1) — ускоряем хеш паролей:
 # каждый make_user/set_password иначе жжёт PBKDF2 и раздувает suite rooms.
 TESTING = os.environ.get('DJANGO_TESTING') == '1' or (
@@ -182,11 +200,21 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
 
-# Email (console backend — SMTP настраивается отдельно через env)
+# Email: SMTP, если заданы EMAIL_HOST_USER + EMAIL_HOST_PASSWORD; иначе console.
+# Без новых зависимостей (только os.environ) — VPS/локально не падают без pip-пакетов.
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '').strip()
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', '1') == '1'
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'
 
 
 AUTH_USER_MODEL = 'users.User'
