@@ -23,7 +23,7 @@ def _require_freelancer(user):
 
 @login_required
 def freelancer_catalog(request):
-    """Каталог фрилансеров с фильтрами по уровню, доступности, видео и поиску."""
+    """Каталог фрилансеров с фильтрами по уровню, доступности, видео, верификации и поиску."""
     profiles = (
         FreelancerProfile.objects
         .select_related('user')
@@ -36,9 +36,8 @@ def freelancer_catalog(request):
     level = request.GET.get('level', '').strip()
     available = request.GET.get('available', '').strip()
     q = request.GET.get('q', '').strip()
-
-    # НОВОЕ: Чекбокс "Только с видео". По умолчанию '1' (включен)
     video_only = request.GET.get('video_only', '1').strip()
+    show_unverified = request.GET.get('show_unverified', '0').strip()
 
     if level in FreelancerProfile.Level.values:
         profiles = profiles.filter(level=level)
@@ -48,9 +47,11 @@ def freelancer_catalog(request):
     elif available == '0':
         profiles = profiles.filter(is_available=False)
 
-    # НОВОЕ: Фильтрация по наличию видео (исключаем null и пустые строки)
     if video_only == '1':
         profiles = profiles.exclude(video_url__isnull=True).exclude(video_url='')
+
+    if show_unverified != '1':
+        profiles = profiles.filter(is_verified=True)
 
     if q:
         profiles = profiles.filter(
@@ -67,7 +68,8 @@ def freelancer_catalog(request):
         'levels': FreelancerProfile.Level.choices,
         'selected_level': level,
         'selected_available': available,
-        'selected_video_only': video_only,  # НОВОЕ: передаём в шаблон
+        'selected_video_only': video_only,
+        'selected_show_unverified': show_unverified,
         'search_query': q,
     }
     return render(request, 'profiles/catalog.html', ctx)

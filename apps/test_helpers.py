@@ -36,9 +36,19 @@ def make_freelancer(email='freelancer@test.com', **kwargs):
     user = make_user(email=email, role=User.Roles.FREELANCER, **kwargs)
     if user.status == User.Status.ACTIVE:
         profile = get_or_create_freelancer_profile(user)
+
+        needs_save = False
         if not profile.video_url:
             profile.video_url = 'https://youtube.com/watch?v=test'
-            profile.save(update_fields=['video_url'])
+            needs_save = True
+
+        if not profile.is_verified:
+            profile.is_verified = True
+            needs_save = True
+
+        if needs_save:
+            profile.save(update_fields=['video_url', 'is_verified'])
+
     return user
 
 

@@ -39,6 +39,13 @@
                 <span>Только с видео</span>
             </label>
         </div>
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px; cursor: pointer;">
+                <input type="checkbox" name="show_unverified" value="1" {% if selected_show_unverified == '1' %}checked{% endif %}
+                       style="width: 18px; height: 18px; cursor: pointer;">
+                <span>Показать неверифицированных</span>
+            </label>
+        </div>
         <div class="form-actions">
             <button type="submit" class="btn btn-primary">Найти</button>
             <a href="{% url 'profiles:catalog' %}" class="btn btn-secondary">Сбросить</a>
@@ -71,6 +78,11 @@
                 <span class="badge video-yes" style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;">Есть видео</span>
                 {% else %}
                 <span class="badge video-no" style="background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;">Нет видео</span>
+                {% endif %}
+                {% if not profile.is_verified %}
+                <span class="badge" style="background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; margin-top: 8px; display: inline-block;">
+                    На модерации
+                </span>
                 {% endif %}
             </div>
             {% if profile.skills_list %}

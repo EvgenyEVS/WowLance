@@ -259,3 +259,45 @@ class FreelancerVideoRequirementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Иван СВидео')
         self.assertContains(response, 'Петр БезВидео')
+
+
+class FreelancerVerifiedFilterTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.director = make_director(email='dir-verified@test.com')
+
+        # Верифицированный фрилансер
+        self.verified_freelancer = make_freelancer(
+            email='verified@test.com',
+            first_name='Иван',
+            last_name='Проверенный'
+        )
+        self.verified_freelancer.freelancer_profile.is_verified = True
+        self.verified_freelancer.freelancer_profile.save(update_fields=['is_verified'])
+
+        # Неверифицированный фрилансер (Кирилл)
+        self.unverified_freelancer = make_freelancer(
+            email='kirill@test.com',
+            first_name='Кирилл',
+            last_name='НаМодерации'
+        )
+        self.unverified_freelancer.freelancer_profile.is_verified = False
+        self.unverified_freelancer.freelancer_profile.save(update_fields=['is_verified'])
+
+    def test_catalog_shows_only_verified_by_default(self):
+        """Тест: без параметров в каталоге нет неверифицированного Кирилла."""
+        self.client.force_login(self.director)
+        response = self.client.get(reverse('profiles:catalog'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Иван Проверенный')
+        self.assertNotContains(response, 'Кирилл НаМодерации')
+
+    def test_catalog_shows_all_with_show_unverified_flag(self):
+        """Тест: с флагом show_unverified=1 Кирилл появляется в каталоге."""
+        self.client.force_login(self.director)
+        response = self.client.get(reverse('profiles:catalog') + '?show_unverified=1')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Иван Проверенный')
+        self.assertContains(response, 'Кирилл НаМодерации')
