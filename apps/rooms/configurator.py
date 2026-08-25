@@ -1,8 +1,15 @@
-"""Read-only сборка данных конфигуратора функциональных ролей для шаблонов.
+"""Read-only сборка данных функциональных ролей для шаблонов ROOM.
 
 Модуль — presentation-слой поверх `apps.rooms.unit_economics`, по образцу
 `apps.rooms.staffing.selectors`: здесь нет ни одной записи в БД, ни одного
 бизнес-правила и ни одной собственной цифры экономики.
+
+Отсюда собираются два экрана одного и того же сохранённого состава:
+
+* конфигуратор на «Обзоре» — что директор покупает и правит;
+* блок «Требуется по плану проекта» на вкладке «Команда» — что заказано,
+  как это видит тимлид (`build_planned_team_context`). Второй разбор
+  `input_data` для него не заводится: используется та же сводка.
 
 Границы
 -------
@@ -10,9 +17,10 @@
 * **Что покупает директор** — `unit_economics` (снапшот, валидация, бюджет).
   Единственная точка записи по-прежнему `update_project_functional_roles`.
 * **Как это показать** — этот модуль: форматирование денег, «CPL не
-  рассчитывается», список ещё не добавленных функций, read-only статус
-  подбора.
-* **Разметка** — `rooms/_unit_economics_table.html`, единственная копия.
+  рассчитывается», список ещё не добавленных функций, подписи грейдов,
+  read-only статус подбора.
+* **Разметка** — `rooms/_unit_economics_table.html` и блок плана в
+  `rooms/room_team.html`; копий у них нет.
 
 Почему `counts` считает сервер
 ------------------------------
@@ -46,14 +54,19 @@ __all__ = [
     'ACTION_SET',
     'CONFIGURATOR_ACTIONS',
     'EMPTY_VALUE',
+    'EXECUTION_PENDING_LABEL',
     'HOT_UNIT',
     'HOURS_UNIT',
+    'PLANNED_TEAM_TITLE',
+    'REMOVE_BLOCKED_HINT',
     'SEARCHING_LABEL',
     'AvailableRole',
     'ConfiguratorRow',
+    'PlannedRoleRow',
     'RoleStaffing',
     'build_configurator_context',
     'build_counts',
+    'build_planned_team_context',
     'current_counts',
     'format_money',
     'user_can_configure_now',
@@ -76,6 +89,21 @@ TIMES_SIGN = '×'
 
 #: Слот функции существует, но исполнителя в нём ещё нет.
 SEARCHING_LABEL = 'Идёт подбор'
+
+#: Почему кнопка «убрать функцию» недоступна. Полное удаление функции —
+#: это `count → 0`, а проекция не закрывает слот с исполнителем и вернёт
+#: `SlotProjectionError`. Кнопка, которая гарантированно упрётся в отказ,
+#: вводит в заблуждение, поэтому она блокируется вместе с этой подсказкой.
+REMOVE_BLOCKED_HINT = 'Сначала снимите исполнителя'
+
+#: Заголовок display-only блока «что заказал директор» на вкладке «Команда».
+PLANNED_TEAM_TITLE = 'Требуется по плану проекта'
+
+#: Заказанная функция, у которой ещё нет ни одного слота комнаты.
+#: Не «идёт подбор» и не прочерк: слот execution просто не создан —
+#: у `teamlead` свой ручной поток, у `database_assistant` канал `base`,
+#: которого нет в enum слота (см. `staffing.projection`).
+EXECUTION_PENDING_LABEL = 'Execution slot ещё не создан'
 
 #: Действия конфигуратора. `set` покрывает и «добавить» (count=1),
 #: и «убрать» (count=0) — отдельные действия ничего бы не добавили.
@@ -112,15 +140,16 @@ class RoleStaffing:
 
     Показываются **только уже существующие** `RoomFunctionSlot`, и связь
     «функция состава → слот комнаты» здесь не изобретается: берутся ровно те
-    активные слоты, у которых `role_key` буквально совпадает. Проекции состава
-    в слоты пока не существует, поэтому у функции без слотов честный прочерк —
-    ячейка не изображает, будто подбор уже запущен. Полное сопоставление
-    (в том числе `database_assistant` с каналом `base` и отдельный поток
-    тимлида) — следующий этап composition → slots.
+    активные слоты, у которых `role_key` буквально совпадает. У функции без
+    слотов честный прочерк — ячейка не изображает, будто подбор уже запущен.
+    Слотов не получают `teamlead` (ручной invite) и `database_assistant`
+    (канал `base` вне enum слота), см. `staffing.projection`.
 
-    SLA-обратного отсчёта здесь нет намеренно: SLA относится к стартовой
-    задаче проекта целиком, а не к строке состава. Его блок собирается во
-    view «Обзора» из `apps.pipeline.services.get_start_calls_task`.
+    Два разных SLA не смешиваются. SLA стартовой задачи проекта (24 часа)
+    относится к проекту целиком, собирается во view «Обзора» из
+    `apps.pipeline.services.get_start_calls_task` и живёт в отдельном
+    баннере. SLA подбора (1 час) относится к **конкретному пустому слоту**
+    и приходит готовым из `staffing.selectors.SlotCard`.
     """
 
     #: `staffing.selectors.SlotCard` существующих слотов этой функции.
@@ -155,8 +184,21 @@ class RoleStaffing:
 
     @property
     def has_assigned(self) -> bool:
-        """Есть ли уже назначенный человек — только для confirm при удалении."""
+        """Есть ли уже назначенный человек в каком-либо слоте функции."""
         return self.filled > 0
+
+    @property
+    def remove_blocked(self) -> bool:
+        """Упрётся ли полное удаление функции (`count → 0`) в исполнителя.
+
+        Ровно то условие, по которому откажет `projection._decrease`: чтобы
+        обнулить функцию, нужно закрыть все её активные слоты, а слот с
+        участником проекция не закрывает никогда. Правило не переписывается,
+        а зеркалится, и только для того, чтобы UI не предлагал операцию,
+        которая заведомо закончится ошибкой. Настоящая защита остаётся в
+        `SlotProjectionError`.
+        """
+        return self.has_assigned
 
 
 def _staffing_by_role_key(room) -> dict[str, RoleStaffing]:
@@ -209,6 +251,19 @@ class ConfiguratorRow:
     @property
     def is_fixed(self) -> bool:
         return self.economics.is_fixed
+
+    @property
+    def grade_display(self) -> str:
+        """Подпись бейджа грейда рядом с названием функции.
+
+        Значение приходит из **структурного** каталога через
+        `UnitEconomicsRow.grade` (`_row_from_snapshot` берёт грейд из
+        `functional_roles`, а не из снапшота), а текст — из
+        `functional_roles.grade_display`. В шаблоне соответствия
+        «`middle` → Middle» нет: иначе оно разошлось бы с каталогом.
+        Teamlead грейда не имеет и честно помечается `N/A`.
+        """
+        return functional_roles.grade_display(self.economics.grade)
 
     @property
     def productivity_text(self) -> str:
@@ -337,6 +392,98 @@ class AvailableRole:
 
 
 # ---------------------------------------------------------------------------
+# «Требуется по плану проекта» — display-only состав для вкладки «Команда»
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PlannedRoleRow:
+    """Одна заказанная директором функция — как её видит тимлид.
+
+    Формальный AC Issue #11: тимлид должен видеть, **сколько и каких**
+    функций и грейдов заказал директор, — включая те, у которых слотов
+    execution нет и не будет на этом этапе (`teamlead`,
+    `database_assistant`). Поэтому источник строки — сохранённый снапшот
+    состава (`Project.input_data['functional_roles']` через
+    `get_unit_economics_summary`), а не список слотов комнаты: иначе
+    заказанная функция без слота просто исчезла бы с экрана.
+
+    Блок строго read-only: он ничего не создаёт, не проецирует и не
+    запускает подбор. Слоты по-прежнему появляются только из write-path
+    сохранения состава.
+    """
+
+    economics: UnitEconomicsRow
+    staffing: RoleStaffing
+
+    @property
+    def role_key(self) -> str:
+        return self.economics.role_key
+
+    @property
+    def label(self) -> str:
+        return self.economics.label
+
+    @property
+    def count(self) -> int:
+        return self.economics.count
+
+    @property
+    def is_fixed(self) -> bool:
+        return self.economics.is_fixed
+
+    @property
+    def grade_display(self) -> str:
+        """Тот же серверный источник грейда, что и у конфигуратора."""
+        return functional_roles.grade_display(self.economics.grade)
+
+    @property
+    def has_slots(self) -> bool:
+        return self.staffing.has_slots
+
+    @property
+    def status(self) -> str:
+        """CSS-статус строки: `none` — слотов нет, иначе агрегат подбора."""
+        return self.staffing.status
+
+    @property
+    def execution_note(self) -> str:
+        """Честная подпись для функции без единого слота комнаты.
+
+        Не «идёт подбор» и не пустая строка: подбор по этой функции не
+        запущен вообще. Функция с существующими слотами подписи не получает —
+        её состояние показывают сами слоты.
+        """
+        return '' if self.has_slots else EXECUTION_PENDING_LABEL
+
+
+def build_planned_team_context(project, room=None) -> dict:
+    """Context display-only блока «Требуется по плану проекта».
+
+    Собирается на сервере целиком: шаблон не разбирает `input_data` и не
+    знает ни про снапшот, ни про слоты. Второго парсера `functional_roles`
+    в разметке не появляется — используется та же сводка, что и у
+    конфигуратора.
+    """
+    summary = get_unit_economics_summary(project)
+    staffing = _staffing_by_role_key(room)
+    return {
+        'planned_team_title': PLANNED_TEAM_TITLE,
+        'planned_roles': [
+            PlannedRoleRow(
+                economics=row,
+                staffing=staffing.get(row.role_key, RoleStaffing()),
+            )
+            for row in summary.rows
+        ],
+        'planned_total_count': sum(row.count for row in summary.rows),
+        # Подпись «идёт подбор» — та же константа, что и в конфигураторе:
+        # второго написания одной фразы в проекте не появляется.
+        'planned_searching_label': SEARCHING_LABEL,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Права
 # ---------------------------------------------------------------------------
 
@@ -462,6 +609,9 @@ def build_configurator_context(user, project, room=None, *, error=None, notice=N
         # текст «идёт подбор» и прочерк проверяются тестами.
         'fr_searching_label': SEARCHING_LABEL,
         'fr_empty_value': EMPTY_VALUE,
+        # Подсказка заблокированного «✕» — тоже константа модуля: текст
+        # обещания «сначала снимите исполнителя» проверяется тестом.
+        'fr_remove_blocked_hint': REMOVE_BLOCKED_HINT,
         'fr_error': error,
         'fr_notice': notice,
     }

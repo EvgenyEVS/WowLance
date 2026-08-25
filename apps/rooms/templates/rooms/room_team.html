@@ -5,7 +5,76 @@
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
-<div class="info-block">
+{% comment %}
+«Требуется по плану проекта» — display-only: сколько и каких функций и
+грейдов заказал директор. Источник — сохранённый снапшот состава
+(`Project.input_data['functional_roles']`), разобранный на сервере
+(`configurator.build_planned_team_context`). Второго парсера `input_data`
+в шаблоне нет, слоты отсюда не создаются и подбор не запускается.
+
+Функция показывается даже без слотов execution: у «Тимлида проекта» свой
+ручной поток приглашения, у «Ассистента базы» канал `base`, которого нет в
+enum слота, — обоим честно пишется, что слот ещё не создан, вместо
+выдуманного статуса подбора.
+{% endcomment %}
+<section class="info-block planned-team" id="planned-team" aria-labelledby="planned-team-title">
+    <div class="section-head">
+        <h3 id="planned-team-title">{{ planned_team_title }}</h3>
+        {% if planned_roles %}
+        <span class="muted">Заказано единиц: {{ planned_total_count }}</span>
+        {% endif %}
+    </div>
+    {% if planned_roles %}
+    <table class="data-table planned-team-table">
+        <thead>
+            <tr>
+                <th scope="col">Функция</th>
+                <th scope="col">Грейд</th>
+                <th scope="col">Количество</th>
+                <th scope="col">Подбор</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for role in planned_roles %}
+            <tr id="planned-role-{{ role.role_key }}" class="planned-role planned-role-{{ role.status }}">
+                <th scope="row">
+                    {{ role.label }}
+                    {% if role.is_fixed %}<span class="badge fr-badge-fixed">обязательная</span>{% endif %}
+                </th>
+                <td><span class="badge fr-badge-grade">{{ role.grade_display }}</span></td>
+                <td class="fr-num">{{ role.count }}</td>
+                <td class="planned-role-execution">
+                    {% if role.has_slots %}
+                    <ul class="planned-slot-list">
+                        {% for card in role.staffing.cards %}
+                        <li class="planned-slot-item">
+                            <span class="muted">#{{ card.slot.slot_index }}</span>
+                            {% if card.member %}
+                            {{ card.member.user.full_name }}
+                            <span class="badge slot-status slot-status-{{ card.status }}">{{ card.status_label }}</span>
+                            {% else %}
+                            <span class="fr-staffing-pending">{{ planned_searching_label }}</span>
+                            {% if card.is_searching %}
+                            {% include 'rooms/_staffing_sla.html' with sla_extra_class='fr-staffing-sla' %}
+                            {% endif %}
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <span class="planned-role-pending muted">{{ role.execution_note }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="help-text">Состав команды ещё не сохранён директором проекта.</p>
+    {% endif %}
+</section>
+
+<div class="info-block" style="margin-top: 16px;">
     <div class="section-head">
         <h3>Функциональные слоты</h3>
         {% if staffing_summary.total %}
@@ -117,4 +186,13 @@
     <button type="submit" class="btn btn-primary">Готов к работе</button>
 </form>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% comment %}
+Скрипт отсчёта подключается, только если на странице есть хотя бы один
+пустой активный слот: мёртвого таймера на странице без слотов не должно
+быть — так же, как и у SLA стартовой задачи.
+{% endcomment %}
+{% if staffing_summary.searching %}{% include 'rooms/_staffing_sla_countdown.html' %}{% endif %}
 {% endblock %}

@@ -51,11 +51,16 @@ __all__ = [
     'FUNCTIONAL_ROLE_KEYS',
     'FUNCTIONAL_ROLE_KEY_CHOICES',
     'GRADE_JUNIOR',
+    'GRADE_LABELS',
     'GRADE_MIDDLE',
+    'GRADE_NOT_APPLICABLE',
     'GRADE_SENIOR',
     'FunctionalRole',
     'get_structural_role',
+    'grade_display',
     'is_known_role_key',
+    'role_grade_display',
+    'role_label',
     'role_snapshot_id',
 ]
 
@@ -63,6 +68,21 @@ __all__ = [
 GRADE_JUNIOR = 'junior'
 GRADE_MIDDLE = 'middle'
 GRADE_SENIOR = 'senior'
+
+#: Как грейд показывается пользователю. Английские подписи оставлены
+#: намеренно: «Middle» / «Senior» — принятые в отрасли обозначения, и они уже
+#: используются в публичных названиях функций («Сейлер Middle»), в
+#: `RoomFunctionSlot.Grade` и в каталоге BIZ. Переводить их на русский только
+#: в бейдже значило бы завести второе написание одного и того же уровня.
+GRADE_LABELS: MappingProxyType = MappingProxyType({
+    GRADE_JUNIOR: 'Junior',
+    GRADE_MIDDLE: 'Middle',
+    GRADE_SENIOR: 'Senior',
+})
+
+#: Подпись бейджа для функции, к которой грейд неприменим (Teamlead).
+#: Это не «грейд неизвестен»: у тимлида грейда нет по структуре каталога.
+GRADE_NOT_APPLICABLE = 'N/A'
 
 #: Каналы. `CHANNEL_BASE` шире enum слота — см. docstring модуля.
 CHANNEL_ANY = 'any'
@@ -160,3 +180,45 @@ def role_snapshot_id(role_key: str) -> str:
     строк таблицы, не завися от порядка элементов в списке.
     """
     return f'role_{role_key}'
+
+
+def grade_display(grade: str | None) -> str:
+    """Грейд каталога → подпись бейджа. `None` → `N/A`.
+
+    Единственное место, где грейд превращается в текст. Шаблоны и селекторы
+    получают готовую подпись, поэтому второй копии соответствия
+    «`middle` → Middle» в разметке не появляется, а функция без грейда
+    (Teamlead) честно помечается `N/A`, а не пустым местом.
+
+    Неизвестное историческое значение возвращается как есть: страница
+    обязана отрисоваться, даже если каталог грейдов когда-то изменится.
+    """
+    if grade is None:
+        return GRADE_NOT_APPLICABLE
+    return GRADE_LABELS.get(grade, str(grade))
+
+
+def role_grade_display(role_key: str) -> str:
+    """Подпись грейда функции по её `role_key`.
+
+    Для ключа, которого в каталоге нет, грейда тоже нет — отдаётся `N/A`:
+    выдумывать уровень исчезнувшей функции нельзя.
+    """
+    role = get_structural_role(role_key)
+    return grade_display(role.grade if role else None)
+
+
+def role_label(role_key: str) -> str:
+    """Публичное название функции по `role_key`; fallback — сам ключ.
+
+    Нужен подбору и его UI: `RoomFunctionSlot.role_key` — машинный ключ,
+    и показывать пользователю `seller_middle` нельзя. Каталог здесь
+    единственный источник названий, поэтому подписи слотов и строк состава
+    не расходятся.
+
+    Исторический ключ, которого в каталоге уже (или ещё) нет, возвращается
+    как есть: слот с таким ключом существует в БД реальных комнат, и
+    страница обязана открыться, а не упасть на `KeyError`.
+    """
+    role = get_structural_role(role_key)
+    return role.label if role else str(role_key)

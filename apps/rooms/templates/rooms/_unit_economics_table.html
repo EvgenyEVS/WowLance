@@ -73,8 +73,18 @@
             <tbody>
                 {% for row in fr_rows %}
                 <tr id="fr-row-{{ row.role_key }}" class="fr-row{% if row.is_fixed %} fr-row-fixed{% endif %}">
+                    {% comment %}
+                    Грейд — компактный бейдж рядом с публичным названием.
+                    Значение приходит готовым из серверного каталога
+                    (`ConfiguratorRow.grade_display` →
+                    `functional_roles.grade_display`), поэтому соответствия
+                    «middle → Middle» в разметке нет, а функция без грейда
+                    (Тимлид) честно помечена N/A. Публичные названия ролей
+                    при этом не меняются.
+                    {% endcomment %}
                     <th scope="row" class="fr-role">
                         {{ row.label }}
+                        <span class="badge fr-badge-grade">{{ row.grade_display }}</span>
                         {% if row.is_fixed %}<span class="badge fr-badge-fixed">обязательная</span>{% endif %}
                     </th>
 
@@ -147,9 +157,18 @@
                     запущенный подбор. Ни слоты, ни назначения отсюда не
                     создаются.
 
-                    SLA-таймера здесь нет намеренно: он относится к стартовой
-                    задаче проекта целиком, а не к отдельной строке состава, и
-                    живёт в SLA-блоке в верхней части «Обзора».
+                    Строк в ячейке ровно столько, сколько у функции реальных
+                    слотов: у каждого пустого — собственный отсчёт SLA.
+
+                    Два разных SLA здесь не путаются. Отсчёт ниже — SLA
+                    подбора (1 час от появления слота): он относится к
+                    конкретному пустому слоту и приходит готовым из
+                    `staffing.selectors.SlotCard`. SLA стартовой задачи
+                    проекта (24 часа) живёт в отдельном баннере наверху
+                    «Обзора» и имеет собственные data-атрибуты.
+
+                    Назначенный слот таймера не получает: подбор по нему уже
+                    состоялся. Функция без слотов — прочерк, без всякого SLA.
                     {% endcomment %}
                     <td class="fr-staffing fr-staffing-{{ row.staffing.status }}">
                         {% if row.staffing.has_slots %}
@@ -165,6 +184,9 @@
                                    class="fr-staffing-person">{{ card.member.user.full_name }}</a>
                                 {% else %}
                                 <span class="fr-staffing-pending">{{ fr_searching_label }}</span>
+                                {% if card.is_searching %}
+                                {% include 'rooms/_staffing_sla.html' with sla_extra_class='fr-staffing-sla' %}
+                                {% endif %}
                                 {% endif %}
                             </li>
                             {% endfor %}
@@ -174,13 +196,37 @@
                         {% endif %}
                     </td>
 
+                    {% comment %}
+                    «✕» — это `count → 0`, то есть закрытие всех слотов
+                    функции. Слот с исполнителем проекция не закрывает
+                    никогда, поэтому кнопка, которая гарантированно упрётся
+                    в `SlotProjectionError`, не показывается рабочей: она
+                    остаётся видимой, но `disabled`, с объяснением почему.
+                    Раньше на её месте стоял браузерный confirm, после
+                    которого backend всё равно отказывал, — обещание,
+                    которое продукт не мог выполнить.
+
+                    Backend при этом не обходится и не ослабляется: запрет
+                    по-прежнему живёт в проекции, и прямой POST получает ту
+                    же ошибку. Здесь только UI.
+
+                    Кнопка «−» остаётся рабочей и server-driven: уменьшение
+                    на единицу сервер выполняет безопасно — закрывает пустой
+                    слот с наибольшим индексом либо честно отказывает, если
+                    уменьшение затронуло бы занятый слот.
+                    {% endcomment %}
                     <td class="fr-cell-actions">
                         {% if can_edit_functional_roles and not row.is_fixed %}
+                        {% if row.staffing.remove_blocked %}
+                        <button type="button" class="btn-delete fr-remove" disabled aria-disabled="true"
+                                title="{{ fr_remove_blocked_hint }}"
+                                aria-label="Убрать функцию «{{ row.label }}» нельзя: {{ fr_remove_blocked_hint }}">✕</button>
+                        <span class="fr-remove-hint muted">{{ fr_remove_blocked_hint }}</span>
+                        {% else %}
                         <form method="post" action="{{ fr_update_url }}"
                               hx-post="{{ fr_update_url }}"
                               hx-target="#functional-roles-configurator"
-                              hx-swap="outerHTML"
-                              {% if row.staffing.has_assigned %}hx-confirm="На эту функцию уже назначен исполнитель. Убрать функцию из состава команды?"{% endif %}>
+                              hx-swap="outerHTML">
                             {% csrf_token %}
                             <input type="hidden" name="role_key" value="{{ row.role_key }}">
                             <input type="hidden" name="count" value="0">
@@ -188,6 +234,7 @@
                                     class="btn-delete fr-remove"
                                     aria-label="Убрать функцию: {{ row.label }}">✕</button>
                         </form>
+                        {% endif %}
                         {% endif %}
                     </td>
                 </tr>

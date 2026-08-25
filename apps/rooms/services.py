@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.utils import timezone
 
@@ -26,6 +27,116 @@ from .unit_economics import (  # noqa: F401  (публичный фасад мо
 # Заглушка суммы тестовой оплаты запуска проекта.
 # Без тарифной логики и расчётов: временная константа до боевого платёжного шлюза.
 TEST_LAUNCH_PAYMENT_AMOUNT_LABEL = '₽1 000'
+
+#: Публичный Jitsi для видеокомнаты MVP (ADR-001: «видео — ссылка Jitsi»).
+#: Хост и префикс комнаты — константы кода: адрес встречи не приходит из
+#: браузера и не настраивается пользователем.
+JITSI_BASE_URL = 'https://meet.jit.si'
+JITSI_ROOM_PREFIX = 'wowlance-room'
+
+
+def room_video_call_url(room: Room) -> str:
+    """Постоянная ссылка на видеокомнату проекта.
+
+    Собирается сервером из `Room.id` (UUID) — ничего пользовательского в
+    адрес не попадает, поэтому подменить комнату встречи через форму или
+    query-параметр нельзя. Схема всегда `https`, даже пока сама платформа
+    на демо работает по http: это внешний сервис со своим TLS.
+
+    Хостинг сознательно публичный `meet.jit.si` и без JWT: приватный /
+    self-hosted Jitsi и авторизация встреч — отдельное решение по ADR-001,
+    вне этого этапа.
+    """
+    return f'{JITSI_BASE_URL}/{JITSI_ROOM_PREFIX}-{room.id}'
+
+
+# ---------------------------------------------------------------------------
+# Публичный фасад готовности исполнителя
+# ---------------------------------------------------------------------------
+
+
+def confirm_freelancer_readiness(member: RoomMember, actor):
+    """Публичная точка входа ROOM: подтверждение готовности исполнителя.
+
+    Реализация живёт в `apps.rooms.staffing.services` рядом с остальными
+    операциями подбора и активации проекта — переносить её сюда значило бы
+    оторвать её от `sync_project_activation`, с которым она обязана быть в
+    одной транзакции. Здесь только фасад модуля, как и для состава команды.
+
+    Импорт **внутри функции** обязателен и не является стилевой мелочью:
+    `apps.rooms.staffing.services` импортирует этот модуль на уровне модуля
+    (`log_room_activity`, `user_can_manage_team`). Модульный
+    `from .staffing.services import …` замкнул бы граф, и порядок импорта
+    начал бы решать, поднимется ли приложение. Тот же приём уже применяется
+    в `save_functional_roles_and_sync_slots`.
+
+    Семантика не ослабляется: и проверка роли участника, и правило «готовность
+    подтверждает сам участник (или суперпользователь)» остаются в сервисе.
+    `actor` остаётся обязательным позиционным аргументом — необязательным его
+    делать нельзя, иначе исчезнет тот, чьё право проверяется.
+    """
+    from .staffing.services import confirm_freelancer_readiness as _confirm
+
+    return _confirm(member, actor)
+
+
+# ---------------------------------------------------------------------------
+# Вводные проекта («вижен») — редактирование директором
+# ---------------------------------------------------------------------------
+
+#: Четыре ключа вводных проекта («вижен»), которые правит директор.
+#:
+#: Это **точные** существующие ключи `Project.input_data`, которые уже
+#: читают свойства модели (`Project.offer` / `utp` / `audience` /
+#: `hot_criteria`) и «Обзор». Новых ключей эта операция не заводит:
+#: иначе страница показывала бы одно, а форма писала бы другое.
+VISION_INPUT_KEYS: tuple[str, ...] = ('offer', 'utp', 'audience', 'hot_criteria')
+
+
+def user_can_edit_project_vision(user, project: Project) -> bool:
+    """Кто вправе править вводные проекта: владелец **и** директор.
+
+    Оба условия обязательны, поэтому чужой директор вводные не правит, а
+    тимлид, фрилансер и менеджер видят их только на чтение.
+    `user_can_manage_team` здесь не переиспользуется намеренно: он допускает
+    тимлида, а оффер, УТП, ЦА и критерии Hot задаёт заказчик, а не
+    исполнитель. `User.Roles.ADMIN` продуктового права тоже не даёт — как и
+    для состава команды (`user_can_edit_functional_roles`).
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if project.owner_id != user.id:
+        return False
+    return user.role == User.Roles.DIRECTOR
+
+
+@transaction.atomic
+def update_project_vision(project: Project, vision: dict, user) -> Project:
+    """Сохраняет четыре вводных проекта, **не трогая остальной `input_data`**.
+
+    `input_data` — общий словарь проекта: кроме вводных там лежат
+    `architecture` и снапшот состава команды (`functional_roles`,
+    см. `apps.rooms.unit_economics`). Поэтому здесь именно merge поверх
+    прочитанного из БД словаря, а не присваивание: сохранение оффера не
+    имеет права унести с собой купленный состав и бюджет.
+
+    Из запроса принимаются **только** ключи `VISION_INPUT_KEYS`; всё
+    остальное, что прислал бы браузер, игнорируется — общий `input_data`
+    целиком клиент задавать не может.
+
+    `Project.budget` не трогается: он равен сумме сохранённого состава и
+    меняется только через `update_project_functional_roles`.
+    """
+    if not user_can_edit_project_vision(user, project):
+        raise PermissionDenied('Менять вводные проекта может только директор проекта.')
+
+    input_data = dict(project.input_data or {})
+    for key in VISION_INPUT_KEYS:
+        if key in vision:
+            input_data[key] = vision[key]
+    project.input_data = input_data
+    project.save(update_fields=['input_data', 'updated_at'])
+    return project
 
 
 def log_room_activity(room: Room, message: str, event_type: str, actor=None) -> RoomActivity:

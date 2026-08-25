@@ -1,0 +1,64 @@
+{% comment %}
+Визуальный отсчёт SLA подбора (1 час на пустой слот).
+
+Единственная копия скрипта: подключается из `{% block extra_js %}` «Обзора»
+и «Команды» — двух страниц, где вообще могут появиться пустые слоты.
+
+Что он делает и чего НЕ делает:
+
+* НЕ считает дедлайн. Абсолютный дедлайн приходит с сервера в атрибуте
+  `data-staffing-sla`; здесь только вычитание из `Date.now()`.
+* НЕ ходит на сервер. Ни POST, ни polling, ни HTMX: от тиканья таймера
+  ничего не меняется в БД, и слот при этом не трогается.
+* НЕ решает, просрочен ли SLA, «по-своему». Просрочку уже посчитал сервер
+  и отрисовал текст и класс; скрипт лишь перерисовывает то же самое, чтобы
+  страницу не приходилось перезагружать. Без JavaScript пользователь видит
+  серверную строку и абсолютный дедлайн — смысл блока не теряется.
+* НЕ содержит собственных подписей: и «SLA», и текст просрочки приходят в
+  data-атрибутах из констант `apps.rooms.staffing.selectors`, поэтому
+  второго написания одной и той же фразы в проекте не появляется.
+
+Атрибуты намеренно **отличаются** от `data-sla-deadline` / `data-sla-countdown`
+SLA стартовой задачи проекта (24 часа): это два разных срока двух разных
+сущностей, и их таймеры не должны перехватывать элементы друг друга.
+
+DOM перезапрашивается на каждом тике, а не кэшируется списком: конфигуратор
+подменяется целиком HTMX-ответом, и закэшированные узлы после обмена стали
+бы «мёртвыми», а второй интервал — лишним.
+{% endcomment %}
+<script>
+(function () {
+    var ATTR = 'data-staffing-sla';
+    var OVERDUE_CLASS = 'staffing-sla-overdue';
+
+    function pad(value) { return value < 10 ? '0' + value : '' + value; }
+
+    function render(block) {
+        var output = block.querySelector('[data-staffing-sla-countdown]');
+        if (!output) { return; }
+        var deadline = new Date(block.getAttribute(ATTR));
+        if (isNaN(deadline.getTime())) { return; }
+
+        var left = deadline.getTime() - Date.now();
+        if (left <= 0) {
+            block.classList.add(OVERDUE_CLASS);
+            output.textContent = block.getAttribute('data-staffing-sla-overdue-label') || '';
+            return;
+        }
+        var seconds = Math.floor(left / 1000);
+        output.textContent = (block.getAttribute('data-staffing-sla-prefix') || '')
+            + ': '
+            + pad(Math.floor(seconds / 3600)) + ':'
+            + pad(Math.floor((seconds % 3600) / 60)) + ':'
+            + pad(seconds % 60);
+    }
+
+    function tick() {
+        var blocks = document.querySelectorAll('[' + ATTR + ']');
+        for (var i = 0; i < blocks.length; i++) { render(blocks[i]); }
+    }
+
+    window.setInterval(tick, 1000);
+    tick();
+})();
+</script>
