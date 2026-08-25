@@ -11,10 +11,17 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# `manage.py test` (и явный DJANGO_TESTING=1) — ускоряем хеш паролей:
+# каждый make_user/set_password иначе жжёт PBKDF2 и раздувает suite rooms.
+TESTING = os.environ.get('DJANGO_TESTING') == '1' or (
+    len(sys.argv) > 1 and sys.argv[1] == 'test'
+)
 
 
 # Quick-start development settings - unsuitable for production
@@ -148,6 +155,12 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+if TESTING:
+    # MD5 только в тестах: login/force_login работают, CI/локальный прогон быстрее.
+    PASSWORD_HASHERS = [
+        'django.contrib.auth.hashers.MD5PasswordHasher',
+    ]
 
 
 # Internationalization
