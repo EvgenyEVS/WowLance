@@ -5,7 +5,8 @@
 * `ARCHITECTURE_PRESETS` — заготовки проекта для Apply Architecture / wizard
   (название, тип, тариф, вводные);
 * `FUNCTIONAL_ROLE_PACKAGES` — готовые составы функциональных ролей
-  (Issue #11): «Быстрый старт», «Масштабирование», «Enterprise аутрич».
+  (Issue #11): «Быстрый старт», «Масштабирование», «Enterprise аутрич»,
+  «LinkedIn».
 
 Пакет — это только заготовка состава, а не тариф и не сущность в БД: после
 применения директор правит `count` вручную, и связь проекта с пакетом нигде
@@ -168,6 +169,14 @@ FUNCTIONAL_ROLE_PACKAGES: MappingProxyType = MappingProxyType({
         _package('enterprise', 'Enterprise аутрич', {
             'teamlead': 1,
             'seller_senior': 2,
+            'linkedin_leadgen': 1,
+        }),
+        # Ключ совпадает с `ARCHITECTURE_PRESETS['linkedin']` только по имени
+        # канала: это разные сущности из разных словарей (заготовка проекта
+        # против заготовки состава), и перепутать их мешают разные функции
+        # доступа — `get_architecture_preset` и `get_functional_role_package`.
+        _package('linkedin', 'LinkedIn', {
+            'teamlead': 1,
             'linkedin_leadgen': 1,
         }),
     )
