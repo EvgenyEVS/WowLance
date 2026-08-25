@@ -6,10 +6,12 @@ from django.core.paginator import Paginator
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST, require_safe
 
 from apps.core.absolute_uri import absolute_uri
 from apps.pipeline.models import Task
+from apps.pipeline.services import get_start_calls_task
 from apps.users.models import User
 from . import chat, configurator
 from .forms import (
@@ -421,6 +423,23 @@ def room_overview(request, project_id):
     # копии правил подбора у него нет, управление остаётся на вкладке «Команда».
     cards = selectors.slot_cards(room)
 
+    # SLA стартовой задачи. Задача ищется тем же публичным helper'ом, каким
+    # её создаёт автоматика активации, — второго определения ключа (и уж тем
+    # более поиска по русскому названию) у «Обзора» нет. Дедлайн берётся
+    # только из сохранённого `Task.deadline`: GET ничего не пересчитывает и
+    # ничего не создаёт. Просрочка считается на сервере, чтобы страница
+    # оставалась честной и без JavaScript.
+    start_calls_task = get_start_calls_task(project)
+    start_calls_deadline = start_calls_task.deadline if start_calls_task else None
+    start_calls_is_done = bool(
+        start_calls_task and start_calls_task.status == Task.Status.CLOSED
+    )
+    start_calls_is_overdue = bool(
+        start_calls_deadline
+        and not start_calls_is_done
+        and start_calls_deadline <= timezone.now()
+    )
+
     return render(request, 'rooms/room_overview.html', {
         'project': project,
         'room': room,
@@ -429,6 +448,10 @@ def room_overview(request, project_id):
         'activities': activities,
         'slot_cards': cards,
         'staffing_summary': selectors.staffing_summary(cards),
+        'start_calls_task': start_calls_task,
+        'start_calls_deadline': start_calls_deadline,
+        'start_calls_is_overdue': start_calls_is_overdue,
+        'start_calls_is_done': start_calls_is_done,
         'kanban_preview': _kanban_columns(tasks)[:3],
         'can_manage_team': user_can_manage_team(request.user, project),
         'can_launch': (

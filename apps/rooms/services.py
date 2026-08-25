@@ -286,6 +286,30 @@ def handle_project_paid(project: Project, actor=None) -> Room:
     return room
 
 
+def handle_project_activated(project: Project, actor=None):
+    """Шаги, которые запускает активация проекта. Точка входа ROOM → pipeline.
+
+    Сейчас шаг ровно один: стартовая задача «Начать звонки» с SLA 24 часа.
+    Вызывается из `apps.rooms.staffing.services.sync_project_activation` в
+    ветке фактического перехода STAFFING → ACTIVE и внутри его транзакции,
+    поэтому задача и новый статус проекта коммитятся вместе.
+
+    Почему обращение к pipeline живёт здесь, а не в staffing: направление
+    `rooms → pipeline` ADR-001 допускает осознанно, но именно через фасад
+    модуля. Подбор команды о задачах знать не должен — это отдельная
+    зафиксированная граница (`tests_staffing_matching.MatchingBoundaryTests`),
+    и обходить её ради одного вызова нельзя. Тот же приём, что и у
+    `_after_project_paid` ниже: расширение потока живёт в сервисах ROOM.
+
+    Импорт функцией: `apps.pipeline.services` импортирует этот модуль, и
+    модульный импорт обратно замкнул бы граф.
+    """
+    from apps.pipeline.services import ensure_start_calls_task
+
+    task, _created = ensure_start_calls_task(project, actor=actor)
+    return task
+
+
 def _after_project_paid(project: Project, room: Room, actor=None) -> None:
     """
     Точка расширения потока оплаты: сюда добавляются шаги после запуска проекта.

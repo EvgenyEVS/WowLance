@@ -118,8 +118,9 @@ class RoleStaffing:
     (в том числе `database_assistant` с каналом `base` и отдельный поток
     тимлида) — следующий этап composition → slots.
 
-    SLA-обратного отсчёта здесь нет намеренно: он относится к этапу
-    Automation / SLA после composition → slots.
+    SLA-обратного отсчёта здесь нет намеренно: SLA относится к стартовой
+    задаче проекта целиком, а не к строке состава. Его блок собирается во
+    view «Обзора» из `apps.pipeline.services.get_start_calls_task`.
     """
 
     #: `staffing.selectors.SlotCard` существующих слотов этой функции.
