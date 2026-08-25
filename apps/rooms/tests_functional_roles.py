@@ -4,7 +4,8 @@
 
 * структурный каталог в коде и его инварианты;
 * админский каталог бизнес-значений (`FunctionalRoleConfig`) и его запреты;
-* сервис сохранения состава: RBAC, статусы, валидация, снапшот, бюджет;
+* сервис сохранения состава: RBAC, статусы, валидация, снапшот, бюджет,
+  KPI проекта (прогноз Hot);
 * сервис юнит-экономики: суммы, CPL, отсутствие записи в БД;
 * регрессия на затирание `input_data`.
 
@@ -12,10 +13,13 @@ UI конфигуратора, синхронизация `RoomFunctionSlot` и 
 не входят и здесь не проверяются.
 """
 
+import dataclasses
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.admin.sites import AdminSite
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
@@ -327,7 +331,8 @@ class PackageTests(TestCase):
         )
 
         self.assertEqual(
-            list(FUNCTIONAL_ROLE_PACKAGES), ['quick_start', 'scaling', 'enterprise']
+            list(FUNCTIONAL_ROLE_PACKAGES),
+            ['quick_start', 'scaling', 'enterprise', 'linkedin'],
         )
         self.assertIsNotNone(get_functional_role_package('quick_start'))
         self.assertIsNone(get_functional_role_package('нет такого'))
@@ -336,7 +341,7 @@ class PackageTests(TestCase):
     def test_package_labels(self):
         self.assertEqual(
             [p.label for p in presets.FUNCTIONAL_ROLE_PACKAGES.values()],
-            ['Быстрый старт', 'Масштабирование', 'Enterprise аутрич'],
+            ['Быстрый старт', 'Масштабирование', 'Enterprise аутрич', 'LinkedIn'],
         )
 
     def test_quick_start_composition(self):
@@ -356,6 +361,36 @@ class PackageTests(TestCase):
             dict(presets.FUNCTIONAL_ROLE_PACKAGES['enterprise'].composition),
             {'teamlead': 1, 'seller_senior': 2, 'linkedin_leadgen': 1},
         )
+
+    def test_linkedin_composition(self):
+        self.assertEqual(
+            dict(presets.FUNCTIONAL_ROLE_PACKAGES['linkedin'].composition),
+            {'teamlead': 1, 'linkedin_leadgen': 1},
+        )
+
+    def test_linkedin_package_carries_no_economics_of_its_own(self):
+        """Пакет задаёт только состав: цены и Hot в нём не продублированы.
+
+        Экономика LinkedIn обязана приходить из `FunctionalRoleConfig`, иначе
+        правка ставки в админке разошлась бы с кнопкой пакета.
+        """
+        package = presets.FUNCTIONAL_ROLE_PACKAGES['linkedin']
+        self.assertEqual(
+            {f.name for f in dataclasses.fields(package)},
+            {'key', 'label', 'composition'},
+        )
+        # В составе только целые количества: строк с ценой или Hot тут нет.
+        for role_key, count in package.composition.items():
+            with self.subTest(role_key=role_key):
+                self.assertIsInstance(count, int)
+
+    def test_linkedin_package_key_does_not_shadow_architecture_preset(self):
+        """Одноимённый ключ живёт в другом словаре и другой сущностью."""
+        package = presets.get_functional_role_package('linkedin')
+        preset = presets.get_architecture_preset('linkedin')
+        self.assertIsInstance(package, presets.FunctionalRolePackage)
+        self.assertIsInstance(preset, dict)
+        self.assertEqual(preset['label'], 'LinkedIn Outreach')
 
     def test_no_package_model_exists(self):
         """Пакеты остаются константами: таблицы в БД для них нет."""
@@ -905,6 +940,28 @@ class UnitEconomicsSummaryTests(FunctionalRolesServiceTestCase):
         # 253000 / 38 = 6657.894736…
         self.assertEqual(summary.cpl, Decimal('6657.89'))
 
+    def test_linkedin_numbers(self):
+        """Пакет LinkedIn: 35 000 + 48 000, 80 + 160 ч, 0 + 8 Hot."""
+        summary = self.save_package('linkedin')
+        self.assertEqual(summary.total_budget, Decimal('83000.00'))
+        self.assertEqual(summary.total_hours, 240)
+        self.assertEqual(summary.forecast_hot_leads, 8)
+        # 83000 / 8 = 10375 ровно.
+        self.assertEqual(summary.cpl, Decimal('10375.00'))
+
+    def test_linkedin_numbers_follow_the_admin_catalog(self):
+        """Экономика пакета берётся из `FunctionalRoleConfig`, а не из пресета.
+
+        Правка ставки лидгена в админке обязана менять итог пакета: если бы
+        цифры были продублированы в самом пакете, этот тест бы не изменился.
+        """
+        FunctionalRoleConfig.objects.filter(role_key='linkedin_leadgen').update(
+            monthly_cost=Decimal('50000.00'), hot_leads_per_month=10
+        )
+        summary = self.save_package('linkedin')
+        self.assertEqual(summary.total_budget, Decimal('85000.00'))
+        self.assertEqual(summary.forecast_hot_leads, 10)
+
     def test_cpl_is_decimal_without_float_drift(self):
         summary = self.save_package('scaling')
         self.assertIsInstance(summary.cpl, Decimal)
@@ -1056,6 +1113,206 @@ class UnitEconomicsSummaryTests(FunctionalRolesServiceTestCase):
         self.project.refresh_from_db()
         self.assertNotIn(FUNCTIONAL_ROLES_KEY, self.project.input_data)
         self.assertEqual(self.project.budget, Decimal('0.00'))
+
+
+class ProjectKpiTargetTests(FunctionalRolesServiceTestCase):
+    """`Project.kpi_target` — прогноз Hot сохранённого состава, а не ручное поле.
+
+    Пишется тем же сохранением и тем же `save`, что и бюджет: см.
+    `update_project_functional_roles`.
+    """
+
+    def test_manual_composition_save_sets_kpi_target(self):
+        summary = update_project_functional_roles(
+            self.project, self.quick_start(), self.director
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('10'))
+        self.assertEqual(self.project.kpi_target, summary.forecast_hot_leads)
+
+    def test_kpi_target_is_saved_in_the_model_decimal_type(self):
+        """Поле — `DecimalField(null=True)`: кладём Decimal, а не int или строку."""
+        update_project_functional_roles(self.project, self.quick_start(), self.director)
+        self.project.refresh_from_db()
+        self.assertIsInstance(self.project.kpi_target, Decimal)
+        self.assertEqual(
+            self.project._meta.get_field('kpi_target').get_internal_type(),
+            'DecimalField',
+        )
+
+    def test_count_change_recomputes_kpi_target(self):
+        update_project_functional_roles(self.project, self.quick_start(), self.director)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('10'))
+
+        update_project_functional_roles(
+            self.project,
+            [
+                {'role_key': 'teamlead', 'count': 1},
+                {'role_key': 'seller_middle', 'count': 3},
+            ],
+            self.director,
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('30'))
+
+    def test_adding_and_removing_a_role_moves_kpi_target(self):
+        update_project_functional_roles(
+            self.project,
+            [
+                {'role_key': 'teamlead', 'count': 1},
+                {'role_key': 'seller_middle', 'count': 1},
+                {'role_key': 'linkedin_leadgen', 'count': 1},
+            ],
+            self.director,
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('18'))
+
+        update_project_functional_roles(self.project, self.quick_start(), self.director)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('10'))
+
+    def test_composition_without_hot_leads_sets_kpi_target_to_zero(self):
+        """Нулевой прогноз — это ноль, а не «оставить прошлое значение»."""
+        update_project_functional_roles(self.project, self.quick_start(), self.director)
+        update_project_functional_roles(
+            self.project,
+            [
+                {'role_key': 'teamlead', 'count': 1},
+                {'role_key': 'database_assistant', 'count': 1},
+            ],
+            self.director,
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('0'))
+
+    def test_package_apply_updates_kpi_target(self):
+        apply_package_to_project(self.project, 'scaling', self.director)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('28'))
+
+    def test_linkedin_package_sets_budget_and_kpi_target(self):
+        """Контрольные цифры пакета LinkedIn: 83 000 ₽ и 8 Hot."""
+        summary = apply_package_to_project(self.project, 'linkedin', self.director)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.budget, Decimal('83000.00'))
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
+        self.assertEqual(self.project.budget, summary.total_budget)
+        self.assertEqual(self.project.kpi_target, summary.forecast_hot_leads)
+
+    def test_manual_kpi_target_is_overridden_by_composition(self):
+        """KPI перестаёт быть вторым независимым ручным источником истины."""
+        self.project.kpi_target = Decimal('999')
+        self.project.save(update_fields=['kpi_target'])
+
+        apply_package_to_project(self.project, 'linkedin', self.director)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
+
+    def test_client_cannot_inject_hot_leads_or_kpi_target(self):
+        """Ни `hot_leads_per_month`, ни готовый `kpi_target` из входа не берутся."""
+        update_project_functional_roles(
+            self.project,
+            [
+                {'role_key': 'teamlead', 'count': 1, 'kpi_target': 777},
+                {
+                    'role_key': 'linkedin_leadgen',
+                    'count': 1,
+                    'hot_leads_per_month': 9999,
+                    'kpi_leads_per_unit': 9999,
+                    'kpi_target': 777,
+                },
+            ],
+            self.director,
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
+        self.assertEqual(
+            self.project.input_data[FUNCTIONAL_ROLES_KEY][1]['kpi_leads_per_unit'], 8
+        )
+
+    def test_kpi_target_write_keeps_other_input_data_keys(self):
+        self.project.input_data = {
+            **self.project.input_data,
+            'architecture': 'linkedin',
+            'notes': 'важная заметка',
+        }
+        self.project.save(update_fields=['input_data'])
+
+        apply_package_to_project(self.project, 'linkedin', self.director)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
+        self.assertEqual(self.project.input_data['offer'], 'Оффер')
+        self.assertEqual(self.project.input_data['utp'], 'УТП')
+        self.assertEqual(self.project.input_data['audience'], 'Аудитория')
+        self.assertEqual(self.project.input_data['hot_criteria'], 'Критерии')
+        self.assertEqual(self.project.input_data['architecture'], 'linkedin')
+        self.assertEqual(self.project.input_data['notes'], 'важная заметка')
+
+    def test_budget_and_kpi_target_go_to_db_in_one_write(self):
+        """Одна операция записи: состав, бюджет и KPI уходят одним `save`."""
+        captured = []
+        original_save = Project.save
+
+        def spy(instance, *args, **kwargs):
+            captured.append(kwargs.get('update_fields'))
+            return original_save(instance, *args, **kwargs)
+
+        with mock.patch.object(Project, 'save', spy):
+            update_project_functional_roles(
+                self.project, self.quick_start(), self.director
+            )
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(
+            set(captured[0]), {'input_data', 'budget', 'kpi_target', 'updated_at'}
+        )
+
+    def test_error_after_save_rolls_back_budget_and_kpi_target_together(self):
+        """Откат транзакции не оставляет бюджет и KPI обновлёнными частично."""
+        apply_package_to_project(self.project, 'quick_start', self.director)
+        self.project.refresh_from_db()
+        budget_before = self.project.budget
+        kpi_before = self.project.kpi_target
+        composition_before = get_unit_economics_summary(self.project).composition
+
+        with self.assertRaises(RuntimeError):
+            with transaction.atomic():
+                update_project_functional_roles(
+                    self.project,
+                    [
+                        {'role_key': 'teamlead', 'count': 1},
+                        {'role_key': 'seller_senior', 'count': 2},
+                    ],
+                    self.director,
+                )
+                raise RuntimeError('шаг после сохранения состава упал')
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.budget, budget_before)
+        self.assertEqual(self.project.kpi_target, kpi_before)
+        self.assertEqual(
+            get_unit_economics_summary(self.project).composition, composition_before
+        )
+
+    def test_validation_error_leaves_budget_and_kpi_target_untouched(self):
+        """Отказ валидации не двигает ни бюджет, ни KPI."""
+        apply_package_to_project(self.project, 'linkedin', self.director)
+        self.project.refresh_from_db()
+
+        with self.assertRaises(FunctionalRolesError):
+            update_project_functional_roles(
+                self.project,
+                [{'role_key': 'teamlead', 'count': 0}],
+                self.director,
+            )
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.budget, Decimal('83000.00'))
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
 
 
 class SnapshotSemanticsTests(FunctionalRolesServiceTestCase):

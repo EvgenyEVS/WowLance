@@ -302,7 +302,7 @@ def _build_snapshot(counts: dict[str, int]) -> list[dict]:
 
 @transaction.atomic
 def update_project_functional_roles(project: Project, roles_data, user):
-    """Сохраняет состав функциональных ролей проекта и пересчитывает бюджет.
+    """Сохраняет состав функциональных ролей проекта, его бюджет и KPI.
 
     Единственная точка записи `input_data['functional_roles']`.
 
@@ -314,7 +314,9 @@ def update_project_functional_roles(project: Project, roles_data, user):
       а не из запроса;
     * пишет снапшот, **сохраняя остальные ключи** `input_data`
       (offer / utp / audience / hot_criteria / architecture);
-    * приводит `Project.budget` к рассчитанному `total_budget`.
+    * приводит `Project.budget` к рассчитанному `total_budget`, а
+      `Project.kpi_target` — к прогнозу `forecast_hot_leads`; оба поля
+      уходят в БД одним `save` вместе со снапшотом.
 
     Слоты комнаты (`RoomFunctionSlot`) здесь не трогаются: их приводит
     к составу проекция `apps.rooms.staffing.projection`. Продуктовые
@@ -346,7 +348,16 @@ def update_project_functional_roles(project: Project, roles_data, user):
     # Бюджет перестаёт быть вторым независимым ручным источником истины:
     # он всегда равен сумме сохранённого состава.
     project.budget = summary.total_budget
-    project.save(update_fields=['input_data', 'budget', 'updated_at'])
+    # KPI проекта — тот же прогноз Hot, что показан директору в сводке, а не
+    # отдельно введённое число: покупая состав, он покупает и его прогноз.
+    # Значение приходит из сводки по **сохранённому** снапшоту, поэтому из
+    # браузера его подменить нельзя — там же, где и бюджет.
+    project.kpi_target = Decimal(summary.forecast_hot_leads)
+    # Один `save` на все три поля: состав, его сумма и его прогноз — одно
+    # состояние проекта, и «бюджет обновился, KPI нет» не должно существовать.
+    project.save(
+        update_fields=['input_data', 'budget', 'kpi_target', 'updated_at']
+    )
     return summary
 
 

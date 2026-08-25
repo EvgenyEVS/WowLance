@@ -6,7 +6,8 @@
 * editable / read-only по владельцу, роли и статусу проекта;
 * фиксированный Тимлид в интерфейсе;
 * автосохранение +/− / числового ввода, добавление и удаление функции;
-* применение пакетов;
+* применение пакетов (в том числе LinkedIn);
+* бюджет и KPI проекта после любого сохранения состава;
 * HTMX-ответ как отдельный partial и fallback без HTMX;
 * персистентность и регрессия соседних блоков комнаты.
 
@@ -645,6 +646,31 @@ class ConfiguratorPackageTests(ConfiguratorTestCase):
         expected = dict(presets.FUNCTIONAL_ROLE_PACKAGES[package_key].composition)
         self.assertEqual(composition_of(self.project), expected)
 
+    def test_all_packages_are_rendered_on_overview(self):
+        """Кнопки пакетов строятся циклом по `presets`, вручную их не добавляют.
+
+        Новый пакет обязан появиться на «Обзоре» сам, только за счёт записи
+        в `FUNCTIONAL_ROLE_PACKAGES`.
+        """
+        self.save_composition(teamlead=1, seller_middle=1)
+        response = self.get_overview(self.director)
+        self.assertContains(response, 'Готовые пакеты')
+        for package in presets.FUNCTIONAL_ROLE_PACKAGES.values():
+            with self.subTest(package=package.key):
+                self.assertContains(response, package.label)
+                self.assertContains(response, f'value="{package.key}"')
+        self.assertEqual(
+            [p.key for p in response.context['fr_packages']],
+            list(presets.FUNCTIONAL_ROLE_PACKAGES),
+        )
+
+    def test_linkedin_package_button_is_shown_on_overview(self):
+        """Пакет LinkedIn виден рядом с Быстрым стартом / Масштабированием."""
+        self.save_composition(teamlead=1, seller_middle=1)
+        response = self.get_overview(self.director)
+        self.assertContains(response, 'LinkedIn')
+        self.assertContains(response, 'value="linkedin"')
+
     def test_quick_start_package_is_applied_exactly(self):
         """27."""
         self.assert_package_applied('quick_start')
@@ -656,6 +682,35 @@ class ConfiguratorPackageTests(ConfiguratorTestCase):
     def test_enterprise_package_is_applied_exactly(self):
         """29."""
         self.assert_package_applied('enterprise')
+
+    def test_linkedin_package_is_applied_exactly(self):
+        """Пакет LinkedIn сохраняет ровно тимлида и лидген LinkedIn."""
+        self.assert_package_applied('linkedin')
+        self.assertEqual(
+            composition_of(self.project), {'teamlead': 1, 'linkedin_leadgen': 1}
+        )
+
+    def test_linkedin_package_writes_budget_and_kpi_target(self):
+        """83 000 ₽ и 8 Hot приходят из сводки, а не из пресета."""
+        self.post_package('linkedin', user=self.director)
+        self.project.refresh_from_db()
+        summary = get_unit_economics_summary(self.project)
+
+        self.assertEqual(self.project.budget, Decimal('83000.00'))
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
+        self.assertEqual(summary.total_hours, 240)
+        self.assertEqual(summary.cpl, Decimal('10375.00'))
+        self.assertEqual(self.project.budget, summary.total_budget)
+        self.assertEqual(self.project.kpi_target, summary.forecast_hot_leads)
+
+    def test_linkedin_package_totals_are_rendered(self):
+        """Итоги пакета показаны теми же цифрами, что сохранены в проекте."""
+        response = self.post_package('linkedin', user=self.director)
+        self.project.refresh_from_db()
+        summary = get_unit_economics_summary(self.project)
+        self.assertContains(response, format_money(summary.total_budget))
+        self.assertContains(response, format_money(summary.cpl))
+        self.assertContains(response, f'>{summary.forecast_hot_leads}<')
 
     def test_package_replaces_previous_composition_and_recomputes_totals(self):
         """30. Пакет заменяет состав целиком и пересчитывает итоги."""
@@ -708,6 +763,130 @@ class ConfiguratorPackageTests(ConfiguratorTestCase):
         self.post_update(user=self.director, role_key='seller_middle', action='inc')
         expected = presets.FUNCTIONAL_ROLE_PACKAGES['scaling'].composition['seller_middle']
         self.assertEqual(composition_of(self.project)['seller_middle'], expected + 1)
+
+
+# ---------------------------------------------------------------------------
+# KPI проекта на продуктовых путях конфигуратора
+# ---------------------------------------------------------------------------
+
+
+class ConfiguratorKpiTargetTests(ConfiguratorTestCase):
+    """Любое сохранение состава через UI обновляет и бюджет, и `kpi_target`.
+
+    Считает Hot по-прежнему сервер: клиент присылает только `role_key`,
+    намерение и ключ пакета.
+    """
+
+    def assert_matches_summary(self):
+        """Перечитывает проект и сверяет бюджет и KPI со сводкой.
+
+        `refresh_from_db` обязателен: POST работал со своим экземпляром
+        `Project`, и `self.project` в памяти остался с прежними значениями.
+        """
+        self.project.refresh_from_db()
+        summary = get_unit_economics_summary(self.project)
+        self.assertEqual(self.project.budget, summary.total_budget)
+        self.assertEqual(self.project.kpi_target, summary.forecast_hot_leads)
+        return summary
+
+    def test_manual_count_input_updates_kpi_target(self):
+        self.save_composition(teamlead=1, seller_middle=1)
+        self.post_update(
+            user=self.director, role_key='seller_middle', action='set', count='3'
+        )
+        self.assertEqual(self.assert_matches_summary().forecast_hot_leads, 30)
+        self.assertEqual(self.project.kpi_target, Decimal('30'))
+
+    def test_increment_updates_kpi_target(self):
+        self.save_composition(teamlead=1, seller_middle=1)
+        self.post_update(user=self.director, role_key='seller_middle', action='inc')
+        self.assert_matches_summary()
+        self.assertEqual(self.project.kpi_target, Decimal('20'))
+
+    def test_decrement_updates_kpi_target(self):
+        self.save_composition(teamlead=1, seller_middle=2)
+        self.post_update(user=self.director, role_key='seller_middle', action='dec')
+        self.assert_matches_summary()
+        self.assertEqual(self.project.kpi_target, Decimal('10'))
+
+    def test_adding_a_role_updates_kpi_target(self):
+        self.save_composition(teamlead=1, seller_middle=1)
+        self.post_update(
+            user=self.director, role_key='linkedin_leadgen', action='set', count='1'
+        )
+        self.assert_matches_summary()
+        self.assertEqual(self.project.kpi_target, Decimal('18'))
+
+    def test_removing_a_role_updates_kpi_target(self):
+        self.save_composition(teamlead=1, seller_middle=1, linkedin_leadgen=1)
+        self.post_update(
+            user=self.director, role_key='linkedin_leadgen', action='set', count='0'
+        )
+        self.assert_matches_summary()
+        self.assertEqual(self.project.kpi_target, Decimal('10'))
+
+    def test_every_package_updates_kpi_target(self):
+        for key in presets.FUNCTIONAL_ROLE_PACKAGES:
+            with self.subTest(package=key):
+                self.post_package(key, user=self.director)
+                self.assert_matches_summary()
+
+    def test_linkedin_package_gives_kpi_target_eight(self):
+        self.post_package('linkedin', user=self.director)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
+        self.assertEqual(self.project.budget, Decimal('83000.00'))
+
+    def test_client_cannot_post_its_own_kpi_target(self):
+        """Лишние поля формы игнорируются: KPI считает сервер."""
+        self.save_composition(teamlead=1, seller_middle=1)
+        self.post_update(
+            user=self.director,
+            role_key='seller_middle',
+            action='inc',
+            kpi_target='777',
+            hot_leads_per_month='777',
+            count='777',
+        )
+        self.assert_matches_summary()
+        self.assertEqual(self.project.kpi_target, Decimal('20'))
+
+    def test_client_cannot_post_its_own_kpi_target_with_a_package(self):
+        self.post_package('linkedin', user=self.director)
+        self.client.force_login(self.director)
+        self.client.post(
+            self.package_url,
+            {'package': 'linkedin', 'kpi_target': '777', 'budget': '1'},
+            headers={'HX-Request': 'true'},
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
+        self.assertEqual(self.project.budget, Decimal('83000.00'))
+
+    def test_failed_save_leaves_budget_and_kpi_target_untouched(self):
+        """Ошибка операции не двигает ни бюджет, ни KPI (обязательный тимлид)."""
+        self.post_package('linkedin', user=self.director)
+        self.project.refresh_from_db()
+
+        response = self.post_update(
+            user=self.director, role_key='teamlead', action='set', count='0'
+        )
+        self.assertEqual(response.status_code, 200)
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.budget, Decimal('83000.00'))
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
+        self.assertEqual(
+            composition_of(self.project), {'teamlead': 1, 'linkedin_leadgen': 1}
+        )
+
+    def test_read_only_user_cannot_move_kpi_target(self):
+        self.post_package('linkedin', user=self.director)
+        self.assertEqual(
+            self.post_package('enterprise', user=self.teamlead).status_code, 403
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.kpi_target, Decimal('8'))
 
 
 # ---------------------------------------------------------------------------
