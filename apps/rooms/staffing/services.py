@@ -11,9 +11,14 @@
 * `selectors.py` — сборка read-only данных для шаблонов.
 
 Границы модулей (ADR-001): staffing читает BIZ только через `matching`,
-`apps.pipeline` здесь не импортируется, обратной зависимости `profiles → rooms`
-не появляется. Бизнес-логика не размазывается по views: views вызывают эти
-сервисы и переводят результат в сообщения/редиректы.
+обратной зависимости `profiles → rooms` не появляется. Бизнес-логика не
+размазывается по views: views вызывают эти сервисы и переводят результат в
+сообщения/редиректы.
+
+`apps.pipeline` здесь по-прежнему не импортируется: стартовую задачу
+активированного проекта заводит фасад ROOM
+(`apps.rooms.services.handle_project_activated`), который `sync_project_activation`
+вызывает как один непрозрачный шаг.
 """
 
 from dataclasses import dataclass
@@ -274,13 +279,44 @@ def is_functional_team_ready(room) -> bool:
 
 @transaction.atomic
 def sync_project_activation(project: Project, actor=None) -> bool:
-    """Переводит проект в ACTIVE, когда функциональная команда готова.
+    """Переводит проект в ACTIVE и заводит стартовую задачу, когда команда готова.
 
     Идемпотентна: переход возможен только из STAFFING, поэтому повторный вызов
     (повторное подтверждение готовности) не создаёт второй переход и второе
     событие в ленте. Возвращает True, только если статус изменился именно сейчас.
+
+    Статус проекта перечитывается из БД с `select_for_update()`, а не берётся
+    из переданного объекта: два последних участника могут подтвердить
+    готовность почти одновременно, и оба увидели бы в памяти STAFFING.
+    Блокировка строки проекта сериализует проверку, поэтому переход и
+    стартовая задача случаются ровно один раз. На SQLite `select_for_update()`
+    штатно вырождается в no-op (`has_select_for_update = False`), исключения
+    не бросает и текущий поток не ломает; на PostgreSQL начинает работать без
+    правок кода. Единственной защитой от дублей она не является — за это
+    отвечает идемпотентный `ensure_start_calls_task`.
+
+    Стартовая задача создаётся **в этой же транзакции**, что и смена статуса и
+    подтверждение готовности участника (`confirm_freelancer_readiness` тоже
+    `atomic`). Иначе возможны два одинаково плохих исхода: проект активен без
+    задачи (SLA не с чего считать, а второго перехода STAFFING → ACTIVE уже
+    не будет) или задача с горящим дедлайном на проекте, который остался в
+    подборе. Исключение создания задачи не подавляется — оно обязано откатить
+    и активацию, и готовность.
+
+    Сама задача создаётся не здесь, а фасадом ROOM
+    (`apps.rooms.services.handle_project_activated`): подбор о задачах знать
+    не должен, и эта граница зафиксирована тестом
+    (`tests_staffing_matching.MatchingBoundaryTests`). Модуль вызывает шаг
+    активации, но не знает, из чего он состоит.
     """
-    if project.status != Project.Status.STAFFING:
+    from ..services import handle_project_activated
+
+    locked = (
+        Project.objects.select_for_update()
+        .filter(pk=project.pk, status=Project.Status.STAFFING)
+        .first()
+    )
+    if locked is None:
         return False
     room = getattr(project, 'room', None)
     if room is None or not is_functional_team_ready(room):
@@ -288,6 +324,7 @@ def sync_project_activation(project: Project, actor=None) -> bool:
 
     project.status = Project.Status.ACTIVE
     project.save(update_fields=['status', 'updated_at'])
+    handle_project_activated(project, actor=actor)
     log_room_activity(
         room,
         f'Команда собрана и подтвердила готовность. Проект «{project.name}» активен.',

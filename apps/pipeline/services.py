@@ -6,7 +6,12 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.rooms.services import user_can_access_project, user_can_manage_team
+from apps.rooms.models import RoomActivity
+from apps.rooms.services import (
+    log_room_activity,
+    user_can_access_project,
+    user_can_manage_team,
+)
 from apps.users.models import User
 
 from .models import Lead, LeadStatusHistory, Report, Task
@@ -14,6 +19,118 @@ from .models import Lead, LeadStatusHistory, Report, Task
 
 class TaskCloseError(ValidationError):
     pass
+
+
+# ---------------------------------------------------------------------------
+# Стартовая задача проекта «Начать звонки» (Automation & SLA)
+# ---------------------------------------------------------------------------
+
+#: Название стартовой задачи. Константа, а не литерал в трёх местах: она
+#: входит в ключ идемпотентности (см. `_start_calls_queryset`), поэтому
+#: расхождение написания молча создало бы вторую задачу.
+START_CALLS_TITLE = 'Начать звонки'
+
+#: SLA стартовой задачи. Отсчёт идёт от момента её создания, а не от
+#: какого-либо поля проекта: `Project.updated_at` — `auto_now` и сдвигается
+#: при любом сохранении, а отдельного `activated_at` в модели нет и заводить
+#: его ради дедлайна не нужно — `Task.deadline` хранит результат один раз.
+START_CALLS_SLA = timedelta(hours=24)
+
+START_CALLS_DESCRIPTION = (
+    'Команда подтвердила готовность — проект активен.\n'
+    'Начните обзвон и зафиксируйте результат отчётом или лидами.\n'
+    'SLA: 24 часа с момента создания задачи.'
+)
+
+
+def _start_calls_queryset(project):
+    """Единственное место, где задаётся ключ стартовой задачи.
+
+    Ключ структурный и составной: проект + `task_type` + название из
+    константы. `ONBOARDING` выбран потому, что этот вариант уже есть в
+    `Task.TaskType` и ни одним прод-путём не создаётся, — новый вариант
+    enum потребовал бы миграции ради MVP. Название добавлено в ключ на
+    будущее: когда появятся другие onboarding-задачи, ключ останется
+    однозначным.
+
+    Уникального индекса под этот ключ в БД нет намеренно (миграций в этом
+    этапе не заводим): дубли исключаются `get_or_create` внутри той же
+    транзакции, что и активация проекта.
+    """
+    return Task.objects.filter(
+        project=project,
+        task_type=Task.TaskType.ONBOARDING,
+        title=START_CALLS_TITLE,
+    )
+
+
+def get_start_calls_task(project) -> Task | None:
+    """Стартовая задача проекта или None. Только чтение, ничего не создаёт.
+
+    Публичный helper: и «Обзор», и сервис создания смотрят на задачу одним
+    и тем же ключом, поэтому второй копии условия поиска (и тем более
+    поиска по одному русскому названию) в проекте не появляется.
+    """
+    return _start_calls_queryset(project).order_by('created_at').first()
+
+
+def _start_calls_assignee(project):
+    """Исполнитель стартовой задачи: тимлид проекта, иначе директор.
+
+    Правило MVP и полностью серверное. Тимлид не участвует в готовности
+    слотов и может быть не назначен к моменту активации (`Project.teamlead`
+    nullable), поэтому владелец проекта — гарантированный fallback:
+    `Project.owner` NOT NULL, а `Task.assignee` не допускает пустое
+    значение.
+    """
+    return project.teamlead or project.owner
+
+
+@transaction.atomic
+def ensure_start_calls_task(project, *, actor=None) -> tuple[Task, bool]:
+    """Гарантирует ровно одну стартовую задачу проекта. Идемпотентна.
+
+    Вызывается автоматикой активации проекта
+    (`apps.rooms.staffing.services.sync_project_activation`), а не
+    пользователем, поэтому `create_task` здесь не подходит: его guard
+    `user_can_manage_team` рассчитан на ручное создание тимлидом или
+    директором и отверг бы фрилансера, подтвердившего готовность
+    последним. Все значения задаются сервером; из запроса не приходит
+    ничего.
+
+    Повторный вызов возвращает существующую задачу с `created=False` и
+    **не трогает её `deadline`**: `defaults` применяются только при
+    создании. Поэтому ни повторное подтверждение готовности, ни ручной
+    откат статуса проекта в админке не сдвигают SLA и не создают вторую
+    задачу.
+
+    Событие `TASK_CREATED` пишется только при фактическом создании — по
+    одному на проект.
+    """
+    task, created = Task.objects.get_or_create(
+        project=project,
+        task_type=Task.TaskType.ONBOARDING,
+        title=START_CALLS_TITLE,
+        defaults={
+            'assignee': _start_calls_assignee(project),
+            'created_by': None,
+            'description': START_CALLS_DESCRIPTION,
+            'deadline': timezone.now() + START_CALLS_SLA,
+            'status': Task.Status.NEW,
+            'report_required': False,
+        },
+    )
+    if created:
+        room = getattr(project, 'room', None)
+        if room is not None:
+            log_room_activity(
+                room,
+                f'Создана стартовая задача «{START_CALLS_TITLE}». '
+                'SLA — 24 часа.',
+                RoomActivity.EventType.TASK_CREATED,
+                actor=actor,
+            )
+    return task, created
 
 
 def parse_checklist_text(raw: str) -> list:
