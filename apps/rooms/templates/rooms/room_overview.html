@@ -5,7 +5,42 @@
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
-<div class="sla-banner">SLA: первые звонки в течение 24 часов после готовности исполнителей</div>
+{% comment %}
+SLA-блок стартовой задачи. Раньше здесь стоял неизменный текст «первые
+звонки в течение 24 часов»; теперь блок управляется данными.
+
+Формулировки намеренно говорят о **стартовой задаче**, а не о фактическом
+звонке: события «звонок состоялся» в модели нет, и утверждать его по статусу
+задачи было бы неправдой. Закрытая задача — это закрытая задача.
+
+Источник истины — сохранённый `Task.deadline`. Сервер отдаёт и человеческую
+дату (видна без JavaScript), и машинную в `data-sla-deadline` — по ней
+считает только визуальный отсчёт. Просрочка вычисляется на сервере, поэтому
+корректна и при выключенном JS.
+{% endcomment %}
+{% if start_calls_task %}
+    {% if start_calls_is_done %}
+    <div class="sla-banner sla-done">
+        <strong>Стартовая задача «{{ start_calls_task.title }}» закрыта.</strong>
+        <span class="sla-deadline">Дедлайн SLA был {{ start_calls_deadline|date:"d.m.Y H:i" }}</span>
+        <span class="sla-note">Закрытие задачи фиксирует работу по ней, а не факт состоявшегося звонка.</span>
+    </div>
+    {% else %}
+    <div class="sla-banner {% if start_calls_is_overdue %}sla-overdue{% else %}sla-active{% endif %}"
+         data-sla-deadline="{{ start_calls_deadline|date:'c' }}">
+        <strong>SLA стартовой задачи «{{ start_calls_task.title }}»</strong>
+        <span class="sla-deadline">Дедлайн: {{ start_calls_deadline|date:"d.m.Y H:i" }}</span>
+        <span class="sla-countdown" data-sla-countdown>
+            {% if start_calls_is_overdue %}SLA просрочен{% else %}Осталось: {{ start_calls_deadline|timeuntil }}{% endif %}
+        </span>
+    </div>
+    {% endif %}
+{% else %}
+<div class="sla-banner sla-idle">
+    SLA запустится после готовности команды: когда все исполнители подтвердят
+    готовность, появится стартовая задача со сроком 24 часа.
+</div>
+{% endif %}
 
 <div class="room-hub">
     {% comment %}
@@ -130,5 +165,51 @@
     {% csrf_token %}
     <button type="submit" class="btn btn-primary">Готов к работе</button>
 </form>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if start_calls_task and not start_calls_is_done %}
+{% comment %}
+Обратный отсчёт SLA. Сознательно один маленький inline-скрипт, а не файл и
+не «архитектура»: единственная его задача — раз в секунду перерисовать
+остаток времени.
+
+Он ничего не решает: дедлайн приходит с сервера в `data-sla-deadline`, POST
+и polling не делаются, состояние на сервере не меняется. Если скрипт не
+выполнится, страница уже показывает абсолютный дедлайн и серверную отметку
+просрочки — смысл блока не теряется.
+{% endcomment %}
+<script>
+(function () {
+    var block = document.querySelector('[data-sla-deadline]');
+    if (!block) { return; }
+    var output = block.querySelector('[data-sla-countdown]');
+    if (!output) { return; }
+    var deadline = new Date(block.getAttribute('data-sla-deadline'));
+    if (isNaN(deadline.getTime())) { return; }
+
+    function pad(value) { return value < 10 ? '0' + value : '' + value; }
+
+    function tick() {
+        var left = deadline.getTime() - Date.now();
+        if (left <= 0) {
+            block.classList.remove('sla-active');
+            block.classList.add('sla-overdue');
+            output.textContent = 'SLA просрочен';
+            window.clearInterval(timer);
+            return;
+        }
+        var seconds = Math.floor(left / 1000);
+        output.textContent = 'Осталось: '
+            + pad(Math.floor(seconds / 3600)) + ':'
+            + pad(Math.floor((seconds % 3600) / 60)) + ':'
+            + pad(seconds % 60);
+    }
+
+    var timer = window.setInterval(tick, 1000);
+    tick();
+})();
+</script>
 {% endif %}
 {% endblock %}

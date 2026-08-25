@@ -846,6 +846,49 @@ textarea::placeholder {
     font-size: 14px;
 }
 
+/* Состояния SLA-блока стартовой задачи на «Обзоре».
+   Базовый .sla-banner остаётся предупреждающим — состояния его уточняют. */
+.sla-banner .sla-deadline,
+.sla-banner .sla-countdown,
+.sla-banner .sla-note {
+    display: block;
+    margin-top: 4px;
+}
+
+.sla-banner .sla-countdown {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.sla-banner .sla-note {
+    font-size: 13px;
+    opacity: 0.85;
+}
+
+.sla-active {
+    background: rgba(26, 107, 181, 0.08);
+    border-color: rgba(26, 107, 181, 0.28);
+    color: var(--info);
+}
+
+.sla-overdue {
+    background: rgba(198, 40, 40, 0.08);
+    border-color: rgba(198, 40, 40, 0.32);
+    color: var(--danger);
+}
+
+.sla-done {
+    background: rgba(15, 122, 74, 0.08);
+    border-color: rgba(15, 122, 74, 0.28);
+    color: var(--success);
+}
+
+.sla-idle {
+    background: var(--surface-muted, rgba(0, 0, 0, 0.03));
+    border-color: var(--border, rgba(0, 0, 0, 0.12));
+    color: var(--text-muted);
+}
+
 .data-table {
     width: 100%;
     border-collapse: collapse;
