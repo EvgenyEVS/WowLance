@@ -39,12 +39,17 @@ from apps.rooms.services import (
     save_functional_roles_and_sync_slots,
 )
 from apps.rooms.staffing import projection
+from apps.rooms.staffing.matching import CHANNEL_REQUIREMENTS
 from apps.rooms.staffing.projection import (
     PROJECTED_ROLE_KEYS,
     SlotProjectionError,
     sync_functional_roles_to_slots,
 )
-from apps.rooms.unit_economics import FunctionalRolesError, get_project_composition
+from apps.rooms.unit_economics import (
+    FunctionalRolesError,
+    get_project_composition,
+    update_project_functional_roles,
+)
 from apps.test_helpers import make_director, make_freelancer, make_teamlead
 
 
@@ -717,11 +722,47 @@ class ProjectionBoundaryTests(ProjectionTestCase):
         )
 
     def test_projection_never_assigns_anyone(self):
-        """31. Ни назначений, ни истории кандидатов проекция не создаёт."""
+        """31. Ни назначений, ни истории кандидатов проекция не создаёт.
+
+        Проверяется именно `sync_functional_roles_to_slots`, а не продуктовая
+        оркестрация: `save_functional_roles_and_sync_slots` после проекции
+        осознанно вызывает авто-подбор на только что открытые слоты
+        (см. `tests_staffing_auto_assign_on_create`), поэтому вызов через
+        неё подтверждал бы поведение оркестрации, а не границу модуля.
+        Снапшот состава пишется отдельным сервисом `unit_economics` — он
+        слотов не касается, и проекция получает ровно те же входные данные,
+        что и на продуктовом пути.
+
+        Пул кандидатов делается заведомо непустым: иначе тест проходил бы
+        потому, что подбирать некого, а не потому, что проекция никого не
+        подбирает.
+        """
+        # Признаки каналов берутся из таблицы Matching Engine, а не пишутся
+        # строками: их единственное место — `matching.py`.
+        channel_fields = sorted(set(CHANNEL_REQUIREMENTS.values()))
+        for user in (self.freelancer, self.other_freelancer):
+            profile = user.freelancer_profile
+            for field in channel_fields:
+                setattr(profile, field, True)
+            profile.save(update_fields=channel_fields)
+
+        update_project_functional_roles(
+            self.project,
+            [
+                {'role_key': 'teamlead', 'count': 1},
+                {'role_key': 'seller_middle', 'count': 2},
+                {'role_key': 'seller_senior', 'count': 1},
+                {'role_key': 'linkedin_leadgen', 'count': 1},
+            ],
+            self.director,
+        )
         members_before = set(RoomMember.objects.values_list('id', flat=True))
 
-        self.save(seller_middle=2, seller_senior=1, linkedin_leadgen=1)
+        result = sync_functional_roles_to_slots(self.project)
 
+        # Слоты действительно появились — иначе назначать было бы нечего
+        # и тест ничего бы не доказывал.
+        self.assertEqual(result.created_count, 4)
         self.assertEqual(
             set(RoomMember.objects.values_list('id', flat=True)), members_before
         )

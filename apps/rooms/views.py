@@ -115,18 +115,31 @@ def _get_slot_for_staffing(request, project_id, slot_id):
 
 
 def _slot_action_response(request, project, slot, message, is_error=False):
-    """HTMX → свежий partial карточки слота, обычный POST → redirect с flash.
+    """HTMX → свежая карточка слота **и** таблица участников, обычный POST → redirect.
 
     Fallback без HTMX обязателен: интерфейс должен работать и при выключенном
     JavaScript, поэтому кнопки подбора остаются обычными формами.
+
+    Таблица участников отдаётся вместе с карточкой (out-of-band), потому что
+    любое действие подбора меняет состав комнаты: «Другой сейлер» снимает
+    прежнего исполнителя и сажает следующего, «Подобрать лучшего» добавляет
+    нового. Форма целится в свою карточку, поэтому без второго блока таблица
+    ниже оставалась бы с прошлым составом до перезагрузки страницы — карточка
+    показывала бы нового исполнителя, а «Участники» снятого.
+
+    `members` — ленивый queryset: он выполняется уже при рендере шаблона,
+    то есть после записей, которые сделал подбор в этом же запросе. Списка,
+    собранного до операции, здесь не возникает.
     """
     if request.headers.get('HX-Request'):
-        return render(request, 'rooms/_slot_card.html', {
+        return render(request, 'rooms/_slot_action.html', {
             'project': project,
             'card': selectors.slot_card_for(slot),
             'can_staff_slots': _staffing_is_open(project),
             'action_note': message,
             'action_note_is_error': is_error,
+            'members': slot.room.members.select_related('user').all(),
+            'can_manage_team': user_can_manage_team(request.user, project),
         })
     if is_error:
         messages.error(request, message)

@@ -978,3 +978,210 @@ class StaffingConcurrencyTests(StaffingWorkflowTestCase):
             RoomMember.objects.filter(room=self.room, user=profile.user).count(),
             1,
         )
+
+
+class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
+    """Регрессия smoke-теста: после «Другой сейлер» таблица участников устаревала.
+
+    Данные были верны всегда — `replace_slot_member` снимает прежнего
+    исполнителя и сажает следующего в одной транзакции. Ломался ответ:
+    форма подбора целится в свою карточку (`hx-target="#slot-card-…"`),
+    поэтому HTMX подменял только её, а блок «Участники» ниже оставался
+    отрендеренным до операции. Карточка показывала нового исполнителя,
+    таблица — снятого, и расхождение держалось до перезагрузки страницы.
+
+    Здесь проверяется контракт ответа: свежий состав приезжает вместе с
+    карточкой (out-of-band), поэтому обе части страницы согласованы.
+    """
+
+    def setUp(self):
+        self.client = Client()
+
+    def replace_url(self, slot=None):
+        return reverse(
+            'rooms:room_slot_replace',
+            kwargs={'project_id': self.project.id, 'slot_id': (slot or self.slot).id},
+        )
+
+    def auto_url(self, slot=None):
+        return reverse(
+            'rooms:room_slot_auto_assign',
+            kwargs={'project_id': self.project.id, 'slot_id': (slot or self.slot).id},
+        )
+
+    def team_url(self):
+        return reverse('rooms:room_team', kwargs={'project_id': self.project.id})
+
+    def htmx_post(self, url):
+        self.client.force_login(self.director)
+        return self.client.post(url, headers={'hx-request': 'true'})
+
+    def members_block(self, response):
+        """Только блок «Участники» ответа.
+
+        Ассертить по всему HTML нельзя: сообщение операции («… заменён:
+        назначен …») называет обоих — и снятого, и нового, — поэтому
+        «старого имени нет на странице» было бы ложной проверкой.
+        """
+        body = response.content.decode()
+        marker = 'id="room-members"'
+        self.assertIn(marker, body, 'В ответе нет блока участников.')
+        return body[body.index(marker):]
+
+    def test_replace_returns_participants_without_the_replaced_member(self):
+        """Снятый исполнитель исчезает из «Участников» тем же ответом."""
+        pool = self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+
+        response = self.htmx_post(self.replace_url())
+
+        self.assertNotIn(pool[0].user.full_name, self.members_block(response))
+
+    def test_replace_returns_participants_with_the_new_member(self):
+        """Новый исполнитель появляется в «Участниках» тем же ответом."""
+        pool = self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+
+        response = self.htmx_post(self.replace_url())
+
+        self.assertIn(pool[1].user.full_name, self.members_block(response))
+
+    def test_replace_response_carries_an_out_of_band_members_block(self):
+        """Блок приезжает out-of-band: цель формы — карточка слота, не он."""
+        self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+
+        response = self.htmx_post(self.replace_url())
+        body = response.content.decode()
+
+        self.assertIn('hx-swap-oob', body)
+        self.assertIn(f'slot-card-{self.slot.id}', body)
+
+    def test_slot_card_and_members_block_agree_after_replace(self):
+        """Карточка и таблица показывают одного человека, а не разных."""
+        pool = self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+
+        response = self.htmx_post(self.replace_url())
+        body = response.content.decode()
+        card = body[:body.index('id="room-members"')]
+
+        self.assertIn(pool[1].user.full_name, card)
+        self.assertIn(pool[1].user.full_name, self.members_block(response))
+
+    def test_database_state_matches_what_the_response_shows(self):
+        """Снятый не остаётся лишним участником комнаты."""
+        pool = self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+
+        self.htmx_post(self.replace_url())
+
+        self.assertFalse(
+            RoomMember.objects.filter(room=self.room, user=pool[0].user).exists()
+        )
+        self.assertEqual(
+            RoomMember.objects.get(function_slot=self.slot).user_id, pool[1].user.id
+        )
+
+    def test_auto_assign_also_refreshes_the_participants_block(self):
+        """Тот же ответ у «Подобрать лучшего»: новый участник виден сразу."""
+        pool = self.make_ranked_pool(2)
+
+        response = self.htmx_post(self.auto_url())
+
+        self.assertIn(pool[0].user.full_name, self.members_block(response))
+
+    def test_plain_post_fallback_shows_the_fresh_team_page(self):
+        """Без HTMX страница перечитывается целиком и тоже согласована."""
+        pool = self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+        self.client.force_login(self.director)
+
+        self.client.post(self.replace_url())
+        page = self.client.get(self.team_url()).content.decode()
+        members = page[page.index('id="room-members"'):]
+
+        self.assertIn(pool[1].user.full_name, members)
+        self.assertNotIn(pool[0].user.full_name, members)
+
+    def test_second_replace_still_works(self):
+        """Повторное «Другой сейлер» работает и остаётся согласованным."""
+        pool = self.make_ranked_pool(3)
+        auto_assign_best_candidate(self.slot, self.director)
+
+        self.htmx_post(self.replace_url())
+        response = self.htmx_post(self.replace_url())
+
+        members = self.members_block(response)
+        self.assertIn(pool[2].user.full_name, members)
+        self.assertNotIn(pool[0].user.full_name, members)
+        self.assertNotIn(pool[1].user.full_name, members)
+        self.assertEqual(
+            RoomMember.objects.get(function_slot=self.slot).user_id, pool[2].user.id
+        )
+
+    def test_director_and_teamlead_survive_a_replacement(self):
+        """Замена снимает только исполнителя слота, а не всю комнату."""
+        self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+
+        response = self.htmx_post(self.replace_url())
+        members = self.members_block(response)
+
+        self.assertIn(self.director.full_name, members)
+        self.assertIn(self.teamlead.full_name, members)
+        self.assertTrue(
+            RoomMember.objects.filter(room=self.room, user=self.teamlead).exists()
+        )
+
+    def test_replaced_user_keeps_membership_in_another_room(self):
+        """Снятый остаётся участником других комнат: удаление точечное."""
+        pool = self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+        other_project = Project.objects.create(
+            owner=self.director,
+            name='Соседний проект',
+            status=Project.Status.STAFFING,
+        )
+        other_room = Room.objects.create(project=other_project)
+        other_membership = RoomMember.objects.create(
+            room=other_room,
+            user=pool[0].user,
+            role_in_room=RoomMember.RoleInRoom.FREELANCER,
+        )
+
+        self.htmx_post(self.replace_url())
+
+        self.assertTrue(RoomMember.objects.filter(pk=other_membership.pk).exists())
+
+    def test_one_membership_per_user_per_room_is_a_db_constraint(self):
+        """Занять два слота одной комнаты один человек не может — это констрейнт.
+
+        Поэтому «снятый нужен комнате через другой слот» — невозможное
+        состояние, и удаление участника при замене ничего не забирает.
+        """
+        constraint_names = {
+            constraint.name for constraint in RoomMember._meta.constraints
+        }
+
+        self.assertIn('unique_room_member', constraint_names)
+
+    def test_candidate_history_survives_the_replacement(self):
+        """История подбора сохраняется: снятый помечен как пропущенный."""
+        pool = self.make_ranked_pool(2)
+        auto_assign_best_candidate(self.slot, self.director)
+
+        self.htmx_post(self.replace_url())
+
+        self.assertEqual(
+            RoomSlotCandidate.objects.get(
+                slot=self.slot, candidate=pool[0].user
+            ).outcome,
+            RoomSlotCandidate.Outcome.SKIPPED,
+        )
+        self.assertEqual(
+            RoomSlotCandidate.objects.get(
+                slot=self.slot, candidate=pool[1].user
+            ).outcome,
+            RoomSlotCandidate.Outcome.ASSIGNED,
+        )

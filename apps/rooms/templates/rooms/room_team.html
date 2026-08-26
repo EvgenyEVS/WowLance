@@ -95,55 +95,7 @@ enum слота, — обоим честно пишется, что слот е�
     {% endif %}
 </div>
 
-<div class="info-block" style="margin-top: 16px;">
-    <h3>Участники</h3>
-    {% if members %}
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Имя</th>
-                <th>Email</th>
-                <th>Роль</th>
-                <th>Готовность</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for member in members %}
-            <tr>
-                <td>{{ member.user.full_name }}</td>
-                <td>{{ member.user.email }}</td>
-                <td>{{ member.get_role_in_room_display }}</td>
-                <td>
-                    {% if member.role_in_room == 'freelancer' %}
-                    {{ member.get_ready_status_display }}
-                    {% else %}
-                    —
-                    {% endif %}
-                </td>
-                <td>
-                    {% if can_manage_team and member.role_in_room != 'director' %}
-                    <form method="post"
-                          action="{% url 'rooms:room_remove_member' project.id member.id %}"
-                          class="inline-delete-form"
-                          onsubmit="return confirm('Удалить участника?');">
-                        {% csrf_token %}
-                        <button type="submit" class="btn-delete">Удалить</button>
-                    </form>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <div class="empty-state">
-        <h3>Команда ещё не собрана</h3>
-        <p>Пригласите тимлида по ссылке или добавьте фрилансера из каталога.</p>
-        <a href="{% url 'profiles:catalog' %}" class="btn btn-primary">Открыть каталог</a>
-    </div>
-    {% endif %}
-</div>
+{% include 'rooms/_room_members.html' %}
 
 {% if can_manage_team %}
 <div class="room-grid">

@@ -1,0 +1,63 @@
+{% comment %}
+Таблица участников комнаты.
+
+Partial, а не кусок `room_team.html`, ровно по одной причине: после
+HTMX-действий подбора («Подобрать лучшего», «Другой сейлер») состав
+комнаты меняется, и блок обязан обновиться вместе с карточкой слота.
+Раньше swap затрагивал только карточку, и таблица ниже показывала
+снятого исполнителя до перезагрузки страницы.
+
+`members_oob=True` добавляет `hx-swap-oob`: HTMX находит в документе
+элемент с тем же `id` и заменяет его, хотя `hx-target` формы указывает
+на карточку слота. Разметка при этом одна — первичный рендер вкладки и
+ответ на действие идут через этот же файл, и разойтись не могут.
+{% endcomment %}
+<div class="info-block" id="room-members" style="margin-top: 16px;"{% if members_oob %} hx-swap-oob="true"{% endif %}>
+    <h3>Участники</h3>
+    {% if members %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Имя</th>
+                <th>Email</th>
+                <th>Роль</th>
+                <th>Готовность</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for member in members %}
+            <tr>
+                <td>{{ member.user.full_name }}</td>
+                <td>{{ member.user.email }}</td>
+                <td>{{ member.get_role_in_room_display }}</td>
+                <td>
+                    {% if member.role_in_room == 'freelancer' %}
+                    {{ member.get_ready_status_display }}
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
+                <td>
+                    {% if can_manage_team and member.role_in_room != 'director' %}
+                    <form method="post"
+                          action="{% url 'rooms:room_remove_member' project.id member.id %}"
+                          class="inline-delete-form"
+                          onsubmit="return confirm('Удалить участника?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn-delete">Удалить</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <h3>Команда ещё не собрана</h3>
+        <p>Пригласите тимлида по ссылке или добавьте фрилансера из каталога.</p>
+        <a href="{% url 'profiles:catalog' %}" class="btn btn-primary">Открыть каталог</a>
+    </div>
+    {% endif %}
+</div>
