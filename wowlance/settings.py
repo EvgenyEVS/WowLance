@@ -198,6 +198,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
 # Email: SMTP, если заданы EMAIL_HOST_USER + EMAIL_HOST_PASSWORD; иначе console.
