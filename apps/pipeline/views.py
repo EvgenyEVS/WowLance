@@ -336,4 +336,12 @@ def manager_inbox(request):
         .select_related('project', 'lead')
         .order_by('deadline', '-created_at')
     )
-    return render(request, 'pipeline/manager_inbox.html', {'tasks': tasks})
+    # НОВОЕ: есть ли в системе хотя бы один активный менеджер
+    has_platform_manager = User.objects.filter(
+        role=User.Roles.MANAGER,
+        status=User.Status.ACTIVE,
+    ).exists()
+    return render(request, 'pipeline/manager_inbox.html', {
+        'tasks': tasks,
+        'has_platform_manager': has_platform_manager,
+    })

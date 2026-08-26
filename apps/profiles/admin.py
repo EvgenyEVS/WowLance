@@ -28,6 +28,7 @@ class FreelancerProfileAdmin(admin.ModelAdmin):
     search_fields = ['user__email', 'user__first_name', 'user__last_name']
     readonly_fields = ['created_at', 'updated_at']
     inlines = [PortfolioInline]
+    actions = ['verify_selected', 'unverify_selected']
     fieldsets = (
         ('Пользователь', {'fields': ('user',)}),
         ('Профиль', {'fields': ('country', 'level', 'experience_years', 'experience_projects')}),
@@ -37,6 +38,16 @@ class FreelancerProfileAdmin(admin.ModelAdmin):
         ('Метрики', {'fields': ('rating', 'acceptance_rate', 'is_verified', 'is_available')}),
         ('Системные', {'fields': ('created_at', 'updated_at'), 'classes': ('collapse',)}),
     )
+
+    @admin.action(description='Верифицировать выбранных')
+    def verify_selected(self, request, queryset):
+        count = queryset.update(is_verified=True)
+        self.message_user(request, f'Верифицировано профилей: {count}.')
+
+    @admin.action(description='Снять верификацию с выбранных')
+    def unverify_selected(self, request, queryset):
+        count = queryset.update(is_verified=False)
+        self.message_user(request, f'Верификация снята с профилей: {count}.')
 
     def full_name(self, obj):
         return obj.full_name

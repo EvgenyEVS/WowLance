@@ -3,38 +3,51 @@
 {% block title %}Входящие — горячие лиды{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1>Задачи по горячим лидам</h1>
-</div>
+<div class="catalog-container">
+    <div class="catalog-header">
+        <h1>Задачи по горячим лидам</h1>
+        <p class="subtitle">Hot-задачи, которые передаёт тимлид после квалификации лида</p>
+    </div>
 
-{% if tasks %}
-<table class="data-table">
-    <thead>
-        <tr>
-            <th>Задача</th>
-            <th>Проект</th>
-            <th>Лид</th>
-            <th>Дедлайн</th>
-            <th>Статус</th>
-            <th></th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for task in tasks %}
-        <tr>
-            <td>{{ task.title }}</td>
-            <td>{{ task.project.name }}</td>
-            <td>{{ task.lead|default:"—" }}</td>
-            <td>{{ task.deadline|date:"d.m.Y H:i"|default:"—" }}</td>
-            <td>{{ task.get_status_display }}</td>
-            <td>
-                <a href="{% url 'pipeline:task_detail' task.project.id task.id %}" class="btn btn-secondary">Открыть</a>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p class="empty">Нет открытых задач по горячим лидам.</p>
-{% endif %}
+    {% if tasks %}
+    <table class="catalog-grid" style="width: 100%; border-collapse: collapse;">
+        <thead>
+            <tr style="background-color: #f5f7fa; text-align: left;">
+                <th style="padding: 12px;">Задача</th>
+                <th style="padding: 12px;">Проект</th>
+                <th style="padding: 12px;">Лид</th>
+                <th style="padding: 12px;">Дедлайн</th>
+                <th style="padding: 12px;">Статус</th>
+                <th style="padding: 12px;"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for task in tasks %}
+            <tr style="border-bottom: 1px solid #e0e0e0;">
+                <td style="padding: 12px;">{{ task.title }}</td>
+                <td style="padding: 12px;">{{ task.project.name }}</td>
+                <td style="padding: 12px;">{{ task.lead|default:"—" }}</td>
+                <td style="padding: 12px;">{{ task.deadline|date:"d.m.Y H:i"|default:"—" }}</td>
+                <td style="padding: 12px;">{{ task.get_status_display }}</td>
+                <td style="padding: 12px;">
+                    <a href="{% url 'pipeline:task_detail' task.project.id task.id %}" class="btn btn-secondary btn-sm">Открыть</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <h3>Открытых задач по Hot-лидам нет.</h3>
+        <p>Hot появляется, когда тимлид квалифицирует лид. Нужен активный пользователь с ролью «Менеджер».</p>
+        {% if not has_platform_manager %}
+        <p style="margin-top: 16px; padding: 12px; background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 6px;">
+            <strong>Подсказка:</strong> в системе пока нет ни одного активного менеджера.
+            Создайте его командой:
+            <code style="background-color: #f5f7fa; padding: 2px 6px; border-radius: 3px;">python manage.py seed_managers</code>
+        </p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
 {% endblock %}
