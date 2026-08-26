@@ -598,10 +598,17 @@ def room_functional_roles_update(request, project_id):
             request.POST.get('action', configurator.ACTION_SET),
             request.POST.get('count'),
         )
-        save_functional_roles_and_sync_slots(project, counts, request.user)
+        result = save_functional_roles_and_sync_slots(project, counts, request.user)
     except FunctionalRolesError as exc:
         return _configurator_response(request, project, error=str(exc))
-    return _configurator_response(request, project, notice='Состав команды обновлён.')
+    notice = 'Состав команды обновлён.'
+    if result.unfilled_opened_slots:
+        notice = (
+            f'{notice} Для {result.unfilled_opened_slots} слот(ов) не найден '
+            'подходящий фрилансер — откройте вкладку «Команда» '
+            'или расширьте каталог (видео + верификация).'
+        )
+    return _configurator_response(request, project, notice=notice)
 
 
 @login_required
@@ -618,16 +625,20 @@ def room_functional_roles_apply_package(request, project_id):
     """
     project = _project_for_configurator(request, project_id)
     try:
-        apply_package_and_sync_slots(
+        result = apply_package_and_sync_slots(
             project, request.POST.get('package', ''), request.user
         )
     except KeyError:
         return _configurator_response(request, project, error='Неизвестный пакет.')
     except FunctionalRolesError as exc:
         return _configurator_response(request, project, error=str(exc))
-    return _configurator_response(
-        request, project, notice='Пакет применён к составу команды.',
-    )
+    notice = 'Пакет применён к составу команды.'
+    if result.unfilled_opened_slots:
+        notice = (
+            f'{notice} Для {result.unfilled_opened_slots} слот(ов) не найден '
+            'подходящий фрилансер — проверьте каталог и вкладку «Команда».'
+        )
+    return _configurator_response(request, project, notice=notice)
 
 
 @login_required

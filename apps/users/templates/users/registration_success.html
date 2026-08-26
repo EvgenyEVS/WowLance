@@ -10,9 +10,9 @@
 
         {% if debug_mode and is_console_backend %}
         <div class="alert alert-info" style="text-align: left; margin: 20px 0;">
-            <p><strong>Режим разработки (DEBUG + console email):</strong></p>
+            <p><strong>{% if demo_mode %}Демо-режим{% else %}Режим разработки (DEBUG){% endif %} + console email:</strong></p>
             <p>Реальная почта не используется. Активируйте аккаунт по ссылке ниже
-                (она также печатается в терминале сервера):</p>
+                (она также печатается в терминале / логе сервера):</p>
             <p style="word-break: break-all; margin-top: 12px;">
                 <a href="{{ activation_url }}">{{ activation_url }}</a>
             </p>
@@ -22,7 +22,7 @@
         </a>
         {% elif debug_mode %}
         <div class="alert alert-warning" style="text-align: left; margin: 20px 0;">
-            <p><strong>Режим разработки (DEBUG + SMTP):</strong></p>
+            <p><strong>{% if demo_mode %}Демо-режим{% else %}Режим разработки{% endif %} + SMTP:</strong></p>
             <p>Проверьте почтовый ящик <strong>{{ email }}</strong> — письмо активации
                 должно прийти через настроенный SMTP.</p>
         </div>

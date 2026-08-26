@@ -52,24 +52,36 @@ SECRET_KEY = os.environ.get(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
+# На демо-VPS: DJANGO_DEBUG=0 и DEMO_MODE=1 — без traceback, но со ссылкой активации.
 DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
+DEMO_MODE = os.environ.get('DEMO_MODE', '0') == '1'
+# Ссылку активации показываем при DEBUG или DEMO_MODE.
+# Не кэшировать в константу при импорте: test runner меняет DEBUG после load.
 
 # В DEBUG по умолчанию пусто → absolute_uri берёт хост из запроса (127.0.0.1:8000).
 # На демо/проде обязательно: PUBLIC_HOST=195.19.209.121 (или домен).
 PUBLIC_HOST = os.environ.get(
     'PUBLIC_HOST',
-    '' if DEBUG else '195.19.209.121',
+    '' if DEBUG and not DEMO_MODE else '195.19.209.121',
 )
 # По умолчанию http: на демо-VPS нет TLS (порт 443 не слушает).
 # После настройки HTTPS: PUBLIC_SCHEME=https и USE_HTTPS=1
 PUBLIC_SCHEME = os.environ.get('PUBLIC_SCHEME', 'http')
 USE_HTTPS = os.environ.get('USE_HTTPS', '0') == '1'
 
+_extra_hosts = [
+    h.strip()
+    for h in os.environ.get('EXTRA_ALLOWED_HOSTS', '').split(',')
+    if h.strip()
+]
 ALLOWED_HOSTS = [
     host
-    for host in (PUBLIC_HOST, 'localhost', '127.0.0.1')
+    for host in (PUBLIC_HOST, 'localhost', '127.0.0.1', *_extra_hosts)
     if host
 ]
+# Страховка демо: IP не выпадает из ALLOWED_HOSTS, если PUBLIC_HOST забыли в systemd.
+if DEMO_MODE and '195.19.209.121' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('195.19.209.121')
 
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
@@ -79,6 +91,12 @@ if PUBLIC_HOST:
     CSRF_TRUSTED_ORIGINS = [
         f'https://{PUBLIC_HOST}',
         f'http://{PUBLIC_HOST}',
+        *CSRF_TRUSTED_ORIGINS,
+    ]
+if DEMO_MODE:
+    CSRF_TRUSTED_ORIGINS = [
+        'http://195.19.209.121',
+        'https://195.19.209.121',
         *CSRF_TRUSTED_ORIGINS,
     ]
 
@@ -152,6 +170,10 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        # Снижает «database is locked» при HTMX + staffing на одном worker.
+        'OPTIONS': {
+            'timeout': 30,
+        },
     }
 }
 

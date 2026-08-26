@@ -31,15 +31,17 @@ def _is_console_email_backend() -> bool:
 def _registration_success_response(request, user, activation_url):
     """
     После регистрации / повторной отправки письма:
-    - DEBUG: страница успеха (ссылка на экране, если backend = console);
-    - не DEBUG: сообщение и редирект на логин (ожидаем реальное письмо).
+    - DEBUG или DEMO_MODE: страница успеха со ссылкой при console;
+    - иначе: сообщение и редирект на логин (ожидаем реальное письмо).
     """
-    if settings.DEBUG:
+    show_link = settings.DEBUG or getattr(settings, 'DEMO_MODE', False)
+    if show_link:
         return render(request, 'users/registration_success.html', {
             'email': user.email,
             'activation_url': activation_url,
             'debug_mode': True,
             'is_console_backend': _is_console_email_backend(),
+            'demo_mode': getattr(settings, 'DEMO_MODE', False),
         })
     messages.success(
         request,

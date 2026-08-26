@@ -19,8 +19,9 @@ WowLance — B2B-платформа для запуска продаж и под
 По умолчанию письма идут в **консоль** (`console` backend).  
 Чтобы слать реальные письма, задайте `EMAIL_HOST_USER` и `EMAIL_HOST_PASSWORD` (см. `.env.example`).
 
-- **DEBUG + console:** после регистрации на экране показывается ссылка активации.  
-- **SMTP настроен:** письмо уходит на email; в DEBUG ссылка на экране скрыта.  
-- **DEBUG=0 (демо/прод):** только письмо + сообщение на login.
+- **DEBUG или DEMO_MODE + console:** после регистрации на экране показывается ссылка активации.  
+- **SMTP настроен:** письмо уходит на email.  
+- **На демо-VPS:** `DJANGO_DEBUG=0` + `DEMO_MODE=1` — без Django-traceback, со ссылкой активации.
 
+Демо-сценарий одной командой: `python manage.py seed_demo_scenario`  
 Быстрый smoke тестов: `powershell -File scripts/test_lite.ps1`

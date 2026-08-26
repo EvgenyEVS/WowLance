@@ -202,70 +202,24 @@ class CompositionSaveResult:
     summary: object
     #: `apps.rooms.staffing.projection.SlotProjectionResult`.
     projection: object
+    #: Сколько только что открытых слотов остались без кандидата.
+    unfilled_opened_slots: int = 0
 
 
-def _auto_assign_opened_slots(project: Project, projection, actor) -> None:
+def _auto_assign_opened_slots(project: Project, projection, actor) -> int:
     """Сажает лучшего кандидата на слоты, открытые **этой** синхронизацией.
 
-    Продуктовый смысл: директор покупает функции, и система сама предлагает
-    исполнителя на каждый только что появившийся слот, а не ждёт, пока
-    кто-то нажмёт «Подобрать лучшего» на вкладке «Команда».
-
-    Какие слоты берутся
-    -------------------
-
-    Ровно те `slot_index`, которые проекция вернула в `created` и
-    `reactivated` этого результата, и ничего сверх них:
-
-    * `deactivated` не берутся — слот закрыт, в подборе не участвует;
-    * старые активные пустые слоты не берутся — их проекция в этот раз
-      не трогала, и они в результате отсутствуют. Это не мелочь: покупка
-      LinkedIn-функции не должна задним числом заполнять сейл-слот,
-      который директор осознанно оставил пустым;
-    * при неизменившемся составе `created` и `reactivated` пусты у всех
-      функций, поэтому подбор не запускается вообще и повторное
-      сохранение остаётся идемпотентным.
-
-    Реактивированный слот считается новым открытием намеренно: функция
-    вернулась в состав, значит исполнитель ей снова нужен. История
-    кандидатов слота при этом не теряется — `auto_assign_best_candidate`
-    сам переключается на `get_next_candidate`, если по слоту уже кого-то
-    показывали, и повторно не предлагает того, кого уже пропускали.
-
-    Слоты ищутся через `room__project`, а не через `project.room`:
-    обратная связь OneToOne кэшируется на экземпляре проекта, и на
-    write-path, где комнату мог создать только что сам
-    `sync_functional_roles_to_slots`, читать её из кэша нельзя.
-
-    Границы модулей (ADR-001)
-    -------------------------
-
-    Правила подбора здесь не дублируются ни строкой: кто подходит слоту и
-    кто из них первый, решает только Matching Engine внутри
-    `auto_assign_best_candidate`. Этот код отвечает лишь на вопрос «какие
-    слоты открылись сейчас». `projection` остаётся модулем без назначений,
-    `matching` — модулем без записи в БД.
-
-    Импорт **внутри функции**: `apps.rooms.staffing.services` импортирует
-    этот модуль на уровне модуля (`log_room_activity`,
-    `user_can_manage_team`), и модульный импорт обратно замкнул бы граф.
-    Тот же приём, что и у `confirm_freelancer_readiness` и у самой
-    проекции в `save_functional_roles_and_sync_slots`.
+    Возвращает число открытых слотов, для которых кандидат не найден
+    (пустой пул / no_candidates) — чтобы UI мог предупредить директора.
     """
     from .staffing.services import StaffingError, auto_assign_best_candidate
 
+    unfilled = 0
     for change in projection.changes:
         opened_indexes = change.created + change.reactivated
         if not opened_indexes:
             continue
 
-        # `member__isnull=True` и `is_active=True` — обычный путь, а не
-        # защита: занятым только что открытый слот быть не может (created
-        # создан пустым, а занятый закрытый слот проекция реактивировать
-        # отказывается — `SlotProjectionError`). Условия стоят в SQL, чтобы
-        # это оставалось правдой и после будущих правок проекции.
-        # Запрос идёт по одной функции за раз: `slot_index` уникален внутри
-        # пары `(room, role_key)`, а не по всей комнате.
         opened_slots = (
             RoomFunctionSlot.objects.filter(
                 room__project=project,
@@ -280,22 +234,13 @@ def _auto_assign_opened_slots(project: Project, projection, actor) -> None:
 
         for slot in opened_slots:
             try:
-                auto_assign_best_candidate(slot, actor)
+                outcome = auto_assign_best_candidate(slot, actor)
             except StaffingError:
-                # Единственный реально достижимый здесь `StaffingError` —
-                # гонка: параллельный запрос успел занять этот слот или
-                # увести кандидата между выборкой выше и назначением.
-                # Права (`PermissionDenied`) и статус проекта не ловятся
-                # намеренно: актор уже прошёл `user_can_edit_functional_roles`
-                # (владелец-директор, а значит и `user_can_manage_team`), а
-                # `COMPOSITION_EDITABLE_STATUSES` совпадает со
-                # `STAFFING_MUTABLE_STATUSES` — их расхождение будет
-                # программной ошибкой и обязано упасть, а не потеряться.
-                # Проглатывать шире нельзя, но и ронять всю операцию
-                # из-за гонки — тоже: авто-подбор это удобство поверх
-                # покупки состава, а не её условие. Слот просто остаётся
-                # пустым и ждёт кнопки «Подобрать лучшего».
                 continue
+            if not outcome.assigned:
+                unfilled += 1
+
+    return unfilled
 
 
 @transaction.atomic
@@ -336,8 +281,12 @@ def save_functional_roles_and_sync_slots(project: Project, roles_data, user):
 
     summary = update_project_functional_roles(project, roles_data, user)
     projection = sync_functional_roles_to_slots(project)
-    _auto_assign_opened_slots(project, projection, user)
-    return CompositionSaveResult(summary=summary, projection=projection)
+    unfilled = _auto_assign_opened_slots(project, projection, user)
+    return CompositionSaveResult(
+        summary=summary,
+        projection=projection,
+        unfilled_opened_slots=unfilled,
+    )
 
 
 def apply_package_and_sync_slots(project: Project, package_key: str, user):

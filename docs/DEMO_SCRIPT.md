@@ -1,14 +1,33 @@
 # Шпаргалка для демо WowLance
 
-Короткая инструкция, как QA или тимлид может самостоятельно провести демо без вопросов в Slack.
+Короткая инструкция, как QA или тимлид может самостоятельно провести демо.
 
 ## 1. Подготовка базы
 
-Выполнить в терминале (из корня проекта, где лежит `manage.py`):
-
 ```powershell
 python manage.py migrate
-python manage.py seed_freelancers
-python manage.py seed_managers
-python manage.py seed_demo_accounts
+python manage.py seed_demo_scenario
 python manage.py runserver
+```
+
+`seed_demo_scenario` создаёт роли, фрилансеров и проект «Демо для стейкхолдеров»
+(STAFFING + пакет quick_start + тимлид).
+
+## 2. Логины
+
+| Роль | Email | Пароль |
+|------|--------|--------|
+| Директор | director@wowlance.demo | DemoPass123! |
+| Тимлид | teamlead@wowlance.demo | DemoPass123! |
+| Менеджер | manager@wowlance.demo | DemoPass123! |
+
+## 3. Демо-VPS (systemd)
+
+```
+Environment="DJANGO_DEBUG=0"
+Environment="DEMO_MODE=1"
+Environment="PUBLIC_HOST=195.19.209.121"
+```
+
+Так стейкхолдеры не видят traceback Django, но ссылка активации при console-email
+остаётся на экране (`DEBUG` или `DEMO_MODE`).

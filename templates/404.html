@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Страница не найдена{% endblock %}
+{% block content %}
+<div class="auth-container">
+  <div class="auth-box">
+    <h1>Страница не найдена</h1>
+    <p class="subtitle">Проверьте ссылку или вернитесь на главную.</p>
+    <a class="btn btn-primary" href="{% url 'core:home' %}">На главную</a>
+  </div>
+</div>
+{% endblock %}
