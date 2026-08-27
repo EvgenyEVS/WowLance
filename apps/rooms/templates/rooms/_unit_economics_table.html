@@ -16,13 +16,22 @@
 (владелец + директор + статус DRAFT/STAFFING). Флаг решает только что видно;
 настоящая защита — те же проверки внутри `update_project_functional_roles`,
 поэтому прямой POST мимо интерфейса ничего не даст.
+
+Финансы (стоимость, часы, бюджет, CPL, прогноз) — флаг
+`can_view_unit_economics_finance`: у фрилансера False, у остальных True.
 {% endcomment %}
 {% url 'rooms:room_functional_roles_update' project.id as fr_update_url %}
 {% url 'rooms:room_functional_roles_apply_package' project.id as fr_package_url %}
 <section class="info-block fr-configurator" id="functional-roles-configurator"
          aria-labelledby="fr-configurator-title">
     <div class="section-head">
-        <h3 id="fr-configurator-title">Функциональная команда / Юнит-экономика</h3>
+        <h3 id="fr-configurator-title">
+            {% if can_view_unit_economics_finance %}
+            Функциональная команда / Юнит-экономика
+            {% else %}
+            Состав команды
+            {% endif %}
+        </h3>
         {% if not can_edit_functional_roles %}
         <span class="muted fr-readonly-hint">Только просмотр</span>
         {% endif %}
@@ -62,8 +71,10 @@
                 <tr>
                     <th scope="col">Функция</th>
                     <th scope="col">Количество</th>
+                    {% if can_view_unit_economics_finance %}
                     <th scope="col">Стоимость / мес</th>
                     <th scope="col">Часы / мес</th>
+                    {% endif %}
                     <th scope="col">Производительность</th>
                     <th scope="col">Hot leads / мес</th>
                     <th scope="col">Подбор</th>
@@ -131,7 +142,11 @@
                     единицу, и итог строки для текущего count. Умножение
                     приходит готовым из серверной сводки (`subtotal_*`) —
                     в шаблоне нет ни одной арифметической операции.
+
+                    Для фрилансера колонки стоимости и часов не рендерятся
+                    (`can_view_unit_economics_finance`).
                     {% endcomment %}
+                    {% if can_view_unit_economics_finance %}
                     <td class="fr-num fr-metric">
                         <span class="fr-unit-rate">{{ row.cost_per_unit_display }} {{ row.times_label }}</span>
                         <strong class="fr-subtotal fr-subtotal-cost">{{ row.subtotal_cost_display }}</strong>
@@ -140,6 +155,7 @@
                         <span class="fr-unit-rate">{{ row.hours_per_unit_display }} {{ row.times_label }}</span>
                         <strong class="fr-subtotal fr-subtotal-hours">{{ row.subtotal_hours_display }}</strong>
                     </td>
+                    {% endif %}
                     {% comment %}
                     Продуктивность НЕ умножается на count: эта математика будет
                     определена Product Owner отдельно, до тех пор — текст.
@@ -262,10 +278,11 @@
     {% endif %}
 
     {% comment %}
-    Итоги показываются всегда, в том числе для пустого состава: «0 ₽» и «—»
-    честнее исчезающего блока. Числового суммарного «охвата» здесь нет —
-    производительность остаётся текстом в строках ролей.
+    Итоги показываются всегда (кроме фрилансера), в том числе для пустого
+    состава: «0 ₽» и «—» честнее исчезающего блока. Числового суммарного
+    «охвата» здесь нет — производительность остаётся текстом в строках ролей.
     {% endcomment %}
+    {% if can_view_unit_economics_finance %}
     <ul class="fr-totals">
         <li>
             <span class="fr-total-label">Общий бюджет / мес</span>
@@ -284,6 +301,7 @@
             <strong class="fr-total-cpl">{{ fr_cpl_display }}</strong>
         </li>
     </ul>
+    {% endif %}
 
     {% if can_edit_functional_roles %}
     <div class="fr-add-wrap">

@@ -21,6 +21,7 @@ from .unit_economics import (  # noqa: F401  (публичный фасад мо
     get_unit_economics_summary,
     update_project_functional_roles,
     user_can_edit_functional_roles,
+    user_can_view_unit_economics_finance,
 )
 
 # Состав функциональных ролей и юнит-экономика реализованы в

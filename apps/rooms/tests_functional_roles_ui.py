@@ -282,6 +282,41 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
         self.save_composition(teamlead=1, seller_middle=1)
         self.assert_read_only(self.get_overview(self.freelancer))
 
+    def test_freelancer_does_not_see_finance_metrics(self):
+        """Фрилансер видит состав/лиды/подбор, без стоимости, часов, CPL, прогноза."""
+        self.save_composition(teamlead=1, seller_middle=2)
+        config = FunctionalRoleConfig.objects.get(role_key='seller_middle')
+        summary = get_unit_economics_summary(self.project)
+        response = self.get_overview(self.freelancer)
+
+        self.assertFalse(response.context['can_view_unit_economics_finance'])
+        self.assertContains(response, 'Состав команды')
+        self.assertNotContains(response, 'Юнит-экономика')
+        self.assertContains(response, config.productivity_text)
+        self.assertContains(response, f'{config.hot_leads_per_month}')
+        self.assertContains(response, 'Hot leads / мес')
+        self.assertContains(response, 'Производительность')
+
+        self.assertNotContains(response, 'Стоимость / мес')
+        self.assertNotContains(response, 'Часы / мес')
+        self.assertNotContains(response, 'Общий бюджет / мес')
+        self.assertNotContains(response, 'Прогноз Hot leads / мес')
+        self.assertNotContains(response, 'CPL')
+        self.assertNotContains(response, format_money(config.monthly_cost))
+        self.assertNotContains(response, format_money(summary.total_budget))
+        if summary.cpl is not None:
+            self.assertNotContains(response, format_money(summary.cpl))
+
+    def test_teamlead_still_sees_finance_metrics(self):
+        """Тимлид по-прежнему видит юнит-экономику (урезаем только фрилансера)."""
+        self.save_composition(teamlead=1, seller_middle=1)
+        summary = get_unit_economics_summary(self.project)
+        response = self.get_overview(self.teamlead)
+        self.assertTrue(response.context['can_view_unit_economics_finance'])
+        self.assertContains(response, 'Юнит-экономика')
+        self.assertContains(response, format_money(summary.total_budget))
+        self.assertContains(response, 'CPL')
+
     def test_manager_is_read_only(self):
         """12. Менеджер состав не правит."""
         self.save_composition(teamlead=1, seller_middle=1)

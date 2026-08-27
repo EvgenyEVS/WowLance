@@ -58,6 +58,7 @@ __all__ = [
     'get_unit_economics_summary',
     'update_project_functional_roles',
     'user_can_edit_functional_roles',
+    'user_can_view_unit_economics_finance',
 ]
 
 #: Ключ снапшота внутри `Project.input_data`.
@@ -120,6 +121,18 @@ def user_can_edit_functional_roles(user, project: Project) -> bool:
     if project.owner_id != user.id:
         return False
     return user.role == User.Roles.DIRECTOR
+
+
+def user_can_view_unit_economics_finance(user) -> bool:
+    """Кто видит стоимость, часы, бюджет, CPL и прогноз в конфигураторе.
+
+    Фрилансеру нужны состав, производительность, Hot leads и подбор —
+    без денежных и «директорских» метрик. Остальные роли комнаты
+    (директор, тимлид, менеджер, admin) финансы читают как раньше.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    return getattr(user, 'role', None) != User.Roles.FREELANCER
 
 
 # ---------------------------------------------------------------------------
