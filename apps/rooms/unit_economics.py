@@ -58,6 +58,7 @@ __all__ = [
     'get_unit_economics_summary',
     'update_project_functional_roles',
     'user_can_edit_functional_roles',
+    'user_can_view_composition_staffing',
     'user_can_view_unit_economics_finance',
 ]
 
@@ -126,13 +127,23 @@ def user_can_edit_functional_roles(user, project: Project) -> bool:
 def user_can_view_unit_economics_finance(user) -> bool:
     """Кто видит стоимость, часы, бюджет, CPL и прогноз в конфигураторе.
 
-    Фрилансеру нужны состав, производительность, Hot leads и подбор —
-    без денежных и «директорских» метрик. Остальные роли комнаты
-    (директор, тимлид, менеджер, admin) финансы читают как раньше.
+    Фрилансеру нужны состав, производительность и Hot leads — без денежных
+    и «директорских» метрик. Остальные роли комнаты (директор, тимлид,
+    менеджер, admin) финансы читают как раньше.
     """
     if not getattr(user, 'is_authenticated', False):
         return False
     return getattr(user, 'role', None) != User.Roles.FREELANCER
+
+
+def user_can_view_composition_staffing(user) -> bool:
+    """Кто видит колонку/блок подбора команды (слоты, SLA, «в поиске»).
+
+    Фрилансеру подбор чужой команды не показывают: ни на Overview, ни на
+    вкладке «Команда». Правило то же, что у финансов, но отдельный флаг —
+    чтобы потом можно было раскрыть одно без другого.
+    """
+    return user_can_view_unit_economics_finance(user)
 
 
 # ---------------------------------------------------------------------------

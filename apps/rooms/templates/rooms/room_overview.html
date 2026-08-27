@@ -167,12 +167,12 @@ SLA-блок стартовой задачи. Раньше здесь стоял
         {% endif %}
     </div>
 
-    {% if staffing_summary.total %}
+    {% if can_view_composition_staffing and staffing_summary.total %}
     <div class="info-block" style="margin-top: 16px;">
         {% comment %}
         Обзор — только чтение: те же карточки слотов в компактном режиме,
         без действий подбора. Управление живёт на вкладке «Команда», поэтому
-        второй копии бизнес-логики здесь нет.
+        второй копии бизнес-логики здесь нет. Фрилансеру блок не показывают.
         {% endcomment %}
         <div class="section-head">
             <h3>Подбор команды</h3>
@@ -227,7 +227,7 @@ SLA-блок стартовой задачи. Раньше здесь стоял
 Мёртвого таймера на странице без слотов не появляется — так же, как и у
 SLA стартовой задачи.
 {% endcomment %}
-{% if staffing_summary.searching or can_edit_functional_roles %}{% include 'rooms/_staffing_sla_countdown.html' %}{% endif %}
+{% if can_view_composition_staffing and staffing_summary.searching or can_edit_functional_roles %}{% include 'rooms/_staffing_sla_countdown.html' %}{% endif %}
 {% if start_calls_task and not start_calls_is_done %}
 {% comment %}
 Обратный отсчёт SLA. Сознательно один маленький inline-скрипт, а не файл и

@@ -31,7 +31,9 @@ enum слота, — обоим честно пишется, что слот е�
                 <th scope="col">Функция</th>
                 <th scope="col">Грейд</th>
                 <th scope="col">Количество</th>
+                {% if can_view_composition_staffing %}
                 <th scope="col">Подбор</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
@@ -43,6 +45,7 @@ enum слота, — обоим честно пишется, что слот е�
                 </th>
                 <td><span class="badge fr-badge-grade">{{ role.grade_display }}</span></td>
                 <td class="fr-num">{{ role.count }}</td>
+                {% if can_view_composition_staffing %}
                 <td class="planned-role-execution">
                     {% if role.has_slots %}
                     <ul class="planned-slot-list">
@@ -65,6 +68,7 @@ enum слота, — обоим честно пишется, что слот е�
                     <span class="planned-role-pending muted">{{ role.execution_note }}</span>
                     {% endif %}
                 </td>
+                {% endif %}
             </tr>
             {% endfor %}
         </tbody>
@@ -74,6 +78,7 @@ enum слота, — обоим честно пишется, что слот е�
     {% endif %}
 </section>
 
+{% if can_view_composition_staffing %}
 <div class="info-block" style="margin-top: 16px;">
     <div class="section-head">
         <h3>Функциональные слоты</h3>
@@ -94,6 +99,7 @@ enum слота, — обоим честно пишется, что слот е�
     <p class="help-text">Функциональные слоты для этой комнаты пока не заведены.</p>
     {% endif %}
 </div>
+{% endif %}
 
 {% include 'rooms/_room_members.html' %}
 
@@ -146,5 +152,5 @@ enum слота, — обоим честно пишется, что слот е�
 пустой активный слот: мёртвого таймера на странице без слотов не должно
 быть — так же, как и у SLA стартовой задачи.
 {% endcomment %}
-{% if staffing_summary.searching %}{% include 'rooms/_staffing_sla_countdown.html' %}{% endif %}
+{% if can_view_composition_staffing and staffing_summary.searching %}{% include 'rooms/_staffing_sla_countdown.html' %}{% endif %}
 {% endblock %}

@@ -19,6 +19,7 @@
 
 Финансы (стоимость, часы, бюджет, CPL, прогноз) — флаг
 `can_view_unit_economics_finance`: у фрилансера False, у остальных True.
+Колонка «Подбор» — флаг `can_view_composition_staffing` (тоже без фрилансера).
 {% endcomment %}
 {% url 'rooms:room_functional_roles_update' project.id as fr_update_url %}
 {% url 'rooms:room_functional_roles_apply_package' project.id as fr_package_url %}
@@ -77,7 +78,9 @@
                     {% endif %}
                     <th scope="col">Производительность</th>
                     <th scope="col">Hot leads / мес</th>
+                    {% if can_view_composition_staffing %}
                     <th scope="col">Подбор</th>
+                    {% endif %}
                     <th scope="col"><span class="sr-only">Действия</span></th>
                 </tr>
             </thead>
@@ -185,7 +188,10 @@
 
                     Назначенный слот таймера не получает: подбор по нему уже
                     состоялся. Функция без слотов — прочерк, без всякого SLA.
+
+                    Фрилансеру колонка не рендерится (`can_view_composition_staffing`).
                     {% endcomment %}
+                    {% if can_view_composition_staffing %}
                     <td class="fr-staffing fr-staffing-{{ row.staffing.status }}">
                         {% if row.staffing.has_slots %}
                         <ul class="fr-staffing-list">
@@ -211,6 +217,7 @@
                         <span class="fr-staffing-empty">{{ fr_empty_value }}</span>
                         {% endif %}
                     </td>
+                    {% endif %}
 
                     {% comment %}
                     «✕» — это `count → 0`, то есть закрытие всех слотов

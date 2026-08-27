@@ -283,13 +283,14 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
         self.assert_read_only(self.get_overview(self.freelancer))
 
     def test_freelancer_does_not_see_finance_metrics(self):
-        """Фрилансер видит состав/лиды/подбор, без стоимости, часов, CPL, прогноза."""
+        """Фрилансер видит состав/лиды, без стоимости, часов, CPL, прогноза."""
         self.save_composition(teamlead=1, seller_middle=2)
         config = FunctionalRoleConfig.objects.get(role_key='seller_middle')
         summary = get_unit_economics_summary(self.project)
         response = self.get_overview(self.freelancer)
 
         self.assertFalse(response.context['can_view_unit_economics_finance'])
+        self.assertFalse(response.context['can_view_composition_staffing'])
         self.assertContains(response, 'Состав команды')
         self.assertNotContains(response, 'Юнит-экономика')
         self.assertContains(response, config.productivity_text)
@@ -306,6 +307,25 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
         self.assertNotContains(response, format_money(summary.total_budget))
         if summary.cpl is not None:
             self.assertNotContains(response, format_money(summary.cpl))
+        # Колонка подбора на Overview скрыта (заголовок «Подбор» в thead).
+        self.assertNotContains(response, 'fr-staffing')
+        self.assertNotRegex(response.content.decode(), r'<th[^>]*>\s*Подбор\s*</th>')
+        # Блок «Подбор команды» на Overview (не путать со статусом STAFFING).
+        self.assertNotContains(response, 'staffing-stats')
+        self.assertNotContains(response, '<h3>Подбор команды</h3>')
+
+    def test_freelancer_team_tab_hides_staffing(self):
+        """На вкладке «Команда» фрилансер не видит подбор и слоты."""
+        self.save_composition(teamlead=1, seller_middle=1)
+        self.login(self.freelancer)
+        response = self.client.get(
+            reverse('rooms:room_team', args=[self.project.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_view_composition_staffing'])
+        self.assertNotContains(response, 'Функциональные слоты')
+        self.assertNotContains(response, 'в поиске')
+        self.assertNotRegex(response.content.decode(), r'<th[^>]*>\s*Подбор\s*</th>')
 
     def test_teamlead_still_sees_finance_metrics(self):
         """Тимлид по-прежнему видит юнит-экономику (урезаем только фрилансера)."""

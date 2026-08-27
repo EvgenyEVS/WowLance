@@ -46,6 +46,7 @@ from .unit_economics import (
     UnitEconomicsRow,
     get_unit_economics_summary,
     user_can_edit_functional_roles,
+    user_can_view_composition_staffing,
     user_can_view_unit_economics_finance,
 )
 
@@ -593,6 +594,7 @@ def build_configurator_context(user, project, room=None, *, error=None, notice=N
         ),
         'can_edit_functional_roles': user_can_configure_now(user, project),
         'can_view_unit_economics_finance': user_can_view_unit_economics_finance(user),
+        'can_view_composition_staffing': user_can_view_composition_staffing(user),
         # Обязательные функции в «Добавить функцию» не предлагаются: убрать их
         # нельзя, а при первом сохранении состава они добавляются сами.
         'fr_available_roles': [

@@ -58,6 +58,7 @@ from .services import (
     user_can_edit_functional_roles,
     user_can_edit_project_vision,
     user_can_manage_team,
+    user_can_view_composition_staffing,
 )
 from .staffing import matching, selectors
 from .staffing.services import (
@@ -850,6 +851,9 @@ def room_team(request, project_id):
         **configurator.build_planned_team_context(project, room),
         'can_staff_slots': can_manage and _staffing_is_open(project),
         'can_manage_team': can_manage,
+        'can_view_composition_staffing': user_can_view_composition_staffing(
+            request.user
+        ),
         'my_membership': my_membership,
         'teamlead_form': AssignTeamleadForm() if can_manage else None,
         'freelancer_form': AddFreelancerForm(room=room) if can_manage else None,
