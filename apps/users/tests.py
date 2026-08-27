@@ -221,6 +221,31 @@ class LoginTests(TestCase):
         )
         self.assertRedirects(response, reverse('core:home'))
 
+    def test_logout_requires_post(self):
+        self.client.login(username='boss@example.com', password=self.password)
+        response = self.client.get(reverse('users:logout'))
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(response.wsgi_request.user.is_authenticated)
+
+    def test_logout_post_clears_session(self):
+        self.client.login(username='boss@example.com', password=self.password)
+        response = self.client.post(reverse('users:logout'))
+        self.assertRedirects(response, reverse('core:home'))
+        # После logout следующий запрос — аноним
+        home = self.client.get(reverse('core:home'))
+        self.assertNotContains(home, 'Выйти')
+        self.assertContains(home, 'Войти')
+
+    def test_base_uses_local_assets_not_cdn(self):
+        response = self.client.get(reverse('core:home'))
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertNotIn('fonts.googleapis.com', content)
+        self.assertNotIn('fonts.gstatic.com', content)
+        self.assertNotIn('unpkg.com', content)
+        self.assertIn('/static/css/fonts.css', content)
+        self.assertIn('/static/js/htmx.min.js', content)
+
     def test_login_pending_blocked(self):
         pending = make_user(
             email='wait@example.com',

@@ -8,6 +8,7 @@ from django.utils.http import (
 )
 from django.utils.encoding import force_str
 from django.conf import settings
+from django.views.decorators.http import require_POST
 
 from apps.profiles.services import get_or_create_freelancer_profile
 from .activation import send_activation_email
@@ -208,8 +209,9 @@ def login_view(request):
     })
 
 
+@require_POST
 def logout_view(request):
-    """Выход пользователя."""
+    """Выход пользователя (только POST + CSRF)."""
     logout(request)
     messages.info(request, 'Вы вышли из системы.')
     return redirect('core:home')

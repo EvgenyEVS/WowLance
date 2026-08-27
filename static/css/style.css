@@ -159,6 +159,11 @@ body::before {
     border-left: 1px solid var(--border);
 }
 
+.logout-form {
+    display: inline-flex;
+    margin: 0;
+}
+
 main {
     flex: 1;
     padding: 28px 0 64px;
