@@ -1041,11 +1041,20 @@ textarea::placeholder {
     margin: 20px 0 24px;
 }
 
+.metrics-strip.finance-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-bottom: 12px;
+}
+
 .metric-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     padding: 16px 18px;
+}
+
+.metric-card.finance {
+    border-color: var(--border-strong, var(--border));
 }
 
 .metric-label {
@@ -1059,6 +1068,26 @@ textarea::placeholder {
     font-family: var(--font-display);
     font-size: 28px;
     font-weight: 700;
+}
+
+.metric-caption {
+    display: block;
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.director-actions .feature-card-primary {
+    border-color: var(--accent, var(--border));
+}
+
+.director-actions .catalog-secondary {
+    opacity: 0.92;
+}
+
+.director-actions .catalog-secondary .btn {
+    margin-top: 4px;
 }
 
 .onboarding-panel {
@@ -1738,6 +1767,10 @@ textarea::placeholder {
    доска остаётся доской, пока для этого хватает ширины. */
 @media (max-width: 1100px) {
     .kanban-board {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .metrics-strip.finance-strip {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
