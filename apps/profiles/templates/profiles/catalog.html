@@ -34,6 +34,7 @@
         </div>
         <div class="form-group">
             <label style="display: flex; align-items: center; gap: 8px; margin-top: 24px; cursor: pointer;">
+                <input type="hidden" name="video_only" value="0">
                 <input type="checkbox" name="video_only" value="1" {% if selected_video_only == '1' %}checked{% endif %}
                        style="width: 18px; height: 18px; cursor: pointer;">
                 <span>Только с видео</span>
