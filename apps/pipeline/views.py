@@ -8,7 +8,9 @@ from apps.rooms.models import Project, RoomActivity
 from apps.rooms.services import (
     ensure_room_for_project,
     log_room_activity,
+    room_nav_context,
     user_can_access_project,
+    user_can_create_task,
     user_can_manage_team,
 )
 from apps.users.models import User
@@ -59,23 +61,36 @@ def room_tasks(request, project_id):
         tasks = tasks.filter(assignee=request.user)
 
     can_manage = user_can_manage_team(request.user, project)
+    # Форма постановки задачи идёт за `can_create_task` (тимлид проекта), а не
+    # за `can_manage_team`: последний шире и включает владельца проекта и
+    # платформенного admin. `can_manage_team` в context остаётся прежним —
+    # от него зависят другие элементы страницы.
+    nav = room_nav_context(request.user, project)
     task_list = list(tasks)
     return render(request, 'pipeline/room_tasks.html', {
         'project': project,
         'tasks': task_list,
         'kanban_columns': task_columns(task_list),
         'can_manage_team': can_manage,
-        'create_form': TaskCreateForm(project=project) if can_manage else None,
+        'create_form': (
+            TaskCreateForm(project=project) if nav['can_create_task'] else None
+        ),
         'active_tab': 'tasks',
+        **nav,
     })
 
 
 @login_required
 @require_POST
 def task_create(request, project_id):
+    """Постановка задачи — право тимлида проекта (`user_can_create_task`).
+
+    Проверка дублирует guard сервиса намеренно: view обязан ответить 403 до
+    разбора формы, а сервис — не дать создать задачу в обход view.
+    """
     project = _get_project(request.user, project_id)
-    if not user_can_manage_team(request.user, project):
-        raise PermissionDenied
+    if not user_can_create_task(request.user, project):
+        raise PermissionDenied('Задачи в комнате ставит тимлид проекта.')
     form = TaskCreateForm(request.POST, project=project)
     if form.is_valid():
         task = create_task(
@@ -131,6 +146,7 @@ def task_detail(request, project_id, task_id):
         'review_form': ReportReviewForm() if can_manage and pending else None,
         'can_close': task.can_be_closed(),
         'active_tab': 'tasks',
+        **room_nav_context(request.user, project),
     })
 
 
@@ -234,6 +250,7 @@ def room_leads(request, project_id):
         'create_form': LeadCreateForm() if can_create else None,
         'hot_criteria': (project.input_data or {}).get('hot_criteria', ''),
         'active_tab': 'leads',
+        **room_nav_context(request.user, project),
     })
 
 
@@ -291,6 +308,7 @@ def lead_detail(request, project_id, lead_id):
         'qualify_form': qualify_form,
         'hot_criteria': (project.input_data or {}).get('hot_criteria', ''),
         'active_tab': 'leads',
+        **room_nav_context(request.user, project),
     })
 
 

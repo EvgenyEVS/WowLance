@@ -5,7 +5,13 @@
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
-{% if can_manage_team and create_form %}
+{% comment %}
+Форма постановки задачи — только тимлиду проекта (`can_create_task`).
+Директор и фрилансер её не видят: владелец проекта управляет командой
+(`can_manage_team`), но задачи ставит тимлид. Скрытие — только UI,
+настоящая проверка живёт во view и в `pipeline.services.create_task`.
+{% endcomment %}
+{% if can_create_task and create_form %}
 <div class="upload-form">
     <h4>Новая задача</h4>
     <form method="post" action="{% url 'pipeline:task_create' project.id %}">
@@ -53,7 +59,7 @@
 <div class="empty-state">
     <h3>Задач пока нет</h3>
     <p>Поставьте первую задачу исполнителю в комнате.</p>
-    {% if can_manage_team %}
+    {% if can_create_task %}
     <a href="#create" class="btn btn-primary" onclick="document.querySelector('.upload-form')?.scrollIntoView({behavior:'smooth'}); return false;">Создать задачу</a>
     {% else %}
     <a href="{% url 'rooms:room_overview' project.id %}" class="btn btn-primary">К обзору комнаты</a>

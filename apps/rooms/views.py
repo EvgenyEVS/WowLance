@@ -51,6 +51,7 @@ from .services import (
     handle_project_paid,
     launch_project,
     log_room_activity,
+    room_nav_context,
     room_video_call_url,
     save_functional_roles_and_sync_slots,
     update_project_vision,
@@ -59,6 +60,7 @@ from .services import (
     user_can_edit_project_vision,
     user_can_manage_team,
     user_can_view_composition_staffing,
+    user_can_view_team_tab,
 )
 from .staffing import matching, selectors
 from .staffing.services import (
@@ -183,6 +185,12 @@ def _material_groups(documents):
 #: Ограничивается только вывод: модель `RoomActivity` и запись событий
 #: не меняются, лента остаётся полной в БД.
 ROOM_ACTIVITY_FEED_LIMIT = 10
+
+#: Сколько своих задач показывает «Обзор» фрилансеру.
+#: Чужая доска ему не нужна: на «Обзоре» он видит короткий список
+#: собственных задач, а полный список — на вкладке «Задачи», где
+#: фильтрация по исполнителю уже есть и не меняется.
+FREELANCER_TASK_PREVIEW_LIMIT = 5
 
 
 @login_required
@@ -427,7 +435,20 @@ def room_overview(request, project_id):
     activities = (
         room.activities.select_related('actor').all()[:ROOM_ACTIVITY_FEED_LIMIT]
     )
-    tasks = Task.objects.filter(project=project).select_related('assignee')[:50]
+    # Превью задач зависит от роли. Фильтрация — здесь, а не в шаблоне:
+    # шаблон не знает ни ролей, ни правил доступа и только рисует то, что
+    # ему дали. Порядок задач общий и не переопределяется — `Task.Meta`
+    # (`-created_at`), поэтому «первые пять» это пять последних задач.
+    is_freelancer_task_preview = request.user.role == User.Roles.FREELANCER
+    project_tasks = Task.objects.filter(project=project).select_related('assignee')
+    if is_freelancer_task_preview:
+        my_tasks_preview = list(
+            project_tasks.filter(assignee=request.user)[:FREELANCER_TASK_PREVIEW_LIMIT]
+        )
+        kanban_preview = []
+    else:
+        my_tasks_preview = []
+        kanban_preview = task_columns(project_tasks[:50])
     # Обзор показывает те же карточки слотов только на чтение: собственной
     # копии правил подбора у него нет, управление остаётся на вкладке «Команда».
     cards = selectors.slot_cards(room)
@@ -466,7 +487,11 @@ def room_overview(request, project_id):
         # Те же четыре колонки, что и на вкладке «Задачи»: определение одно
         # (`apps.pipeline.kanban`), поэтому доски не расходятся. Урезания
         # списка колонок здесь больше нет — «В работе» пропала бы первой.
-        'kanban_preview': task_columns(tasks),
+        # Фрилансеру чужая доска не показывается: у него свой короткий
+        # список, и `kanban_preview` для него пустой.
+        'kanban_preview': kanban_preview,
+        'is_freelancer_task_preview': is_freelancer_task_preview,
+        'my_tasks_preview': my_tasks_preview,
         'can_manage_team': user_can_manage_team(request.user, project),
         'can_launch': (
             request.user.id == project.owner_id
@@ -486,6 +511,7 @@ def room_overview(request, project_id):
         # ничего не пишет: проект без сохранённого состава показывает
         # empty state, а не созданный на лету состав по умолчанию.
         **configurator.build_configurator_context(request.user, project, room),
+        **room_nav_context(request.user, project),
     })
 
 
@@ -662,6 +688,7 @@ def room_documents(request, project_id):
         'can_upload': user_can_access_project(request.user, project),
         'can_manage_team': user_can_manage_team(request.user, project),
         'active_tab': 'documents',
+        **room_nav_context(request.user, project),
     })
 
 
@@ -740,6 +767,7 @@ def room_comms(request, project_id):
             chat.recent_chat_messages(room) if room.chat_enabled else []
         ),
         'active_tab': 'comms',
+        **room_nav_context(request.user, project),
     })
 
 
@@ -818,8 +846,15 @@ def room_chat_send(request, project_id):
 
 @login_required
 def room_team(request, project_id):
-    """Состав команды комнаты + invite тимлида."""
+    """Состав команды комнаты + invite тимлида.
+
+    Доступа к комнате мало: состав команды видят владелец проекта и тимлид
+    (`user_can_view_team_tab`). Скрытая вкладка защитой не является, поэтому
+    прямой GET закрывается здесь же — до создания комнаты и запросов состава.
+    """
     project = _get_accessible_project(request.user, project_id)
+    if not user_can_view_team_tab(request.user, project):
+        raise PermissionDenied('Состав команды доступен директору проекта и тимлиду.')
     room = ensure_room_for_project(project)
     members = room.members.select_related('user').all()
     can_manage = user_can_manage_team(request.user, project)
@@ -859,6 +894,7 @@ def room_team(request, project_id):
         'freelancer_form': AddFreelancerForm(room=room) if can_manage else None,
         'invite_url': invite_url,
         'active_tab': 'team',
+        **room_nav_context(request.user, project),
     })
 
 
@@ -1080,6 +1116,7 @@ def room_slot_candidates(request, project_id, slot_id):
         'slot': slot,
         'page_obj': page,
         'active_tab': 'team',
+        **room_nav_context(request.user, project),
     })
 
 

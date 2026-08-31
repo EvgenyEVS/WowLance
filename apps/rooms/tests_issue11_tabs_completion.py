@@ -369,13 +369,25 @@ class StaffingSearchSlaTests(RoomCompletionTestCase):
         self.assertNotIn('data-sla-deadline=', html)
 
     def test_get_does_not_create_or_change_anything(self):
-        """Дедлайн нигде не сохраняется, слот не меняется, слоты не создаются."""
+        """Дедлайн нигде не сохраняется, слот не меняется, слоты не создаются.
+
+        Проверка read-only осталась прежней; изменился только состав кодов
+        ответа. «Команду» открывают владелец проекта и тимлид (200), фрилансер
+        получает 403 — но и отказ обязан оставаться безобидным: запрос, который
+        не дошёл до страницы, тем более ничего не создаёт. Поэтому фрилансер
+        из обхода не убран, а перенесён в свою ветку — иначе регрессия
+        «GET мутирует данные» на отказном пути осталась бы непокрытой.
+        """
         before = (self.slot.is_active, self.slot.updated_at, self.slot.created_at)
         slots_before = RoomFunctionSlot.objects.count()
 
-        for user in (self.director, self.teamlead, self.freelancer):
+        for user in (self.director, self.teamlead):
             self.assertEqual(self.get(self.overview_url, user).status_code, 200)
             self.assertEqual(self.get(self.team_url, user).status_code, 200)
+
+        # «Обзор» фрилансеру по-прежнему доступен, «Команда» — нет.
+        self.assertEqual(self.get(self.overview_url, self.freelancer).status_code, 200)
+        self.assertEqual(self.get(self.team_url, self.freelancer).status_code, 403)
 
         self.slot.refresh_from_db()
         self.assertEqual(
@@ -574,11 +586,21 @@ class PlannedTeamBlockTests(RoomCompletionTestCase):
         )
 
     def test_block_is_display_only_and_creates_nothing(self):
+        """Блок «Требуется по плану» только показывает — ни слотов, ни участников.
+
+        Смысл теста прежний: открытие вкладки ничего не создаёт. Роли теперь
+        расходятся по кодам ответа — блок смотрят владелец проекта и тимлид,
+        фрилансеру вкладка закрыта. Его запрос остался в тесте как отказной
+        путь: 403 тоже обязан быть без побочных эффектов. HTML у него не
+        проверяется — страницы он не получает.
+        """
         slots_before = set(RoomFunctionSlot.objects.values_list('id', flat=True))
         members_before = set(RoomMember.objects.values_list('id', flat=True))
 
-        for user in (self.director, self.teamlead, self.freelancer):
+        for user in (self.director, self.teamlead):
             self.assertEqual(self.get(self.team_url, user).status_code, 200)
+
+        self.assertEqual(self.get(self.team_url, self.freelancer).status_code, 403)
 
         self.assertEqual(
             set(RoomFunctionSlot.objects.values_list('id', flat=True)), slots_before
@@ -771,6 +793,144 @@ class OverviewKanbanPreviewTests(RoomCompletionTestCase):
             ['Обзвонить первый сегмент'],
         )
         self.assertEqual(columns['todo'], [])
+
+    # --- превью по роли ---------------------------------------------------
+
+    #: Подписи четырёх колонок общей доски. Фрилансер не должен видеть ни одной.
+    KANBAN_COLUMN_TITLES = ('К работе', 'В работе', 'На проверке', 'Готово')
+
+    def make_task(self, title, assignee, created_at=None, **fields):
+        """Задача проекта с управляемым `created_at`.
+
+        `created_at` — `auto_now_add`, поэтому в тесте он проставляется
+        отдельным `update`. Иначе шесть задач, созданных в одну миллисекунду,
+        дали бы неопределённый порядок, и проверка «показаны пять последних»
+        зависела бы от удачи.
+        """
+        task = Task.objects.create(
+            project=self.project,
+            assignee=assignee,
+            created_by=self.teamlead,
+            title=title,
+            **fields,
+        )
+        if created_at is not None:
+            Task.objects.filter(pk=task.pk).update(created_at=created_at)
+            task.refresh_from_db()
+        return task
+
+    def seed_mixed_tasks(self):
+        """Шесть задач фрилансера и две чужие, с явным порядком по времени.
+
+        Возвращает список своих задач от самой новой к самой старой — тот же
+        порядок, в котором их отдаёт `Task.Meta.ordering = ['-created_at']`.
+        """
+        base = timezone.now()
+        mine = [
+            self.make_task(
+                f'Моя задача {index}',
+                self.freelancer,
+                created_at=base - timedelta(hours=index),
+            )
+            for index in range(6)
+        ]
+        self.foreign = [
+            self.make_task(
+                'Чужая задача тимлида',
+                self.teamlead,
+                created_at=base - timedelta(minutes=30),
+            ),
+            self.make_task(
+                'Чужая задача менеджера',
+                self.manager,
+                created_at=base - timedelta(minutes=45),
+            ),
+        ]
+        return mine
+
+    def test_freelancer_sees_only_his_own_five_latest_tasks(self):
+        """«Мои задачи»: свои, не больше пяти, без чужой доски."""
+        mine = self.seed_mixed_tasks()
+        response = self.get(self.overview_url, self.freelancer)
+        self.assertEqual(response.status_code, 200)
+
+        self.assertTrue(response.context['is_freelancer_task_preview'])
+        preview = response.context['my_tasks_preview']
+        self.assertEqual(len(preview), 5)
+        # Именно пять последних по общему порядку задач, а не случайные пять.
+        self.assertEqual(
+            [task.id for task in preview], [task.id for task in mine[:5]]
+        )
+        self.assertEqual({task.assignee_id for task in preview}, {self.freelancer.id})
+
+    def test_freelancer_preview_markup_replaces_the_shared_board(self):
+        self.seed_mixed_tasks()
+        response = self.get(self.overview_url, self.freelancer)
+
+        self.assertContains(response, 'Мои задачи')
+        self.assertNotContains(response, 'Задачи (канбан)')
+        for title in self.KANBAN_COLUMN_TITLES:
+            with self.subTest(column=title):
+                self.assertNotContains(response, title)
+        self.assertEqual(response.context['kanban_preview'], [])
+
+    def test_freelancer_does_not_see_foreign_tasks(self):
+        mine = self.seed_mixed_tasks()
+        response = self.get(self.overview_url, self.freelancer)
+
+        for task in self.foreign:
+            with self.subTest(task=task.title):
+                self.assertNotContains(response, task.title)
+        # Шестая своя задача не пропала из проекта — она просто не влезла
+        # в превью; полный список остаётся на вкладке «Задачи».
+        self.assertContains(response, mine[0].title)
+        self.assertNotContains(response, mine[5].title)
+        self.assertTrue(Task.objects.filter(pk=mine[5].pk).exists())
+
+    def test_freelancer_without_tasks_gets_an_honest_empty_state(self):
+        response = self.get(self.overview_url, self.freelancer)
+        self.assertContains(response, 'Мои задачи')
+        self.assertEqual(response.context['my_tasks_preview'], [])
+        self.assertContains(response, 'Задач пока нет')
+
+    def test_teamlead_and_director_keep_the_full_board(self):
+        """Урезан только фрилансер: у тимлида и владельца доска прежняя."""
+        self.seed_mixed_tasks()
+        for user in (self.teamlead, self.director):
+            with self.subTest(role=user.role):
+                response = self.get(self.overview_url, user)
+                self.assertEqual(response.status_code, 200)
+                self.assertFalse(response.context['is_freelancer_task_preview'])
+                self.assertContains(response, 'Задачи (канбан)')
+                self.assertNotContains(response, 'Мои задачи')
+                titles = [
+                    col['title'] for col in response.context['kanban_preview']
+                ]
+                self.assertEqual(titles, list(self.KANBAN_COLUMN_TITLES))
+
+    def test_teamlead_and_director_see_tasks_of_different_assignees(self):
+        mine = self.seed_mixed_tasks()
+        for user in (self.teamlead, self.director):
+            with self.subTest(role=user.role):
+                response = self.get(self.overview_url, user)
+                shown = {
+                    task.id
+                    for col in response.context['kanban_preview']
+                    for task in col['tasks']
+                }
+                self.assertLessEqual(
+                    {task.id for task in mine} | {task.id for task in self.foreign},
+                    shown,
+                )
+                assignees = {
+                    task.assignee_id
+                    for col in response.context['kanban_preview']
+                    for task in col['tasks']
+                }
+                self.assertEqual(
+                    assignees,
+                    {self.freelancer.id, self.teamlead.id, self.manager.id},
+                )
 
 
 # ---------------------------------------------------------------------------
