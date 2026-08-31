@@ -21,9 +21,37 @@ def _require_freelancer(user):
         raise PermissionDenied('Только фрилансеры могут выполнять это действие.')
 
 
+#: Кому открыт каталог фрилансеров.
+#:
+#: Каталог — инструмент найма: по нему подбирают людей в проект. Фрилансеру
+#: чужие карточки и чужие ставки не показывают, менеджеру платформы наём тоже
+#: не поручен. Решение принимается только по `User.role`: каталог живёт в BIZ
+#: и о проектах, комнатах и членстве не знает (ADR-001 — `profiles` не
+#: импортирует `rooms`/`pipeline`).
+CATALOG_ROLES = frozenset({
+    User.Roles.DIRECTOR,
+    User.Roles.TEAMLEAD,
+    User.Roles.ADMIN,
+})
+
+
+def _require_catalog_access(user):
+    if user.role not in CATALOG_ROLES:
+        raise PermissionDenied(
+            'Каталог фрилансеров доступен директору, тимлиду и администратору.'
+        )
+
+
 @login_required
 def freelancer_catalog(request):
-    """Каталог фрилансеров с фильтрами по уровню, доступности, видео, верификации и поиску."""
+    """Каталог фрилансеров с фильтрами по уровню, доступности, видео, верификации и поиску.
+
+    Проверка прав стоит до запроса: отказ не зависит от того, есть ли в
+    каталоге хоть одна карточка. Анонимный пользователь по-прежнему уходит
+    на логин (`@login_required`), а не получает 403.
+    """
+    _require_catalog_access(request.user)
+
     profiles = (
         FreelancerProfile.objects
         .select_related('user')
@@ -77,7 +105,17 @@ def freelancer_catalog(request):
 
 @login_required
 def profile_detail(request, user_id):
-    """Карточка фрилансера по макету (фото, highlights, video, проекты/навыки)."""
+    """Карточка фрилансера по макету (фото, highlights, video, проекты/навыки).
+
+    Карточка — это страница каталога, поэтому чужую открывают те же роли,
+    что видят сам каталог. Своя карточка — исключение: она у фрилансера
+    одна и та же страница («Моя карточка», возврат после правки профиля),
+    и закрывать человеку собственный профиль правило найма не требует.
+    Проверка идёт до запросов в БД.
+    """
+    if request.user.id != user_id:
+        _require_catalog_access(request.user)
+
     user = get_object_or_404(User, id=user_id, role=User.Roles.FREELANCER)
     profile = get_object_or_404(FreelancerProfile, user=user)
     portfolio = getattr(profile, 'portfolio', None)

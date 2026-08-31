@@ -314,18 +314,36 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
         self.assertNotContains(response, 'staffing-stats')
         self.assertNotContains(response, '<h3>Подбор команды</h3>')
 
-    def test_freelancer_team_tab_hides_staffing(self):
-        """На вкладке «Команда» фрилансер не видит подбор и слоты."""
+    def test_freelancer_cannot_open_team_tab(self):
+        """Вкладка «Команда» закрыта для фрилансера целиком.
+
+        Прежнее ожидание было мягче: страница открывалась (200), а подбор и
+        слоты просто не рендерились. Продукт с тех пор изменился — состав
+        команды видят владелец проекта и тимлид (`user_can_view_team_tab`),
+        поэтому у фрилансера страницы больше нет, а не «есть, но урезанная».
+        Скрывать нечего: до рендера дело не доходит, и содержимое ответа
+        здесь не проверяется.
+
+        Сохранённый состав в setUp — часть проверки: 403 не зависит от того,
+        есть ли что показывать.
+        """
         self.save_composition(teamlead=1, seller_middle=1)
         self.login(self.freelancer)
         response = self.client.get(
             reverse('rooms:room_team', args=[self.project.id])
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.context['can_view_composition_staffing'])
-        self.assertNotContains(response, 'Функциональные слоты')
-        self.assertNotContains(response, 'в поиске')
-        self.assertNotRegex(response.content.decode(), r'<th[^>]*>\s*Подбор\s*</th>')
+        self.assertEqual(response.status_code, 403)
+
+    def test_director_and_teamlead_still_open_team_tab(self):
+        """Урезан только фрилансер: у владельца и тимлида доступ прежний."""
+        self.save_composition(teamlead=1, seller_middle=1)
+        for user in (self.director, self.teamlead):
+            with self.subTest(role=user.role):
+                self.login(user)
+                response = self.client.get(
+                    reverse('rooms:room_team', args=[self.project.id])
+                )
+                self.assertEqual(response.status_code, 200)
 
     def test_teamlead_still_sees_finance_metrics(self):
         """Тимлид по-прежнему видит юнит-экономику (урезаем только фрилансера)."""

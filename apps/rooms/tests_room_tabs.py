@@ -32,6 +32,12 @@ from apps.users.models import User
 #: rooms/_room_header.html, поэтому список ожиданий здесь тоже один.
 EXPECTED_TABS = ['Обзор', 'Команда', 'Задачи', 'Лиды', 'Материалы', 'Коммуникации']
 
+#: То же меню глазами фрилансера: «Команда» — вкладка владельца проекта и
+#: тимлида (`services.user_can_view_team_tab`), остальные пять вкладок и их
+#: порядок не меняются. Второй список, а не фильтр по индексу: продуктовое
+#: ожидание должно читаться целиком.
+EXPECTED_TABS_FREELANCER = ['Обзор', 'Задачи', 'Лиды', 'Материалы', 'Коммуникации']
+
 NAV_RE = re.compile(r'<nav class="room-tabs".*?</nav>', re.DOTALL)
 TAB_LINK_RE = re.compile(r'<a href="([^"]+)" class="([^"]*)">([^<]+)</a>')
 
@@ -282,8 +288,20 @@ class RoomCommsTabTests(RoomTabsTestCase):
         self.assertIn('/login/', response['Location'])
 
     def test_director_teamlead_freelancer_see_the_same_page(self):
-        """Набор вкладок одинаковый для всех ролей с доступом к комнате."""
-        for user in (self.director, self.teamlead, self.freelancer):
+        """Страница открыта всем участникам, но меню зависит от роли.
+
+        Прежнее ожидание («набор вкладок одинаковый для всех ролей») описывало
+        продукт до разделения прав: «Команда» стала вкладкой владельца проекта
+        и тимлида. Неизменной осталась суть теста — сама страница коммуникаций
+        доступна каждому участнику комнаты, и меню на ней приходит из одного
+        источника, а не собирается страницей.
+        """
+        expected_by_user = (
+            (self.director, EXPECTED_TABS),
+            (self.teamlead, EXPECTED_TABS),
+            (self.freelancer, EXPECTED_TABS_FREELANCER),
+        )
+        for user, expected in expected_by_user:
             with self.subTest(role=user.role):
                 self.client.force_login(user)
                 response = self.client.get(self.url)
@@ -292,7 +310,7 @@ class RoomCommsTabTests(RoomTabsTestCase):
                     label
                     for _url, _css, label in parse_room_tabs(response.content.decode())
                 ]
-                self.assertEqual(labels, EXPECTED_TABS)
+                self.assertEqual(labels, expected)
 
     def test_page_contains_video_and_chat_sections(self):
         self.client.force_login(self.director)
@@ -457,3 +475,120 @@ class RoomTabsRegressionTests(RoomTabsTestCase):
         for key, url in self.tab_urls().items():
             with self.subTest(tab=key):
                 self.assertEqual(self.client.get(url).status_code, 403)
+
+
+class RoomTeamTabAccessTests(RoomTabsTestCase):
+    """Вкладка «Команда»: кто её видит и кто может открыть напрямую.
+
+    Правило одно (`services.user_can_view_team_tab`) и работает на двух
+    уровнях: в меню — как видимость ссылки, во view — как 403. Проверяются
+    оба, потому что скрытая ссылка защитой не является.
+    """
+
+    def nav_labels(self, url):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200, url)
+        return [
+            label for _url, _css, label in parse_room_tabs(response.content.decode())
+        ]
+
+    def pages_visible_to_freelancer(self):
+        """Доступные фрилансеру страницы комнаты — все, кроме «Команды»."""
+        return {
+            key: url
+            for key, url in self.tab_urls().items()
+            if key != 'team'
+        }
+
+    # --- меню ---
+
+    def test_freelancer_nav_has_five_tabs_without_team(self):
+        self.client.force_login(self.freelancer)
+        labels = self.nav_labels(self.tab_urls()['overview'])
+        self.assertEqual(labels, EXPECTED_TABS_FREELANCER)
+        self.assertNotIn('Команда', labels)
+
+    def test_freelancer_nav_is_the_same_on_every_page_he_can_open(self):
+        """nav-context приходит из всех view, а не только из «Обзора».
+
+        Если какая-то страница забудет подмешать `room_nav_context`, вкладка
+        «Команда» на ней просто исчезнет из меню у всех ролей — поэтому
+        проверяются и фрилансер, и директор на одном наборе адресов.
+        """
+        for key, url in self.pages_visible_to_freelancer().items():
+            with self.subTest(page=key, role='freelancer'):
+                self.client.force_login(self.freelancer)
+                self.assertEqual(self.nav_labels(url), EXPECTED_TABS_FREELANCER)
+            with self.subTest(page=key, role='director'):
+                self.client.force_login(self.director)
+                self.assertEqual(self.nav_labels(url), EXPECTED_TABS)
+
+    def test_freelancer_nav_has_no_link_to_room_team(self):
+        self.client.force_login(self.freelancer)
+        response = self.client.get(self.tab_urls()['overview'])
+        hrefs = [url for url, _css, _label in parse_room_tabs(response.content.decode())]
+        self.assertNotIn(self.tab_urls()['team'], hrefs)
+
+    def test_director_and_teamlead_nav_keeps_six_tabs(self):
+        for user in (self.director, self.teamlead):
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                self.assertEqual(
+                    self.nav_labels(self.tab_urls()['overview']), EXPECTED_TABS
+                )
+
+    def test_teamlead_nav_is_the_same_on_every_room_page(self):
+        self.client.force_login(self.teamlead)
+        for key, url in self.tab_urls().items():
+            with self.subTest(page=key):
+                self.assertEqual(self.nav_labels(url), EXPECTED_TABS)
+
+    # --- прямой доступ ---
+
+    def test_freelancer_direct_get_room_team_is_forbidden(self):
+        """Скрытая вкладка — не защита: адрес закрыт самим view."""
+        self.client.force_login(self.freelancer)
+        self.assertEqual(self.client.get(self.tab_urls()['team']).status_code, 403)
+
+    def test_director_opens_room_team(self):
+        self.client.force_login(self.director)
+        self.assertEqual(self.client.get(self.tab_urls()['team']).status_code, 200)
+
+    def test_teamlead_opens_room_team(self):
+        self.client.force_login(self.teamlead)
+        self.assertEqual(self.client.get(self.tab_urls()['team']).status_code, 200)
+
+    def test_freelancer_keeps_access_to_the_other_room_pages(self):
+        """Границы урезаны ровно на одну вкладку, остальная комната открыта."""
+        self.client.force_login(self.freelancer)
+        for key, url in self.pages_visible_to_freelancer().items():
+            with self.subTest(page=key):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    # --- флаги контекста ---
+
+    def test_nav_context_flags_follow_the_project_not_the_role(self):
+        """`show_team_tab` — про связь с проектом, а не про название роли."""
+        expectations = (
+            (self.director, True),
+            (self.teamlead, True),
+            (self.freelancer, False),
+        )
+        for user, expected in expectations:
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                response = self.client.get(self.tab_urls()['overview'])
+                self.assertIs(response.context['show_team_tab'], expected)
+
+    def test_can_create_task_belongs_to_the_teamlead_only(self):
+        """Постановка задач — право тимлида проекта, не владельца."""
+        expectations = (
+            (self.teamlead, True),
+            (self.director, False),
+            (self.freelancer, False),
+        )
+        for user, expected in expectations:
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                response = self.client.get(self.tab_urls()['tasks'])
+                self.assertIs(response.context['can_create_task'], expected)

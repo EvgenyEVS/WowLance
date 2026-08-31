@@ -141,14 +141,42 @@ class TaskReportFlowTests(PipelineProjectMixin, TestCase):
                 attachment=_png(),
             )
 
-    def test_freelancer_cannot_create_task(self):
-        with self.assertRaises(PermissionDenied):
-            create_task(
-                project=self.project,
-                assignee=self.freelancer,
-                created_by=self.freelancer,
-                title='Самоназначение запрещено',
-            )
+    def test_only_project_teamlead_can_create_task(self):
+        """Задачу ставит тимлид проекта — и больше никто.
+
+        Прежде тест закрывал только фрилансера, потому что guard сервиса был
+        шире (`user_can_manage_team`) и пропускал владельца проекта. Право
+        сузилось до `user_can_create_task`, поэтому проверяются все роли
+        сразу: иначе «директор снова может ставить задачи» вернулось бы
+        незамеченным.
+
+        Платформенный `ADMIN` в таблице не случайно: роль обслуживает
+        систему и продуктового права ставить задачи в чужой комнате не даёт.
+        """
+        admin = make_user(email='adm-svc@pipe.test', role=User.Roles.ADMIN)
+
+        task = create_task(
+            project=self.project,
+            assignee=self.freelancer,
+            created_by=self.teamlead,
+            title='Задачу ставит тимлид',
+        )
+        self.assertEqual(task.created_by, self.teamlead)
+        self.assertEqual(task.assignee, self.freelancer)
+        self.assertEqual(task.status, Task.Status.NEW)
+
+        for actor in (self.director, self.freelancer, admin, self.manager):
+            with self.subTest(role=actor.role):
+                with self.assertRaises(PermissionDenied):
+                    create_task(
+                        project=self.project,
+                        assignee=self.freelancer,
+                        created_by=actor,
+                        title=f'Задача от {actor.role}',
+                    )
+                self.assertFalse(
+                    Task.objects.filter(title=f'Задача от {actor.role}').exists()
+                )
 
 
 class LeadHotHandoffTests(PipelineProjectMixin, TestCase):
@@ -330,6 +358,119 @@ class TaskViewFlowTests(PipelineProjectMixin, TestCase):
         )
         self.assertContains(response, mine.title)
         self.assertNotContains(response, 'Чужая задача фрилансера')
+
+    # --- постановка задачи: право тимлида проекта -------------------------
+
+    def task_create_url(self):
+        return reverse('pipeline:task_create', kwargs={'project_id': self.project.id})
+
+    def tasks_url(self):
+        return reverse('pipeline:room_tasks', kwargs={'project_id': self.project.id})
+
+    def post_new_task(self, title):
+        return self.client.post(self.task_create_url(), {
+            'title': title,
+            'description': 'Проверка прав',
+            'assignee': str(self.freelancer.id),
+            'deadline': '',
+            'checklist_text': '',
+            'report_required': 'on',
+        })
+
+    def test_director_cannot_create_task_over_http(self):
+        """Владелец проекта управляет командой, но задачи не ставит."""
+        self.client.login(username=self.director.email, password=PASSWORD)
+        response = self.post_new_task('Задача от директора')
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Task.objects.filter(title='Задача от директора').exists())
+
+    def test_freelancer_cannot_create_task_over_http(self):
+        self.client.login(username=self.freelancer.email, password=PASSWORD)
+        response = self.post_new_task('Задача от фрилансера')
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Task.objects.filter(title='Задача от фрилансера').exists())
+
+    def test_teamlead_creates_task_over_http(self):
+        """Разрешённый путь остаётся прежним: редирект на доску и живая задача."""
+        self.client.login(username=self.teamlead.email, password=PASSWORD)
+        response = self.post_new_task('Задача от тимлида')
+        self.assertRedirects(response, self.tasks_url())
+        task = Task.objects.get(title='Задача от тимлида')
+        self.assertEqual(task.created_by, self.teamlead)
+        self.assertEqual(task.assignee, self.freelancer)
+
+    def test_task_form_is_offered_to_the_teamlead_only(self):
+        """Флаг, форма и разметка совпадают: страница не обещает лишнего.
+
+        Проверяются все три уровня сразу — `can_create_task` в context,
+        наличие `create_form` и видимость самой формы, — потому что
+        рассогласование между ними и есть та ошибка, которую тест ловит.
+        """
+        expectations = (
+            (self.teamlead, True),
+            (self.director, False),
+            (self.freelancer, False),
+        )
+        for user, expected in expectations:
+            with self.subTest(role=user.role):
+                self.client.force_login(user)
+                response = self.client.get(self.tasks_url())
+                self.assertEqual(response.status_code, 200)
+                self.assertIs(response.context['can_create_task'], expected)
+                if expected:
+                    self.assertIsNotNone(response.context['create_form'])
+                    self.assertContains(response, 'Новая задача')
+                else:
+                    self.assertIsNone(response.context['create_form'])
+                    self.assertNotContains(response, 'Новая задача')
+
+    def test_director_keeps_manage_team_context_on_the_tasks_page(self):
+        """Сужено право на задачи, а не `can_manage_team`: он прежний."""
+        self.client.force_login(self.director)
+        response = self.client.get(self.tasks_url())
+        self.assertTrue(response.context['can_manage_team'])
+        self.assertFalse(response.context['can_create_task'])
+
+    def test_teamlead_board_keeps_four_columns_and_every_task_of_the_room(self):
+        """Доска тимлида не урезана: четыре колонки и задачи всех исполнителей.
+
+        Фильтр по исполнителю на вкладке «Задачи» действует только для
+        фрилансера и менеджера. Тимлид под него не попадает — регресс на
+        это, потому что остальные проверки колонок сделаны под директором,
+        и случайное расширение фильтра осталось бы незамеченным.
+        """
+        other = make_freelancer(email='other-tl-board@pipe.test', password=PASSWORD)
+        add_freelancer_to_room(self.project.room, other)
+        mine = create_task(
+            project=self.project,
+            assignee=self.freelancer,
+            created_by=self.teamlead,
+            title='Задача первого исполнителя',
+        )
+        theirs = create_task(
+            project=self.project,
+            assignee=other,
+            created_by=self.teamlead,
+            title='Задача второго исполнителя',
+        )
+
+        self.client.force_login(self.teamlead)
+        response = self.client.get(self.tasks_url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [column['title'] for column in response.context['kanban_columns']],
+            ['К работе', 'В работе', 'На проверке', 'Готово'],
+        )
+        shown = {
+            task.id
+            for column in response.context['kanban_columns']
+            for task in column['tasks']
+        }
+        self.assertIn(mine.id, shown)
+        self.assertIn(theirs.id, shown)
+        self.assertContains(response, mine.title)
+        self.assertContains(response, theirs.title)
 
 
 class LeadViewFlowTests(PipelineProjectMixin, TestCase):

@@ -4,7 +4,12 @@ from django.urls import reverse
 
 from apps.profiles.models import FreelancerProfile, PortfolioItem
 from apps.profiles.services import get_or_create_freelancer_profile
-from apps.test_helpers import make_director, make_freelancer, make_user
+from apps.test_helpers import (
+    make_director,
+    make_freelancer,
+    make_teamlead,
+    make_user,
+)
 from apps.users.models import User
 
 
@@ -301,3 +306,82 @@ class FreelancerVerifiedFilterTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Иван Проверенный')
         self.assertContains(response, 'Кирилл НаМодерации')
+
+
+class CatalogAccessByRoleTests(TestCase):
+    """Каталог и карточка — инструменты найма, а не общая витрина.
+
+    Право считается только по `User.role`: ни проекта, ни комнаты, ни
+    членства здесь нет — BIZ о ROOM не знает (ADR-001, см.
+    `tests_boundaries.ProfilesModuleBoundaryTests`).
+    """
+
+    def setUp(self):
+        self.client = Client()
+        self.director = make_director(email='dir@catalog.test')
+        self.teamlead = make_teamlead(email='tl@catalog.test')
+        self.admin = make_user(email='adm@catalog.test', role=User.Roles.ADMIN)
+        self.manager = make_user(email='mng@catalog.test', role=User.Roles.MANAGER)
+        self.freelancer = make_freelancer(email='fr@catalog.test')
+        self.other_freelancer = make_freelancer(email='other-fr@catalog.test')
+
+        self.catalog_url = reverse('profiles:catalog')
+        self.card_url = reverse(
+            'profiles:detail', kwargs={'user_id': self.other_freelancer.id}
+        )
+
+    def allowed(self):
+        return ((self.director, 'director'), (self.teamlead, 'teamlead'),
+                (self.admin, 'admin'))
+
+    def denied(self):
+        return ((self.freelancer, 'freelancer'), (self.manager, 'manager'))
+
+    # --- каталог ---
+
+    def test_hiring_roles_open_the_catalog(self):
+        for user, label in self.allowed():
+            with self.subTest(role=label):
+                self.client.force_login(user)
+                self.assertEqual(self.client.get(self.catalog_url).status_code, 200)
+
+    def test_freelancer_and_manager_get_403_on_the_catalog(self):
+        for user, label in self.denied():
+            with self.subTest(role=label):
+                self.client.force_login(user)
+                self.assertEqual(self.client.get(self.catalog_url).status_code, 403)
+
+    def test_catalog_403_does_not_depend_on_the_data(self):
+        """Отказ — про роль, а не про наполнение: пустой каталог тоже 403."""
+        FreelancerProfile.objects.all().delete()
+        self.client.force_login(self.manager)
+        self.assertEqual(self.client.get(self.catalog_url).status_code, 403)
+
+        self.client.force_login(self.director)
+        self.assertEqual(self.client.get(self.catalog_url).status_code, 200)
+
+    def test_anonymous_still_goes_to_login_not_403(self):
+        """Поведение для гостя прежнее: логин, а не отказ."""
+        response = self.client.get(self.catalog_url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login/', response.url)
+
+    # --- карточка из каталога ---
+
+    def test_hiring_roles_open_a_freelancer_card(self):
+        for user, label in self.allowed():
+            with self.subTest(role=label):
+                self.client.force_login(user)
+                self.assertEqual(self.client.get(self.card_url).status_code, 200)
+
+    def test_freelancer_and_manager_get_403_on_a_foreign_card(self):
+        for user, label in self.denied():
+            with self.subTest(role=label):
+                self.client.force_login(user)
+                self.assertEqual(self.client.get(self.card_url).status_code, 403)
+
+    def test_freelancer_still_opens_his_own_card(self):
+        """Своя карточка — не каталог: «Моя карточка» и возврат из правки живы."""
+        self.client.force_login(self.freelancer)
+        own_url = reverse('profiles:detail', kwargs={'user_id': self.freelancer.id})
+        self.assertEqual(self.client.get(own_url).status_code, 200)

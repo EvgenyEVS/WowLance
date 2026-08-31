@@ -19,7 +19,13 @@
 
 <nav class="room-tabs" aria-label="Разделы комнаты">
     <a href="{% url 'rooms:room_overview' project.id %}" class="{% if active_tab == 'overview' %}active{% endif %}">Обзор</a>
-    <a href="{% url 'rooms:room_team' project.id %}" class="{% if active_tab == 'team' %}active{% endif %}">Команда</a>
+    {% comment %}
+    «Команда» — вкладка владельца проекта и тимлида (services.user_can_view_team_tab).
+    Флаг приходит из services.room_nav_context, который подмешивают все страницы
+    комнаты; своего правила у шапки нет. Скрытие вкладки — только UI: прямой GET
+    room_team закрывает та же проверка во view.
+    {% endcomment %}
+    {% if show_team_tab %}<a href="{% url 'rooms:room_team' project.id %}" class="{% if active_tab == 'team' %}active{% endif %}">Команда</a>{% endif %}
     <a href="{% url 'pipeline:room_tasks' project.id %}" class="{% if active_tab == 'tasks' %}active{% endif %}">Задачи</a>
     <a href="{% url 'pipeline:room_leads' project.id %}" class="{% if active_tab == 'leads' %}active{% endif %}">Лиды</a>
     {% comment %}

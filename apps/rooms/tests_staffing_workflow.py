@@ -849,18 +849,31 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
         self.assertContains(response, 'Другой сейлер')
         self.assertNotContains(response, 'Подобрать лучшего')
 
-    def test_freelancer_sees_slots_without_staffing_actions(self):
+    def test_freelancer_gets_no_staffing_ui_on_the_team_page(self):
+        """Фрилансеру вкладка «Команда» закрыта — вместе со всем подбором.
+
+        Прежде тест описывал более мягкий продукт: назначенный на слот
+        фрилансер открывал страницу (200), видел карточку своего слота, но не
+        получал кнопок подбора. Такого состояния больше нет — состав команды
+        стал зоной владельца проекта и тимлида (`user_can_view_team_tab`),
+        поэтому подбор скрывается не по кнопке, а вместе со страницей.
+
+        Проверяется именно исполнитель слота: если бы 403 давал слабину,
+        то в первую очередь для участника, который в этом слоте и сидит.
+        Отсутствие staffing-разметки сверяется на самом ответе 403 —
+        отказ не должен протекать ни карточкой слота, ни действиями.
+        """
         pool = self.make_ranked_pool(2)
         assign_candidate_to_slot(self.slot, pool[0].user, self.director)
         self.client.force_login(pool[0].user)
 
         response = self.client.get(self.team_url())
 
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, f'slot-card-{self.slot.id}')
-        self.assertNotContains(response, 'Другой сейлер')
-        self.assertNotContains(response, 'Подобрать лучшего')
-        self.assertNotContains(response, 'Выбрать из пула')
+        self.assertEqual(response.status_code, 403)
+        self.assertNotContains(response, f'slot-card-{self.slot.id}', status_code=403)
+        self.assertNotContains(response, 'Другой сейлер', status_code=403)
+        self.assertNotContains(response, 'Подобрать лучшего', status_code=403)
+        self.assertNotContains(response, 'Выбрать из пула', status_code=403)
 
     def test_actions_are_hidden_when_project_is_no_longer_staffing(self):
         self.make_ranked_pool(1)

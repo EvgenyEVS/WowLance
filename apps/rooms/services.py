@@ -431,6 +431,62 @@ def user_can_manage_team(user, project: Project) -> bool:
     return False
 
 
+def user_can_create_task(user, project: Project) -> bool:
+    """Кто ставит задачи в комнате: только тимлид ЭТОГО проекта.
+
+    Задача — управленческий инструмент тимлида: он распределяет работу по
+    команде и принимает отчёты. Директор покупает результат и смотрит
+    «Обзор», поэтому в постановку задач не вмешивается; фрилансер задачи
+    исполняет, а не выдаёт.
+
+    `user_can_manage_team` здесь намеренно **не** переиспользуется: он шире —
+    даёт право владельцу проекта и платформенному `ADMIN`. Платформенная роль
+    обслуживает систему и продуктового права ставить задачи в чужой комнате
+    не получает; доступ администратора к Django admin это правило не
+    затрагивает (там работают `is_staff` / `is_superuser`).
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    return project.teamlead_id == user.id
+
+
+def user_can_view_team_tab(user, project: Project) -> bool:
+    """Кто видит вкладку «Команда» — владелец проекта и его тимлид.
+
+    Состав команды и подбор — зона тех, кто командой распоряжается. Фрилансер
+    видит комнату (обзор, задачи, лиды, материалы, коммуникации), но чужой
+    состав ему не показывают: правило `role != FREELANCER` было бы шире и
+    открыло бы вкладку менеджеру-участнику, который командой не управляет.
+
+    Право проверяется по связи с проектом, а не по `user.role`: платформенный
+    `ADMIN` сам по себе вкладку не получает, менеджер-участник — тоже.
+
+    Отдельная функция, а не переиспользование `user_can_manage_team`:
+    видимость вкладки и право на операции подбора — разные правила, и
+    расходиться им можно независимо. `user_can_manage_team` остаётся
+    единственным источником прав для staffing POST-эндпоинтов.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if project.owner_id == user.id:
+        return True
+    return project.teamlead_id == user.id
+
+
+def room_nav_context(user, project: Project) -> dict:
+    """Ролевая часть context для `rooms/_room_header.html`.
+
+    Единственный источник ролевых флагов навигации комнаты: страницы `rooms`
+    и `pipeline` подмешивают этот словарь, а не считают правила сами, —
+    поэтому вкладки не расходятся между разделами. Глобального context
+    processor здесь нет намеренно: флаги зависят от конкретного проекта.
+    """
+    return {
+        'show_team_tab': user_can_view_team_tab(user, project),
+        'can_create_task': user_can_create_task(user, project),
+    }
+
+
 @transaction.atomic
 def handle_project_paid(project: Project, actor=None) -> Room:
     """

@@ -10,6 +10,7 @@ from apps.rooms.models import RoomActivity
 from apps.rooms.services import (
     log_room_activity,
     user_can_access_project,
+    user_can_create_task,
     user_can_manage_team,
 )
 from apps.users.models import User
@@ -93,10 +94,9 @@ def ensure_start_calls_task(project, *, actor=None) -> tuple[Task, bool]:
     Вызывается автоматикой активации проекта
     (`apps.rooms.staffing.services.sync_project_activation`), а не
     пользователем, поэтому `create_task` здесь не подходит: его guard
-    `user_can_manage_team` рассчитан на ручное создание тимлидом или
-    директором и отверг бы фрилансера, подтвердившего готовность
-    последним. Все значения задаются сервером; из запроса не приходит
-    ничего.
+    `user_can_create_task` рассчитан на ручную постановку задачи тимлидом
+    и отверг бы фрилансера, подтвердившего готовность последним. Все
+    значения задаются сервером; из запроса не приходит ничего.
 
     Повторный вызов возвращает существующую задачу с `created=False` и
     **не трогает её `deadline`**: `defaults` применяются только при
@@ -153,8 +153,8 @@ def checklist_to_text(checklist) -> str:
 def create_task(*, project, assignee, created_by, title, description='', deadline=None,
                 checklist=None, report_required=True, task_type=Task.TaskType.WORK,
                 lead=None) -> Task:
-    if not user_can_manage_team(created_by, project):
-        raise PermissionDenied('Недостаточно прав для создания задачи.')
+    if not user_can_create_task(created_by, project):
+        raise PermissionDenied('Задачи в комнате ставит тимлид проекта.')
 
     task = Task(
         project=project,
