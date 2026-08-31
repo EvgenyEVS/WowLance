@@ -555,6 +555,7 @@ def build_counts(project, role_key: str, action: str, raw_count=None) -> dict:
     for fixed_key in functional_roles.FIXED_ROLE_KEYS:
         if fixed_key != role_key:
             counts.setdefault(fixed_key, 1)
+
     return counts
 
 

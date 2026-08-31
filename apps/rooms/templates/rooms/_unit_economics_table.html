@@ -120,9 +120,9 @@
                             <button type="submit" name="action" value="dec"
                                     class="fr-step"
                                     aria-label="Уменьшить количество: {{ row.label }}"
-                                    {% if row.is_fixed %}disabled aria-disabled="true" title="Обязательная функция: количество не опускается ниже 1"{% endif %}>−</button>
+                                    {% if row.is_fixed %}disabled aria-disabled="true" title="Тимлид всегда ровно 1"{% endif %}>−</button>
                             <input type="number" class="fr-count-input" name="count"
-                                   value="{{ row.count }}" min="{{ row.min_count }}" step="1"
+                                   value="{{ row.count }}" min="{{ row.min_count }}" max="1" step="1"
                                    inputmode="numeric"
                                    aria-label="Количество: {{ row.label }}"
                                    hx-post="{{ fr_update_url }}"
@@ -133,7 +133,7 @@
                             <button type="submit" name="action" value="inc"
                                     class="fr-step"
                                     aria-label="Увеличить количество: {{ row.label }}"
-                                    {% if row.is_fixed %}disabled aria-disabled="true" title="Обязательная функция: количество меняется вводом числа"{% endif %}>+</button>
+                                    {% if row.is_fixed %}disabled aria-disabled="true" title="Тимлид всегда ровно 1"{% endif %}>+</button>
                         </form>
                         {% else %}
                         <span class="fr-count-static">{{ row.count }}</span>
