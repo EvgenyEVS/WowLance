@@ -53,10 +53,11 @@ SLA-блок стартовой задачи. Раньше здесь стоял
     отдаётся ответом на HTMX-обновление, поэтому Обзор только подключает
     его и ничего о составе команды не знает.
     {% endcomment %}
+    {% if can_view_composition_staffing %}
     <div class="fr-configurator-slot">
         {% include 'rooms/_unit_economics_table.html' %}
     </div>
-
+    {% endif %}
     <div class="room-grid">
         {% comment %}
         Вводные проекта. Четыре поля вижена — `offer`, `utp`, `audience`,
@@ -129,7 +130,9 @@ SLA-блок стартовой задачи. Раньше здесь стоял
             {% else %}
             <div class="empty-state compact">
                 <p>Пока тихо — начните с команды или задач.</p>
+                {% if can_view_composition_staffing %}
                 <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-primary btn-sm">Собрать команду</a>
+                {% endif %}
             </div>
             {% endif %}
         </div>
@@ -183,7 +186,7 @@ SLA-блок стартовой задачи. Раньше здесь стоял
             {% endfor %}
         </div>
         {% endif %}
-        {% if not members %}
+        {% if not members and can_view_composition_staffing %}
         <div class="empty-state" style="margin-top:12px;">
             <p>Добавьте фрилансера, чтобы ставить задачи.</p>
             <a href="{% url 'profiles:catalog' %}" class="btn btn-primary">Открыть каталог</a>
@@ -218,6 +221,7 @@ SLA-блок стартовой задачи. Раньше здесь стоял
     </div>
     {% endif %}
 
+    {% if can_view_composition_staffing %}
     <div class="info-block" style="margin-top: 16px;">
         <h3>Команда</h3>
         <ul>
@@ -232,6 +236,7 @@ SLA-блок стартовой задачи. Раньше здесь стоял
         </ul>
         <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-secondary">Управление командой</a>
     </div>
+    {% endif %}
 </div>
 
 {% if my_membership and my_membership.role_in_room == 'freelancer' and my_membership.ready_status != 'ready' %}

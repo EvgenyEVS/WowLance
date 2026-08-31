@@ -58,10 +58,11 @@
 {% else %}
 <div class="empty-state">
     <h3>Задач пока нет</h3>
-    <p>Поставьте первую задачу исполнителю в комнате.</p>
     {% if can_create_task %}
+    <p>Поставьте первую задачу исполнителю в комнате.</p>
     <a href="#create" class="btn btn-primary" onclick="document.querySelector('.upload-form')?.scrollIntoView({behavior:'smooth'}); return false;">Создать задачу</a>
     {% else %}
+    <p>Задачи появятся, когда тимлид назначит их вам.</p>
     <a href="{% url 'rooms:room_overview' project.id %}" class="btn btn-primary">К обзору комнаты</a>
     {% endif %}
 </div>

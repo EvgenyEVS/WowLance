@@ -685,7 +685,7 @@ def room_documents(request, project_id):
         'documents': documents,
         'material_groups': _material_groups(documents),
         'form': form,
-        'can_upload': user_can_access_project(request.user, project),
+        'can_upload': user_can_manage_team(request.user, project),
         'can_manage_team': user_can_manage_team(request.user, project),
         'active_tab': 'documents',
         **room_nav_context(request.user, project),
@@ -696,6 +696,8 @@ def room_documents(request, project_id):
 @require_POST
 def room_document_upload(request, project_id):
     project = _get_accessible_project(request.user, project_id)
+    if not user_can_manage_team(request.user, project):
+        raise PermissionDenied('Загружать материалы могут только директор и тимлид.')
     room = ensure_room_for_project(project)
     form = RoomDocumentForm(request.POST, request.FILES)
     if form.is_valid():
