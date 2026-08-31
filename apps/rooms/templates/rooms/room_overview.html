@@ -6,17 +6,8 @@
 {% include 'rooms/_room_header.html' %}
 
 {% comment %}
-SLA-блок стартовой задачи. Раньше здесь стоял неизменный текст «первые
-звонки в течение 24 часов»; теперь блок управляется данными.
-
-Формулировки намеренно говорят о **стартовой задаче**, а не о фактическом
-звонке: события «звонок состоялся» в модели нет, и утверждать его по статусу
-задачи было бы неправдой. Закрытая задача — это закрытая задача.
-
-Источник истины — сохранённый `Task.deadline`. Сервер отдаёт и человеческую
-дату (видна без JavaScript), и машинную в `data-sla-deadline` — по ней
-считает только визуальный отсчёт. Просрочка вычисляется на сервере, поэтому
-корректна и при выключенном JS.
+SLA-блок стартовой задачи. Формулировки говорят о стартовой задаче,
+а не о фактическом звонке. Источник истины — сохранённый Task.deadline.
 {% endcomment %}
 {% if start_calls_task %}
     {% if start_calls_is_done %}
@@ -44,33 +35,54 @@ SLA-блок стартовой задачи. Раньше здесь стоял
 
 <div class="room-hub">
     {% comment %}
-    Конфигуратор функциональной команды стоит в верхней части «Обзора»
-    (Issue #11): директор сначала видит и правит то, что покупает, и только
-    ниже — вводные, ленту, задачи и детали подбора. Выше остаётся только
-    шапка комнаты и навигация по вкладкам.
-
-    Это отдельный partial и единственная копия его разметки: тот же файл
-    отдаётся ответом на HTMX-обновление, поэтому Обзор только подключает
-    его и ничего о составе команды не знает.
+    Порядок Обзора: метрики → лента + вводные → канбан → состав.
+    Операционка (управление командой, постановка задач) у тимлида.
+    Фрилансер не видит конфигуратор, каталог и список команды.
     {% endcomment %}
-    {% if can_view_composition_staffing %}
-    <div class="fr-configurator-slot">
-        {% include 'rooms/_unit_economics_table.html' %}
+    {% if project_metrics %}
+    <div class="metrics-strip" id="project-overview-metrics">
+        <div class="metric-card">
+            <span class="metric-label">Бюджет</span>
+            <strong class="metric-value">{{ project_metrics.budget }} ₽</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Hot-лиды</span>
+            <strong class="metric-value">{{ project_metrics.hot_leads }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Открытые задачи</span>
+            <strong class="metric-value">{{ project_metrics.open_tasks }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Отчёты на проверке</span>
+            <strong class="metric-value">{{ project_metrics.tasks_in_review }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Слоты</span>
+            <strong class="metric-value">{{ project_metrics.slots_filled }}/{{ project_metrics.slots_total }}</strong>
+        </div>
     </div>
     {% endif %}
-    <div class="room-grid">
-        {% comment %}
-        Вводные проекта. Четыре поля вижена — `offer`, `utp`, `audience`,
-        `hot_criteria` — это ключи `Project.input_data`, которые читают
-        одноимённые свойства модели. Форма правки использует ровно их: новых
-        ключей не появляется, и показанное совпадает с сохраняемым.
 
-        Правка — обычный POST в `rooms:room_vision_update` внутри
-        `<details>`: ни модалки, ни HTMX, ни JavaScript. Форма показывается
-        только владельцу-директору (`can_edit_vision`); остальные роли
-        видят те же вводные на чтение. Настоящая защита — та же проверка
-        во view и в `services.update_project_vision`.
-        {% endcomment %}
+    <div class="room-grid">
+        <div class="info-block">
+            <h3>Лента событий</h3>
+            {% if activities %}
+            <ul class="activity-feed">
+                {% for item in activities %}
+                <li>
+                    <time>{{ item.created_at|date:"d.m H:i" }}</time>
+                    <span>{{ item.message }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="empty-state compact">
+                <p>Пока тихо — события комнаты появятся здесь.</p>
+            </div>
+            {% endif %}
+        </div>
+
         <div class="info-block" id="project-vision">
             <div class="section-head">
                 <h3>Вводные проекта</h3>
@@ -110,46 +122,15 @@ SLA-блок стартовой задачи. Раньше здесь стоял
             </details>
             {% endif %}
         </div>
-
-        {% comment %}
-        Лента показывает последние 10 событий комнаты (Issue #11). Срез
-        задаётся во view константой `ROOM_ACTIVITY_FEED_LIMIT`; сама модель
-        `RoomActivity` и запись событий не меняются — в БД лента полная.
-        {% endcomment %}
-        <div class="info-block">
-            <h3>Лента событий</h3>
-            {% if activities %}
-            <ul class="activity-feed">
-                {% for item in activities %}
-                <li>
-                    <time>{{ item.created_at|date:"d.m H:i" }}</time>
-                    <span>{{ item.message }}</span>
-                </li>
-                {% endfor %}
-            </ul>
-            {% else %}
-            <div class="empty-state compact">
-                <p>Пока тихо — начните с команды или задач.</p>
-                {% if can_view_composition_staffing %}
-                <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-primary btn-sm">Собрать команду</a>
-                {% endif %}
-            </div>
-            {% endif %}
-        </div>
     </div>
 
     <div class="info-block" style="margin-top: 16px;">
-        {% comment %}
-        Превью задач. Фрилансер видит короткий список СВОИХ задач, остальные
-        роли — общую доску проекта. Разделяет их сервер: шаблон только
-        выбирает готовую ветку по `is_freelancer_task_preview`, задачи не
-        фильтрует и ролей не знает. Карточка `kanban-card` у обеих веток
-        одна и та же — второй разметки для неё не заводим.
-        {% endcomment %}
         {% if is_freelancer_task_preview %}
         <div class="section-head">
             <h3>Мои задачи</h3>
+            {% if show_tasks_tab %}
             <a href="{% url 'pipeline:room_tasks' project.id %}" class="btn btn-ghost btn-sm">Все задачи</a>
+            {% endif %}
         </div>
         <div class="kanban-col my-tasks-preview">
             {% for task in my_tasks_preview %}
@@ -164,12 +145,10 @@ SLA-блок стартовой задачи. Раньше здесь стоял
         {% else %}
         <div class="section-head">
             <h3>Задачи (канбан)</h3>
+            {% if show_tasks_tab %}
             <a href="{% url 'pipeline:room_tasks' project.id %}" class="btn btn-ghost btn-sm">Все задачи</a>
+            {% endif %}
         </div>
-        {% comment %}
-        Те же четыре колонки, что и на вкладке «Задачи»: раскладка приходит
-        из `apps.pipeline.kanban.task_columns`, поэтому доски не расходятся.
-        {% endcomment %}
         <div class="kanban-board">
             {% for col in kanban_preview %}
             <div class="kanban-col">
@@ -186,24 +165,41 @@ SLA-блок стартовой задачи. Раньше здесь стоял
             {% endfor %}
         </div>
         {% endif %}
-        {% if not members and can_view_composition_staffing %}
-        <div class="empty-state" style="margin-top:12px;">
-            <p>Добавьте фрилансера, чтобы ставить задачи.</p>
-            <a href="{% url 'profiles:catalog' %}" class="btn btn-primary">Открыть каталог</a>
-        </div>
+    </div>
+
+    {% if can_appoint_teamlead and not project.teamlead_id %}
+    <div class="info-block" style="margin-top: 16px;" id="appoint-teamlead">
+        <h3>Назначить тимлида</h3>
+        <p class="help-text">Операционкой комнаты управляет тимлид. Создайте ссылку-приглашение или выберите из уже созданных.</p>
+        <form method="post" action="{% url 'rooms:room_create_teamlead_invite' project.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary">Создать ссылку для тимлида</button>
+        </form>
+        {% if invite_url %}
+        <p class="invite-url"><code>{{ invite_url }}</code></p>
+        {% endif %}
+        {% if teamlead_form %}
+        <hr class="soft-hr">
+        <form method="post" action="{% url 'rooms:room_assign_teamlead' project.id %}">
+            {% csrf_token %}
+            <div class="form-group">{{ teamlead_form.teamlead }}</div>
+            <button type="submit" class="btn btn-ghost">Назначить</button>
+        </form>
         {% endif %}
     </div>
+    {% endif %}
+
+    {% if can_view_composition_staffing %}
+    <div class="fr-configurator-slot" style="margin-top: 16px;">
+        {% include 'rooms/_unit_economics_table.html' %}
+    </div>
+    {% endif %}
 
     {% if can_view_composition_staffing and staffing_summary.total %}
     <div class="info-block" style="margin-top: 16px;">
-        {% comment %}
-        Обзор — только чтение: те же карточки слотов в компактном режиме,
-        без действий подбора. Управление живёт на вкладке «Команда», поэтому
-        второй копии бизнес-логики здесь нет. Фрилансеру блок не показывают.
-        {% endcomment %}
         <div class="section-head">
             <h3>Подбор команды</h3>
-            {% if can_manage_team %}
+            {% if show_team_tab and can_manage_team %}
             <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-ghost btn-sm">Управлять</a>
             {% endif %}
         </div>
@@ -220,23 +216,6 @@ SLA-блок стартовой задачи. Раньше здесь стоял
         </div>
     </div>
     {% endif %}
-
-    {% if can_view_composition_staffing %}
-    <div class="info-block" style="margin-top: 16px;">
-        <h3>Команда</h3>
-        <ul>
-            {% for member in members %}
-            <li>
-                {{ member.user.full_name }} — {{ member.get_role_in_room_display }}
-                {% if member.role_in_room == 'freelancer' %} ({{ member.get_ready_status_display }}){% endif %}
-            </li>
-            {% empty %}
-            <li class="empty">Пока никого нет</li>
-            {% endfor %}
-        </ul>
-        <a href="{% url 'rooms:room_team' project.id %}" class="btn btn-secondary">Управление командой</a>
-    </div>
-    {% endif %}
 </div>
 
 {% if my_membership and my_membership.role_in_room == 'freelancer' and my_membership.ready_status != 'ready' %}
@@ -248,26 +227,8 @@ SLA-блок стартовой задачи. Раньше здесь стоял
 {% endblock %}
 
 {% block extra_js %}
-{% comment %}
-Скрипт отсчёта подключается, только когда ему есть что отсчитывать:
-на странице уже есть пустой активный слот либо директор может создать его
-здесь же, изменив состав (конфигуратор подменяется HTMX-ответом, и скрипт
-подхватит новые элементы сам — он перезапрашивает DOM каждый тик).
-Мёртвого таймера на странице без слотов не появляется — так же, как и у
-SLA стартовой задачи.
-{% endcomment %}
 {% if can_view_composition_staffing and staffing_summary.searching or can_edit_functional_roles %}{% include 'rooms/_staffing_sla_countdown.html' %}{% endif %}
 {% if start_calls_task and not start_calls_is_done %}
-{% comment %}
-Обратный отсчёт SLA. Сознательно один маленький inline-скрипт, а не файл и
-не «архитектура»: единственная его задача — раз в секунду перерисовать
-остаток времени.
-
-Он ничего не решает: дедлайн приходит с сервера в `data-sla-deadline`, POST
-и polling не делаются, состояние на сервере не меняется. Если скрипт не
-выполнится, страница уже показывает абсолютный дедлайн и серверную отметку
-просрочки — смысл блока не теряется.
-{% endcomment %}
 <script>
 (function () {
     var block = document.querySelector('[data-sla-deadline]');

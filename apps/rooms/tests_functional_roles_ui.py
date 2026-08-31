@@ -317,15 +317,8 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
     def test_freelancer_cannot_open_team_tab(self):
         """Вкладка «Команда» закрыта для фрилансера целиком.
 
-        Прежнее ожидание было мягче: страница открывалась (200), а подбор и
-        слоты просто не рендерились. Продукт с тех пор изменился — состав
-        команды видят владелец проекта и тимлид (`user_can_view_team_tab`),
-        поэтому у фрилансера страницы больше нет, а не «есть, но урезанная».
-        Скрывать нечего: до рендера дело не доходит, и содержимое ответа
-        здесь не проверяется.
-
-        Сохранённый состав в setUp — часть проверки: 403 не зависит от того,
-        есть ли что показывать.
+        Состав команды видит тимлид (`user_can_view_team_tab`); директор
+        смотрит состав на «Обзоре». У фрилансера страницы нет.
         """
         self.save_composition(teamlead=1, seller_middle=1)
         self.login(self.freelancer)
@@ -334,16 +327,23 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
         )
         self.assertEqual(response.status_code, 403)
 
-    def test_director_and_teamlead_still_open_team_tab(self):
-        """Урезан только фрилансер: у владельца и тимлида доступ прежний."""
+    def test_teamlead_opens_team_tab_director_redirects(self):
+        """Тимлид открывает «Команду»; директор уходит на «Обзор»."""
         self.save_composition(teamlead=1, seller_middle=1)
-        for user in (self.director, self.teamlead):
-            with self.subTest(role=user.role):
-                self.login(user)
-                response = self.client.get(
-                    reverse('rooms:room_team', args=[self.project.id])
-                )
-                self.assertEqual(response.status_code, 200)
+        self.login(self.teamlead)
+        response = self.client.get(
+            reverse('rooms:room_team', args=[self.project.id])
+        )
+        self.assertEqual(response.status_code, 200)
+
+        self.login(self.director)
+        response = self.client.get(
+            reverse('rooms:room_team', args=[self.project.id])
+        )
+        self.assertRedirects(
+            response,
+            reverse('rooms:room_overview', args=[self.project.id]),
+        )
 
     def test_teamlead_still_sees_finance_metrics(self):
         """Тимлид по-прежнему видит юнит-экономику (урезаем только фрилансера)."""
@@ -1098,7 +1098,7 @@ class ConfiguratorPersistenceTests(ConfiguratorTestCase):
 
 class ConfiguratorRegressionTests(ConfiguratorTestCase):
     def test_staffing_block_still_renders(self):
-        """39. Блок подбора PR #16 остался на «Обзоре»."""
+        """39. Блок подбора остаётся на «Обзоре» (read-only для директора)."""
         RoomFunctionSlot.objects.create(
             room=self.room, role_key='seller_middle', slot_index=1
         )
@@ -1109,9 +1109,15 @@ class ConfiguratorRegressionTests(ConfiguratorTestCase):
         self.assertEqual(response.context['staffing_summary']['total'], 1)
 
     def test_six_room_tabs_are_intact(self):
-        """40. Навигация комнаты не сломана."""
+        """40. Навигация комнаты: у директора без операционных вкладок."""
         response = self.get_overview(self.director)
         self.assertContains(response, 'room-tabs')
+        for label in ('Обзор', 'Лиды', 'Материалы', 'Коммуникации'):
+            self.assertContains(response, f'>{label}</a>')
+        self.assertNotContains(response, '>Команда</a>')
+        self.assertNotContains(response, '>Задачи</a>')
+
+        response = self.get_overview(self.teamlead)
         for label in ('Обзор', 'Команда', 'Задачи', 'Лиды', 'Материалы', 'Коммуникации'):
             self.assertContains(response, f'>{label}</a>')
 
@@ -1122,18 +1128,24 @@ class ConfiguratorRegressionTests(ConfiguratorTestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_tasks_and_leads_pages_still_work(self):
-        """41. Задачи и Лиды не сломаны."""
+        """41. Задачи (тимлид) и Лиды не сломаны; директор на задачи не заходит."""
         Task.objects.create(
             project=self.project,
             title='Задача',
             created_by=self.director,
             assignee=self.freelancer,
         )
+        self.login(self.teamlead)
+        response = self.client.get(
+            reverse('pipeline:room_tasks', args=[self.project.id])
+        )
+        self.assertEqual(response.status_code, 200)
+
         self.login(self.director)
-        for name in ('pipeline:room_tasks', 'pipeline:room_leads'):
-            with self.subTest(url=name):
-                response = self.client.get(reverse(name, args=[self.project.id]))
-                self.assertEqual(response.status_code, 200)
+        leads = self.client.get(reverse('pipeline:room_leads', args=[self.project.id]))
+        self.assertEqual(leads.status_code, 200)
+        tasks = self.client.get(reverse('pipeline:room_tasks', args=[self.project.id]))
+        self.assertEqual(tasks.status_code, 302)
         self.assertContains(self.get_overview(), 'Задачи (канбан)')
 
     def test_overview_get_never_writes_functional_roles(self):
@@ -1326,8 +1338,8 @@ class ConfiguratorAvailableRolesTests(ConfiguratorTestCase):
 
 
 class ConfiguratorPositionTests(ConfiguratorTestCase):
-    def test_configurator_is_above_the_main_overview_blocks(self):
-        """Конфигуратор идёт до вводных, ленты, задач, подбора и команды."""
+    def test_configurator_follows_metrics_feed_vision_and_kanban(self):
+        """Состав на Обзоре ниже: метрики → лента + вводные → канбан → состав."""
         self.save_composition(teamlead=1, seller_middle=1)
         RoomFunctionSlot.objects.create(
             room=self.room, role_key='seller_middle', slot_index=1
@@ -1335,14 +1347,15 @@ class ConfiguratorPositionTests(ConfiguratorTestCase):
         html = self.get_overview(self.director).content.decode()
         position = html.index(ROOT_ID)
         for marker in (
-            'Вводные проекта',
+            'project-overview-metrics',
             'Лента событий',
+            'Вводные проекта',
             'Задачи (канбан)',
-            'staffing-stats',
-            '<h3>Команда</h3>',
         ):
             with self.subTest(marker=marker):
-                self.assertLess(position, html.index(marker))
+                self.assertLess(html.index(marker), position)
+        # Read-only слоты — после конфигуратора (не путать со статусом STAFFING).
+        self.assertLess(position, html.index('<h3>Подбор команды</h3>'))
 
     def test_room_header_and_tabs_stay_above_the_configurator(self):
         """Шапка комнаты и навигация по вкладкам остаются выше."""

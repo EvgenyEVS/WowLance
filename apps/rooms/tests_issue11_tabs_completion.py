@@ -371,19 +371,16 @@ class StaffingSearchSlaTests(RoomCompletionTestCase):
     def test_get_does_not_create_or_change_anything(self):
         """Дедлайн нигде не сохраняется, слот не меняется, слоты не создаются.
 
-        Проверка read-only осталась прежней; изменился только состав кодов
-        ответа. «Команду» открывают владелец проекта и тимлид (200), фрилансер
-        получает 403 — но и отказ обязан оставаться безобидным: запрос, который
-        не дошёл до страницы, тем более ничего не создаёт. Поэтому фрилансер
-        из обхода не убран, а перенесён в свою ветку — иначе регрессия
-        «GET мутирует данные» на отказном пути осталась бы непокрытой.
+        «Команду» открывает тимлид (200); директор уходит на обзор (302);
+        фрилансер получает 403. Отказные пути тоже обязаны быть безобидными.
         """
         before = (self.slot.is_active, self.slot.updated_at, self.slot.created_at)
         slots_before = RoomFunctionSlot.objects.count()
 
         for user in (self.director, self.teamlead):
             self.assertEqual(self.get(self.overview_url, user).status_code, 200)
-            self.assertEqual(self.get(self.team_url, user).status_code, 200)
+        self.assertEqual(self.get(self.team_url, self.teamlead).status_code, 200)
+        self.assertEqual(self.get(self.team_url, self.director).status_code, 302)
 
         # «Обзор» фрилансеру по-прежнему доступен, «Команда» — нет.
         self.assertEqual(self.get(self.overview_url, self.freelancer).status_code, 200)
@@ -588,18 +585,15 @@ class PlannedTeamBlockTests(RoomCompletionTestCase):
     def test_block_is_display_only_and_creates_nothing(self):
         """Блок «Требуется по плану» только показывает — ни слотов, ни участников.
 
-        Смысл теста прежний: открытие вкладки ничего не создаёт. Роли теперь
-        расходятся по кодам ответа — блок смотрят владелец проекта и тимлид,
-        фрилансеру вкладка закрыта. Его запрос остался в тесте как отказной
-        путь: 403 тоже обязан быть без побочных эффектов. HTML у него не
-        проверяется — страницы он не получает.
+        Смысл теста прежний: открытие вкладки ничего не создаёт. Блок смотрит
+        тимлид; директору вкладка недоступна (редирект на обзор), фрилансеру —
+        403. Отказные пути тоже обязаны быть без побочных эффектов.
         """
         slots_before = set(RoomFunctionSlot.objects.values_list('id', flat=True))
         members_before = set(RoomMember.objects.values_list('id', flat=True))
 
-        for user in (self.director, self.teamlead):
-            self.assertEqual(self.get(self.team_url, user).status_code, 200)
-
+        self.assertEqual(self.get(self.team_url, self.teamlead).status_code, 200)
+        self.assertEqual(self.get(self.team_url, self.director).status_code, 302)
         self.assertEqual(self.get(self.team_url, self.freelancer).status_code, 403)
 
         self.assertEqual(
@@ -614,8 +608,10 @@ class PlannedTeamBlockTests(RoomCompletionTestCase):
             owner=self.director, name='Без состава', status=Project.Status.STAFFING,
         )
         ensure_room_for_project(empty)
+        empty.teamlead = self.teamlead
+        empty.save(update_fields=['teamlead'])
         response = self.get(
-            reverse('rooms:room_team', args=[empty.id]), self.director
+            reverse('rooms:room_team', args=[empty.id]), self.teamlead
         )
         self.assertEqual(response.context['planned_roles'], [])
         self.assertContains(response, 'Состав команды ещё не сохранён')
@@ -735,7 +731,7 @@ class SlotRoleLabelTests(RoomCompletionTestCase):
 
     def test_team_page_shows_the_label_and_not_the_raw_key(self):
         self.make_slot()
-        html = self.get(self.team_url, self.director).content.decode()
+        html = self.get(self.team_url, self.teamlead).content.decode()
         start = html.index('class="slot-cards"')
         block = html[start:]
         self.assertIn('Сейлер Middle', block)
@@ -748,13 +744,13 @@ class SlotRoleLabelTests(RoomCompletionTestCase):
                 'rooms:room_slot_candidates',
                 kwargs={'project_id': self.project.id, 'slot_id': slot.id},
             ),
-            self.director,
+            self.teamlead,
         )
         self.assertContains(response, 'Сейлер Middle')
 
     def test_page_with_unknown_role_key_still_renders(self):
         self.make_slot(role_key='seller', slot_index=1)
-        response = self.get(self.team_url, self.director)
+        response = self.get(self.team_url, self.teamlead)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'seller')
 
@@ -1180,7 +1176,8 @@ class BoundaryRegressionTests(RoomCompletionTestCase):
     def test_no_new_room_or_slot_appears_from_reading_pages(self):
         rooms_before = Room.objects.count()
         slots_before = RoomFunctionSlot.objects.count()
-        for url in (self.overview_url, self.team_url, self.comms_url):
-            self.get(url, self.director)
+        self.get(self.overview_url, self.director)
+        self.get(self.team_url, self.teamlead)
+        self.get(self.comms_url, self.director)
         self.assertEqual(Room.objects.count(), rooms_before)
         self.assertEqual(RoomFunctionSlot.objects.count(), slots_before)

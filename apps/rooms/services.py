@@ -236,7 +236,9 @@ def _auto_assign_opened_slots(project: Project, projection, actor) -> int:
 
         for slot in opened_slots:
             try:
-                outcome = auto_assign_best_candidate(slot, actor)
+                outcome = auto_assign_best_candidate(
+                    slot, actor, for_composition_autofill=True
+                )
             except StaffingError:
                 continue
             if not outcome.assigned:
@@ -420,15 +422,34 @@ def user_can_access_project(user, project: Project) -> bool:
 
 
 def user_can_manage_team(user, project: Project) -> bool:
+    """Операционка комнаты: подбор, review, квалификация лидов.
+
+    Только тимлид проекта (и платформенный admin). Владелец-директор
+    покупает состав на «Обзоре» и не управляет командой вручную: иначе
+    операционные кнопки и вкладки «Команда»/«Задачи» снова сливаются
+    с ролью заказчика.
+    """
     if not user.is_authenticated:
         return False
-    if project.owner_id == user.id:
-        return True
     if project.teamlead_id == user.id:
         return True
     if user.role == User.Roles.ADMIN:
         return True
     return False
+
+
+def user_can_appoint_teamlead(user, project: Project) -> bool:
+    """Кто назначает/приглашает тимлида: владелец проекта (или admin).
+
+    Это не операционка слотов, а старт комнаты: без тимлида операционки
+    ещё нет. Живёт на «Обзоре», потому что вкладка «Команда» директору
+    больше не показывается.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if user.role == User.Roles.ADMIN:
+        return True
+    return project.owner_id == user.id
 
 
 def user_can_create_task(user, project: Project) -> bool:
@@ -438,12 +459,6 @@ def user_can_create_task(user, project: Project) -> bool:
     команде и принимает отчёты. Директор покупает результат и смотрит
     «Обзор», поэтому в постановку задач не вмешивается; фрилансер задачи
     исполняет, а не выдаёт.
-
-    `user_can_manage_team` здесь намеренно **не** переиспользуется: он шире —
-    даёт право владельцу проекта и платформенному `ADMIN`. Платформенная роль
-    обслуживает систему и продуктового права ставить задачи в чужой комнате
-    не получает; доступ администратора к Django admin это правило не
-    затрагивает (там работают `is_staff` / `is_superuser`).
     """
     if not getattr(user, 'is_authenticated', False):
         return False
@@ -451,26 +466,34 @@ def user_can_create_task(user, project: Project) -> bool:
 
 
 def user_can_view_team_tab(user, project: Project) -> bool:
-    """Кто видит вкладку «Команда» — владелец проекта и его тимлид.
+    """Вкладка «Команда» — только тимлид проекта.
 
-    Состав команды и подбор — зона тех, кто командой распоряжается. Фрилансер
-    видит комнату (обзор, задачи, лиды, материалы, коммуникации), но чужой
-    состав ему не показывают: правило `role != FREELANCER` было бы шире и
-    открыло бы вкладку менеджеру-участнику, который командой не управляет.
-
-    Право проверяется по связи с проектом, а не по `user.role`: платформенный
-    `ADMIN` сам по себе вкладку не получает, менеджер-участник — тоже.
-
-    Отдельная функция, а не переиспользование `user_can_manage_team`:
-    видимость вкладки и право на операции подбора — разные правила, и
-    расходиться им можно независимо. `user_can_manage_team` остаётся
-    единственным источником прав для staffing POST-эндпоинтов.
+    Директор видит состав и слоты на «Обзоре» (read-only + конфигуратор),
+    операционный подбор — на вкладке у тимлида. Фрилансер и менеджер
+    вкладку не получают.
     """
     if not getattr(user, 'is_authenticated', False):
         return False
-    if project.owner_id == user.id:
-        return True
     return project.teamlead_id == user.id
+
+
+def user_can_view_tasks_tab(user, project: Project) -> bool:
+    """Вкладка «Задачи»: тимлид и исполнители; директору — только превью на Обзоре."""
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if project.teamlead_id == user.id:
+        return True
+    if user.role == User.Roles.ADMIN:
+        return True
+    if user.role == User.Roles.FREELANCER:
+        return RoomMember.objects.filter(
+            room__project=project,
+            user=user,
+            role_in_room=RoomMember.RoleInRoom.FREELANCER,
+        ).exists()
+    if user.role == User.Roles.MANAGER:
+        return RoomMember.objects.filter(room__project=project, user=user).exists()
+    return False
 
 
 def room_nav_context(user, project: Project) -> dict:
@@ -483,7 +506,9 @@ def room_nav_context(user, project: Project) -> dict:
     """
     return {
         'show_team_tab': user_can_view_team_tab(user, project),
+        'show_tasks_tab': user_can_view_tasks_tab(user, project),
         'can_create_task': user_can_create_task(user, project),
+        'can_appoint_teamlead': user_can_appoint_teamlead(user, project),
     }
 
 

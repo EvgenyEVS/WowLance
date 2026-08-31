@@ -98,11 +98,24 @@ def _current_member(slot: RoomFunctionSlot) -> RoomMember | None:
     )
 
 
-def _guard_staffing(slot: RoomFunctionSlot, actor) -> Project:
-    """Общие проверки любой мутации слота: права, статус проекта, слот активен."""
+def _guard_staffing(slot: RoomFunctionSlot, actor, *, for_composition_autofill=False) -> Project:
+    """Общие проверки любой мутации слота: права, статус проекта, слот активен.
+
+    `for_composition_autofill=True` — побочный эффект сохранения состава
+    директором: UI-подбором он больше не управляет, но покупка функции
+    по-прежнему может сразу посадить top-1. Обычные кнопки «Команды»
+    идут без этого флага и требуют `user_can_manage_team` (тимлид).
+    """
     project = slot.room.project
-    if not user_can_manage_team(actor, project):
-        raise PermissionDenied('Управлять составом команды может директор или тимлид.')
+    if for_composition_autofill:
+        from ..unit_economics import user_can_edit_functional_roles
+
+        if not user_can_edit_functional_roles(actor, project):
+            raise PermissionDenied(
+                'Автоподбор при сохранении состава доступен директору проекта.'
+            )
+    elif not user_can_manage_team(actor, project):
+        raise PermissionDenied('Управлять составом команды может тимлид проекта.')
     if project.status not in STAFFING_MUTABLE_STATUSES:
         raise StaffingError(
             'Изменить состав команды можно только пока проект набирает команду.'
@@ -113,7 +126,13 @@ def _guard_staffing(slot: RoomFunctionSlot, actor) -> Project:
 
 
 @transaction.atomic
-def assign_candidate_to_slot(slot: RoomFunctionSlot, candidate, actor) -> RoomMember:
+def assign_candidate_to_slot(
+    slot: RoomFunctionSlot,
+    candidate,
+    actor,
+    *,
+    for_composition_autofill=False,
+) -> RoomMember:
     """Назначает кандидата на функциональный слот комнаты.
 
     Единственная точка создания `RoomMember` для функционального слота:
@@ -123,7 +142,7 @@ def assign_candidate_to_slot(slot: RoomFunctionSlot, candidate, actor) -> RoomMe
     Назначение **не** активирует проект: статус меняет только подтверждение
     готовности всей команды (`sync_project_activation`).
     """
-    _guard_staffing(slot, actor)
+    _guard_staffing(slot, actor, for_composition_autofill=for_composition_autofill)
 
     if _current_member(slot) is not None:
         raise StaffingError('Слот уже занят. Используйте замену кандидата.')
@@ -170,17 +189,22 @@ def assign_candidate_to_slot(slot: RoomFunctionSlot, candidate, actor) -> RoomMe
 
 
 @transaction.atomic
-def auto_assign_best_candidate(slot: RoomFunctionSlot, actor) -> StaffingOutcome:
+def auto_assign_best_candidate(
+    slot: RoomFunctionSlot,
+    actor,
+    *,
+    for_composition_autofill=False,
+) -> StaffingOutcome:
     """Auto top-1: сажает на пустой слот лучшего кандидата ranking.
 
     Применяется только к фрилансерским функциональным слотам — тимлид приходит
     своим существующим invite/manual-потоком, подбор его не назначает.
 
-    Сервис вызывается явно (кнопка «Подобрать лучшего», в будущем — создание
-    слота функциональным конфигуратором). Ни signal, ни `post_save` за это не
-    отвечают: неявное назначение участника скрыло бы бизнес-логику.
+    Вызывается с кнопки «Подобрать лучшего» (тимлид) или как побочный эффект
+    сохранения состава (`for_composition_autofill=True`). Ни signal, ни
+    `post_save` за это не отвечают.
     """
-    _guard_staffing(slot, actor)
+    _guard_staffing(slot, actor, for_composition_autofill=for_composition_autofill)
     if _current_member(slot) is not None:
         raise StaffingError('Слот уже занят. Используйте замену кандидата.')
 
@@ -198,7 +222,12 @@ def auto_assign_best_candidate(slot: RoomFunctionSlot, actor) -> StaffingOutcome
             message='Подходящие кандидаты не найдены.',
         )
 
-    member = assign_candidate_to_slot(slot, profile.user, actor)
+    member = assign_candidate_to_slot(
+        slot,
+        profile.user,
+        actor,
+        for_composition_autofill=for_composition_autofill,
+    )
     return StaffingOutcome(
         code='assigned',
         message=f'{member.user.full_name} назначен на слот.',

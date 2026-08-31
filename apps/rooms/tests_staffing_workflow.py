@@ -132,7 +132,7 @@ class AssignmentServiceTests(StaffingWorkflowTestCase):
     def test_director_can_assign_candidate(self):
         profile = self.make_profile(self.users[0])
 
-        member = assign_candidate_to_slot(self.slot, profile.user, self.director)
+        member = assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         self.assertEqual(member.room_id, self.room.id)
         self.assertEqual(member.user_id, profile.user.id)
@@ -160,7 +160,7 @@ class AssignmentServiceTests(StaffingWorkflowTestCase):
     def test_new_member_gets_slot_role_key_and_pending_status(self):
         profile = self.make_profile(self.users[0])
 
-        member = assign_candidate_to_slot(self.slot, profile.user, self.director)
+        member = assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         self.assertEqual(member.function_slot_id, self.slot.id)
         self.assertEqual(member.role_key, self.slot.role_key)
@@ -171,11 +171,11 @@ class AssignmentServiceTests(StaffingWorkflowTestCase):
     def test_assignment_writes_history_and_activity(self):
         profile = self.make_profile(self.users[0])
 
-        assign_candidate_to_slot(self.slot, profile.user, self.director)
+        assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         history = RoomSlotCandidate.objects.get(slot=self.slot, candidate=profile.user)
         self.assertEqual(history.outcome, RoomSlotCandidate.Outcome.ASSIGNED)
-        self.assertEqual(history.actor_id, self.director.id)
+        self.assertEqual(history.actor_id, self.teamlead.id)
         self.assertTrue(
             RoomActivity.objects.filter(
                 room=self.room,
@@ -190,20 +190,20 @@ class AssignmentServiceTests(StaffingWorkflowTestCase):
         profile.save(update_fields=['is_available'])
 
         with self.assertRaises(StaffingError):
-            assign_candidate_to_slot(self.slot, profile.user, self.director)
+            assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         self.assertFalse(RoomMember.objects.filter(user=profile.user).exists())
 
     def test_candidate_without_profile_is_rejected(self):
         with self.assertRaises(StaffingError):
-            assign_candidate_to_slot(self.slot, self.users[0], self.director)
+            assign_candidate_to_slot(self.slot, self.users[0], self.teamlead)
 
     def test_existing_room_member_is_not_assigned_again(self):
         profile = self.make_profile(self.users[0])
         add_freelancer_to_room(self.room, profile.user)
 
         with self.assertRaises(StaffingError):
-            assign_candidate_to_slot(self.slot, profile.user, self.director)
+            assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         self.assertEqual(
             RoomMember.objects.filter(room=self.room, user=profile.user).count(),
@@ -212,10 +212,10 @@ class AssignmentServiceTests(StaffingWorkflowTestCase):
 
     def test_occupied_slot_is_not_assigned_twice(self):
         first, second = self.make_ranked_pool(2)
-        assign_candidate_to_slot(self.slot, first.user, self.director)
+        assign_candidate_to_slot(self.slot, first.user, self.teamlead)
 
         with self.assertRaises(StaffingError):
-            assign_candidate_to_slot(self.slot, second.user, self.director)
+            assign_candidate_to_slot(self.slot, second.user, self.teamlead)
 
         self.assertEqual(
             RoomMember.objects.filter(room=self.room, function_slot=self.slot).count(),
@@ -225,7 +225,7 @@ class AssignmentServiceTests(StaffingWorkflowTestCase):
     def test_assignment_alone_does_not_activate_project(self):
         profile = self.make_profile(self.users[0])
 
-        assign_candidate_to_slot(self.slot, profile.user, self.director)
+        assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         self.project.refresh_from_db()
         self.assertEqual(self.project.status, Project.Status.STAFFING)
@@ -236,7 +236,7 @@ class AssignmentServiceTests(StaffingWorkflowTestCase):
         self.project.save(update_fields=['status'])
 
         with self.assertRaises(StaffingError):
-            assign_candidate_to_slot(self.slot, profile.user, self.director)
+            assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         self.assertFalse(RoomMember.objects.filter(user=profile.user).exists())
 
@@ -246,13 +246,13 @@ class AssignmentServiceTests(StaffingWorkflowTestCase):
         self.slot.save(update_fields=['is_active'])
 
         with self.assertRaises(StaffingError):
-            assign_candidate_to_slot(self.slot, profile.user, self.director)
+            assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
     def test_failed_assignment_leaves_no_partial_state(self):
         profile = self.make_profile(self.users[0], video_url='')
 
         with self.assertRaises(StaffingError):
-            assign_candidate_to_slot(self.slot, profile.user, self.director)
+            assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         self.assertFalse(RoomSlotCandidate.objects.filter(slot=self.slot).exists())
         self.assertFalse(RoomMember.objects.filter(user=profile.user).exists())
@@ -268,13 +268,13 @@ class AutoAssignTests(StaffingWorkflowTestCase):
     def test_auto_assign_takes_top_ranked_candidate(self):
         pool = self.make_ranked_pool(3)
 
-        outcome = auto_assign_best_candidate(self.slot, self.director)
+        outcome = auto_assign_best_candidate(self.slot, self.teamlead)
 
         self.assertEqual(outcome.code, 'assigned')
         self.assertEqual(outcome.member.user_id, pool[0].user.id)
 
     def test_auto_assign_on_empty_pool_returns_result_without_changes(self):
-        outcome = auto_assign_best_candidate(self.slot, self.director)
+        outcome = auto_assign_best_candidate(self.slot, self.teamlead)
 
         self.assertEqual(outcome.code, 'no_candidates')
         self.assertIsNone(outcome.member)
@@ -290,7 +290,7 @@ class AutoAssignTests(StaffingWorkflowTestCase):
             outcome=RoomSlotCandidate.Outcome.SKIPPED,
         )
 
-        outcome = auto_assign_best_candidate(self.slot, self.director)
+        outcome = auto_assign_best_candidate(self.slot, self.teamlead)
 
         self.assertEqual(outcome.member.user_id, pool[1].user.id)
 
@@ -305,9 +305,9 @@ class AutoAssignTests(StaffingWorkflowTestCase):
 class ReplaceSlotMemberTests(StaffingWorkflowTestCase):
     def test_replace_gives_next_candidate_by_ranking(self):
         pool = self.make_ranked_pool(3)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
-        outcome = replace_slot_member(self.slot, self.director)
+        outcome = replace_slot_member(self.slot, self.teamlead)
 
         self.assertEqual(outcome.code, 'replaced')
         self.assertEqual(outcome.member.user_id, pool[1].user.id)
@@ -316,13 +316,13 @@ class ReplaceSlotMemberTests(StaffingWorkflowTestCase):
 
     def test_replaced_candidate_becomes_skipped_and_loses_room_access(self):
         pool = self.make_ranked_pool(2)
-        assign_candidate_to_slot(self.slot, pool[0].user, self.director)
+        assign_candidate_to_slot(self.slot, pool[0].user, self.teamlead)
         # Готовность снятого кандидата не должна утечь новому исполнителю.
         RoomMember.objects.filter(user=pool[0].user).update(
             ready_status=RoomMember.ReadyStatus.READY,
         )
 
-        replace_slot_member(self.slot, self.director)
+        replace_slot_member(self.slot, self.teamlead)
 
         skipped = RoomSlotCandidate.objects.get(slot=self.slot, candidate=pool[0].user)
         self.assertEqual(skipped.outcome, RoomSlotCandidate.Outcome.SKIPPED)
@@ -336,9 +336,9 @@ class ReplaceSlotMemberTests(StaffingWorkflowTestCase):
 
     def test_replace_logs_removal_and_addition(self):
         self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
-        replace_slot_member(self.slot, self.director)
+        replace_slot_member(self.slot, self.teamlead)
 
         self.assertTrue(
             RoomActivity.objects.filter(
@@ -356,13 +356,13 @@ class ReplaceSlotMemberTests(StaffingWorkflowTestCase):
 
     def test_replace_without_next_candidate_keeps_current_member(self):
         only = self.make_profile(self.users[0])
-        assign_candidate_to_slot(self.slot, only.user, self.director)
+        assign_candidate_to_slot(self.slot, only.user, self.teamlead)
         member = RoomMember.objects.get(function_slot=self.slot)
         RoomMember.objects.filter(pk=member.pk).update(
             ready_status=RoomMember.ReadyStatus.READY,
         )
 
-        outcome = replace_slot_member(self.slot, self.director)
+        outcome = replace_slot_member(self.slot, self.teamlead)
 
         self.assertEqual(outcome.code, 'no_candidates')
         member.refresh_from_db()
@@ -375,10 +375,10 @@ class ReplaceSlotMemberTests(StaffingWorkflowTestCase):
 
     def test_replace_creates_new_member_row_instead_of_editing_user(self):
         pool = self.make_ranked_pool(2)
-        assign_candidate_to_slot(self.slot, pool[0].user, self.director)
+        assign_candidate_to_slot(self.slot, pool[0].user, self.teamlead)
         old_member_id = RoomMember.objects.get(function_slot=self.slot).id
 
-        replace_slot_member(self.slot, self.director)
+        replace_slot_member(self.slot, self.teamlead)
 
         self.assertFalse(RoomMember.objects.filter(id=old_member_id).exists())
         self.assertEqual(RoomMember.objects.filter(function_slot=self.slot).count(), 1)
@@ -387,11 +387,11 @@ class ReplaceSlotMemberTests(StaffingWorkflowTestCase):
         self.make_ranked_pool(1)
 
         with self.assertRaises(StaffingError):
-            replace_slot_member(self.slot, self.director)
+            replace_slot_member(self.slot, self.teamlead)
 
     def test_replace_requires_manage_rights(self):
         pool = self.make_ranked_pool(2)
-        assign_candidate_to_slot(self.slot, pool[0].user, self.director)
+        assign_candidate_to_slot(self.slot, pool[0].user, self.teamlead)
 
         with self.assertRaises(PermissionDenied):
             replace_slot_member(self.slot, pool[0].user)
@@ -404,8 +404,8 @@ class IndependentSlotsTests(StaffingWorkflowTestCase):
         pool = self.make_ranked_pool(3)
         other = self.second_slot()
 
-        first = auto_assign_best_candidate(self.slot, self.director)
-        second = auto_assign_best_candidate(other, self.director)
+        first = auto_assign_best_candidate(self.slot, self.teamlead)
+        second = auto_assign_best_candidate(other, self.teamlead)
 
         self.assertEqual(first.member.user_id, pool[0].user.id)
         self.assertEqual(second.member.user_id, pool[1].user.id)
@@ -419,7 +419,7 @@ class IndependentSlotsTests(StaffingWorkflowTestCase):
             outcome=RoomSlotCandidate.Outcome.SKIPPED,
         )
 
-        outcome = auto_assign_best_candidate(other, self.director)
+        outcome = auto_assign_best_candidate(other, self.teamlead)
 
         self.assertEqual(outcome.member.user_id, pool[0].user.id)
         self.assertEqual(RoomSlotCandidate.objects.filter(slot=self.slot).count(), 1)
@@ -444,8 +444,8 @@ class IndependentSlotsTests(StaffingWorkflowTestCase):
             required_channel=RoomFunctionSlot.Channel.LINKEDIN,
         )
 
-        cold_outcome = auto_assign_best_candidate(self.slot, self.director)
-        linkedin_outcome = auto_assign_best_candidate(linkedin_slot, self.director)
+        cold_outcome = auto_assign_best_candidate(self.slot, self.teamlead)
+        linkedin_outcome = auto_assign_best_candidate(linkedin_slot, self.teamlead)
 
         self.assertEqual(cold_outcome.member.user_id, cold_only.user.id)
         self.assertEqual(linkedin_outcome.member.user_id, linkedin_only.user.id)
@@ -453,7 +453,7 @@ class IndependentSlotsTests(StaffingWorkflowTestCase):
 
 class ReadinessActivationTests(StaffingWorkflowTestCase):
     def _assign(self, slot, profile):
-        return assign_candidate_to_slot(slot, profile.user, self.director)
+        return assign_candidate_to_slot(slot, profile.user, self.teamlead)
 
     def test_single_ready_member_does_not_activate_project_with_two_slots(self):
         pool = self.make_ranked_pool(2)
@@ -574,7 +574,7 @@ class SlotSelectorTests(StaffingWorkflowTestCase):
     def test_cards_show_status_person_and_metrics(self):
         profile = self.make_profile(self.users[0])
         other = self.second_slot()
-        assign_candidate_to_slot(self.slot, profile.user, self.director)
+        assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
 
         cards = {card.slot.id: card for card in selectors.slot_cards(self.room)}
 
@@ -588,8 +588,8 @@ class SlotSelectorTests(StaffingWorkflowTestCase):
     def test_ready_and_declined_statuses(self):
         pool = self.make_ranked_pool(2)
         other = self.second_slot()
-        ready = assign_candidate_to_slot(self.slot, pool[0].user, self.director)
-        declined = assign_candidate_to_slot(other, pool[1].user, self.director)
+        ready = assign_candidate_to_slot(self.slot, pool[0].user, self.teamlead)
+        declined = assign_candidate_to_slot(other, pool[1].user, self.teamlead)
         RoomMember.objects.filter(pk=ready.pk).update(
             ready_status=RoomMember.ReadyStatus.READY,
         )
@@ -615,8 +615,8 @@ class SlotSelectorTests(StaffingWorkflowTestCase):
         pool = self.make_ranked_pool(2)
         second = self.second_slot()
         self.second_slot(slot_index=3)
-        ready = assign_candidate_to_slot(self.slot, pool[0].user, self.director)
-        assign_candidate_to_slot(second, pool[1].user, self.director)
+        ready = assign_candidate_to_slot(self.slot, pool[0].user, self.teamlead)
+        assign_candidate_to_slot(second, pool[1].user, self.teamlead)
         RoomMember.objects.filter(pk=ready.pk).update(
             ready_status=RoomMember.ReadyStatus.READY,
         )
@@ -633,7 +633,7 @@ class SlotSelectorTests(StaffingWorkflowTestCase):
         pool = self.make_ranked_pool(3)
         for index, profile in enumerate(pool, start=1):
             slot = self.slot if index == 1 else self.second_slot(slot_index=index)
-            assign_candidate_to_slot(slot, profile.user, self.director)
+            assign_candidate_to_slot(slot, profile.user, self.teamlead)
 
         with self.assertNumQueries(1):
             cards = selectors.slot_cards(self.room)
@@ -662,11 +662,11 @@ class CandidatePoolViewTests(StaffingWorkflowTestCase):
             },
         )
 
-    def test_director_sees_only_matching_candidates_in_ranked_order(self):
+    def test_teamlead_sees_only_matching_candidates_in_ranked_order(self):
         pool = self.make_ranked_pool(3)
         self.make_profile(self.users[3], is_verified=False)
         self.make_profile(self.users[4], level=FreelancerProfile.Level.SENIOR)
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.get(self.pool_url())
 
@@ -708,7 +708,7 @@ class CandidatePoolViewTests(StaffingWorkflowTestCase):
             candidate=pool[0].user,
             outcome=RoomSlotCandidate.Outcome.SKIPPED,
         )
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.get(self.pool_url())
 
@@ -725,7 +725,7 @@ class CandidatePoolViewTests(StaffingWorkflowTestCase):
             candidate=pool[0].user,
             outcome=RoomSlotCandidate.Outcome.SKIPPED,
         )
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.get(self.pool_url())
 
@@ -736,7 +736,7 @@ class CandidatePoolViewTests(StaffingWorkflowTestCase):
 
     def test_pool_page_does_not_write_candidate_history(self):
         self.make_ranked_pool(3)
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         self.client.get(self.pool_url())
 
@@ -752,7 +752,7 @@ class CandidatePoolViewTests(StaffingWorkflowTestCase):
         ]
         for index, user in enumerate(extra_users):
             self.make_profile(user, rating=Decimal('4.00'), experience_projects=index)
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         first = self.client.get(self.pool_url())
         second = self.client.get(self.pool_url() + '?page=2')
@@ -762,7 +762,7 @@ class CandidatePoolViewTests(StaffingWorkflowTestCase):
 
     def test_manual_assign_creates_member_and_redirects_to_team(self):
         pool = self.make_ranked_pool(2)
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.post(self.assign_url(pool[1].user))
 
@@ -776,7 +776,7 @@ class CandidatePoolViewTests(StaffingWorkflowTestCase):
 
     def test_manual_assign_rechecks_eligibility_on_post(self):
         profile = self.make_profile(self.users[0])
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         # Пул был показан, затем кандидат перестал подходить.
         profile.is_available = False
         profile.save(update_fields=['is_available'])
@@ -800,7 +800,7 @@ class CandidatePoolViewTests(StaffingWorkflowTestCase):
         pool = self.make_ranked_pool(1)
         self.project.status = Project.Status.ARCHIVED
         self.project.save(update_fields=['status'])
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.post(self.assign_url(pool[0].user))
 
@@ -829,7 +829,7 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
 
     def test_team_page_shows_slot_cards_with_actions_for_director(self):
         self.make_ranked_pool(1)
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.get(self.team_url())
 
@@ -841,8 +841,8 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
 
     def test_team_page_shows_replace_action_for_filled_slot(self):
         self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
-        self.client.force_login(self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
+        self.client.force_login(self.teamlead)
 
         response = self.client.get(self.team_url())
 
@@ -864,7 +864,7 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
         отказ не должен протекать ни карточкой слота, ни действиями.
         """
         pool = self.make_ranked_pool(2)
-        assign_candidate_to_slot(self.slot, pool[0].user, self.director)
+        assign_candidate_to_slot(self.slot, pool[0].user, self.teamlead)
         self.client.force_login(pool[0].user)
 
         response = self.client.get(self.team_url())
@@ -879,7 +879,7 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
         self.make_ranked_pool(1)
         self.project.status = Project.Status.ACTIVE
         self.project.save(update_fields=['status'])
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.get(self.team_url())
 
@@ -888,8 +888,8 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
 
     def test_htmx_replace_returns_slot_card_partial(self):
         pool = self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
-        self.client.force_login(self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
+        self.client.force_login(self.teamlead)
 
         response = self.client.post(self.replace_url(), headers={'hx-request': 'true'})
 
@@ -901,15 +901,15 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
 
     def test_plain_post_replace_redirects_to_team(self):
         self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
-        self.client.force_login(self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
+        self.client.force_login(self.teamlead)
 
         response = self.client.post(self.replace_url())
 
         self.assertRedirects(response, self.team_url())
 
     def test_htmx_auto_assign_without_candidates_reports_in_partial(self):
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.post(self.auto_url(), headers={'hx-request': 'true'})
 
@@ -919,7 +919,7 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
 
     def test_plain_post_auto_assign_redirects_and_fills_slot(self):
         pool = self.make_ranked_pool(2)
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
         response = self.client.post(self.auto_url())
 
@@ -931,7 +931,7 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
 
     def test_freelancer_cannot_replace_by_direct_post(self):
         pool = self.make_ranked_pool(2)
-        assign_candidate_to_slot(self.slot, pool[0].user, self.director)
+        assign_candidate_to_slot(self.slot, pool[0].user, self.teamlead)
         self.client.force_login(pool[0].user)
 
         response = self.client.post(self.replace_url())
@@ -945,8 +945,8 @@ class TeamStaffingUiTests(StaffingWorkflowTestCase):
     def test_overview_shows_read_only_staffing_summary(self):
         pool = self.make_ranked_pool(2)
         self.second_slot()
-        assign_candidate_to_slot(self.slot, pool[0].user, self.director)
-        self.client.force_login(self.director)
+        assign_candidate_to_slot(self.slot, pool[0].user, self.teamlead)
+        self.client.force_login(self.teamlead)
 
         response = self.client.get(
             reverse('rooms:room_overview', kwargs={'project_id': self.project.id}),
@@ -965,7 +965,7 @@ class StaffingConcurrencyTests(StaffingWorkflowTestCase):
     def test_two_fast_posts_do_not_create_two_members_on_one_slot(self):
         self.make_ranked_pool(2)
         client = Client()
-        client.force_login(self.director)
+        client.force_login(self.teamlead)
         url = reverse(
             'rooms:room_slot_auto_assign',
             kwargs={'project_id': self.project.id, 'slot_id': self.slot.id},
@@ -981,11 +981,11 @@ class StaffingConcurrencyTests(StaffingWorkflowTestCase):
 
     def test_second_assignment_of_same_candidate_is_rejected(self):
         profile = self.make_profile(self.users[0])
-        assign_candidate_to_slot(self.slot, profile.user, self.director)
+        assign_candidate_to_slot(self.slot, profile.user, self.teamlead)
         other = self.second_slot()
 
         with self.assertRaises(StaffingError):
-            assign_candidate_to_slot(other, profile.user, self.director)
+            assign_candidate_to_slot(other, profile.user, self.teamlead)
 
         self.assertEqual(
             RoomMember.objects.filter(room=self.room, user=profile.user).count(),
@@ -1026,7 +1026,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
         return reverse('rooms:room_team', kwargs={'project_id': self.project.id})
 
     def htmx_post(self, url):
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         return self.client.post(url, headers={'hx-request': 'true'})
 
     def members_block(self, response):
@@ -1044,7 +1044,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_replace_returns_participants_without_the_replaced_member(self):
         """Снятый исполнитель исчезает из «Участников» тем же ответом."""
         pool = self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
         response = self.htmx_post(self.replace_url())
 
@@ -1053,7 +1053,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_replace_returns_participants_with_the_new_member(self):
         """Новый исполнитель появляется в «Участниках» тем же ответом."""
         pool = self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
         response = self.htmx_post(self.replace_url())
 
@@ -1062,7 +1062,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_replace_response_carries_an_out_of_band_members_block(self):
         """Блок приезжает out-of-band: цель формы — карточка слота, не он."""
         self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
         response = self.htmx_post(self.replace_url())
         body = response.content.decode()
@@ -1073,7 +1073,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_slot_card_and_members_block_agree_after_replace(self):
         """Карточка и таблица показывают одного человека, а не разных."""
         pool = self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
         response = self.htmx_post(self.replace_url())
         body = response.content.decode()
@@ -1085,7 +1085,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_database_state_matches_what_the_response_shows(self):
         """Снятый не остаётся лишним участником комнаты."""
         pool = self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
         self.htmx_post(self.replace_url())
 
@@ -1107,8 +1107,8 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_plain_post_fallback_shows_the_fresh_team_page(self):
         """Без HTMX страница перечитывается целиком и тоже согласована."""
         pool = self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
-        self.client.force_login(self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
+        self.client.force_login(self.teamlead)
 
         self.client.post(self.replace_url())
         page = self.client.get(self.team_url()).content.decode()
@@ -1120,7 +1120,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_second_replace_still_works(self):
         """Повторное «Другой сейлер» работает и остаётся согласованным."""
         pool = self.make_ranked_pool(3)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
         self.htmx_post(self.replace_url())
         response = self.htmx_post(self.replace_url())
@@ -1136,7 +1136,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_director_and_teamlead_survive_a_replacement(self):
         """Замена снимает только исполнителя слота, а не всю комнату."""
         self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
         response = self.htmx_post(self.replace_url())
         members = self.members_block(response)
@@ -1150,7 +1150,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_replaced_user_keeps_membership_in_another_room(self):
         """Снятый остаётся участником других комнат: удаление точечное."""
         pool = self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
         other_project = Project.objects.create(
             owner=self.director,
             name='Соседний проект',
@@ -1182,7 +1182,7 @@ class ReplacementKeepsParticipantsInSyncTests(StaffingWorkflowTestCase):
     def test_candidate_history_survives_the_replacement(self):
         """История подбора сохраняется: снятый помечен как пропущенный."""
         pool = self.make_ranked_pool(2)
-        auto_assign_best_candidate(self.slot, self.director)
+        auto_assign_best_candidate(self.slot, self.teamlead)
 
         self.htmx_post(self.replace_url())
 

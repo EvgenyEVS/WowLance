@@ -28,14 +28,13 @@ from apps.rooms.services import (
 from apps.test_helpers import make_director, make_freelancer, make_teamlead, make_user
 from apps.users.models import User
 
-#: Продуктовый порядок вкладок комнаты. Единственный источник разметки —
-#: rooms/_room_header.html, поэтому список ожиданий здесь тоже один.
+#: Продуктовый порядок вкладок для тимлида (полный набор).
 EXPECTED_TABS = ['Обзор', 'Команда', 'Задачи', 'Лиды', 'Материалы', 'Коммуникации']
 
-#: То же меню глазами фрилансера: «Команда» — вкладка владельца проекта и
-#: тимлида (`services.user_can_view_team_tab`), остальные пять вкладок и их
-#: порядок не меняются. Второй список, а не фильтр по индексу: продуктовое
-#: ожидание должно читаться целиком.
+#: Директор: без «Команда» и «Задачи» — операционка у тимлида.
+EXPECTED_TABS_DIRECTOR = ['Обзор', 'Лиды', 'Материалы', 'Коммуникации']
+
+#: Фрилансер: без «Команда».
 EXPECTED_TABS_FREELANCER = ['Обзор', 'Задачи', 'Лиды', 'Материалы', 'Коммуникации']
 
 NAV_RE = re.compile(r'<nav class="room-tabs".*?</nav>', re.DOTALL)
@@ -94,11 +93,11 @@ class RoomTabsTestCase(TestCase):
 
 
 class RoomNavigationTests(RoomTabsTestCase):
-    """Пункты 1–8: состав, порядок, активность и адреса вкладок."""
+    """Пункты 1–8: состав, порядок, активность и адреса вкладок (тимлид)."""
 
     def setUp(self):
         super().setUp()
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
 
     def test_overview_shows_six_tabs(self):
         response = self.client.get(self.tab_urls()['overview'])
@@ -169,13 +168,24 @@ class RoomNavigationTests(RoomTabsTestCase):
                 ]
                 self.assertEqual(labels, EXPECTED_TABS)
 
+    def test_director_nav_omits_team_and_tasks(self):
+        self.client.force_login(self.director)
+        response = self.client.get(self.tab_urls()['overview'])
+        labels = [
+            label for _url, _css, label in parse_room_tabs(response.content.decode())
+        ]
+        self.assertEqual(labels, EXPECTED_TABS_DIRECTOR)
+        self.assertContains(response, 'id="project-overview-metrics"')
+        self.assertNotContains(response, 'Управление командой')
+        self.assertNotContains(response, '>Команда</h3>')
+
 
 class RoomMaterialsTabTests(RoomTabsTestCase):
     """Пункты 9–13: материалы работают как раньше, но называются иначе."""
 
     def setUp(self):
         super().setUp()
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         self.url = reverse(
             'rooms:room_documents', kwargs={'project_id': self.project.id}
         )
@@ -207,6 +217,17 @@ class RoomMaterialsTabTests(RoomTabsTestCase):
         groups = response.context['material_groups']
         self.assertEqual(len(groups), 1)
         self.assertIn(document, groups[0]['documents'])
+
+    def test_director_cannot_upload_materials(self):
+        self.client.force_login(self.director)
+        response = self._upload()
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(
+            RoomDocument.objects.filter(
+                room=self.project.room, title='Скрипт звонка'
+            ).exists()
+        )
+        self.client.force_login(self.teamlead)
 
     def test_upload_flow_still_works(self):
         response = self._upload()
@@ -290,14 +311,12 @@ class RoomCommsTabTests(RoomTabsTestCase):
     def test_director_teamlead_freelancer_see_the_same_page(self):
         """Страница открыта всем участникам, но меню зависит от роли.
 
-        Прежнее ожидание («набор вкладок одинаковый для всех ролей») описывало
-        продукт до разделения прав: «Команда» стала вкладкой владельца проекта
-        и тимлида. Неизменной осталась суть теста — сама страница коммуникаций
-        доступна каждому участнику комнаты, и меню на ней приходит из одного
-        источника, а не собирается страницей.
+        Коммуникации доступны каждому участнику комнаты; набор вкладок
+        приходит из `room_nav_context` и различается по роли: у директора
+        нет «Команда»/«Задачи», у фрилансера нет «Команда».
         """
         expected_by_user = (
-            (self.director, EXPECTED_TABS),
+            (self.director, EXPECTED_TABS_DIRECTOR),
             (self.teamlead, EXPECTED_TABS),
             (self.freelancer, EXPECTED_TABS_FREELANCER),
         )
@@ -417,7 +436,7 @@ class RoomTabsRegressionTests(RoomTabsTestCase):
         )
 
     def test_team_staffing_ui_still_renders(self):
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         response = self.client.get(self.tab_urls()['team'])
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Функциональные слоты')
@@ -427,7 +446,7 @@ class RoomTabsRegressionTests(RoomTabsTestCase):
     def test_team_slot_htmx_action_still_returns_slot_card(self):
         """HTMX-действия подбора продолжают отвечать partial-карточкой."""
         slot = self.slot
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         response = self.client.post(
             reverse(
                 'rooms:room_slot_auto_assign',
@@ -441,11 +460,17 @@ class RoomTabsRegressionTests(RoomTabsTestCase):
         self.assertNotContains(response, 'class="room-tabs"')
 
     def test_tasks_page_works(self):
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         response = self.client.get(self.tab_urls()['tasks'])
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'К работе')
         self.assertContains(response, self.task.title)
+
+    def test_director_team_and_tasks_redirect_to_overview(self):
+        self.client.force_login(self.director)
+        overview = self.tab_urls()['overview']
+        self.assertRedirects(self.client.get(self.tab_urls()['team']), overview)
+        self.assertRedirects(self.client.get(self.tab_urls()['tasks']), overview)
 
     def test_leads_page_works(self):
         self.client.force_login(self.director)
@@ -481,8 +506,9 @@ class RoomTeamTabAccessTests(RoomTabsTestCase):
     """Вкладка «Команда»: кто её видит и кто может открыть напрямую.
 
     Правило одно (`services.user_can_view_team_tab`) и работает на двух
-    уровнях: в меню — как видимость ссылки, во view — как 403. Проверяются
-    оба, потому что скрытая ссылка защитой не является.
+    уровнях: в меню — как видимость ссылки, во view — редирект директора
+    на обзор или 403 для остальных. Проверяются оба, потому что скрытая
+    ссылка защитой не является.
     """
 
     def nav_labels(self, url):
@@ -500,6 +526,14 @@ class RoomTeamTabAccessTests(RoomTabsTestCase):
             if key != 'team'
         }
 
+    def pages_visible_to_director(self):
+        """Директор без вкладок «Команда» и «Задачи»."""
+        return {
+            key: url
+            for key, url in self.tab_urls().items()
+            if key not in ('team', 'tasks')
+        }
+
     # --- меню ---
 
     def test_freelancer_nav_has_five_tabs_without_team(self):
@@ -509,19 +543,16 @@ class RoomTeamTabAccessTests(RoomTabsTestCase):
         self.assertNotIn('Команда', labels)
 
     def test_freelancer_nav_is_the_same_on_every_page_he_can_open(self):
-        """nav-context приходит из всех view, а не только из «Обзора».
-
-        Если какая-то страница забудет подмешать `room_nav_context`, вкладка
-        «Команда» на ней просто исчезнет из меню у всех ролей — поэтому
-        проверяются и фрилансер, и директор на одном наборе адресов.
-        """
+        """nav-context приходит из всех view, а не только из «Обзора»."""
         for key, url in self.pages_visible_to_freelancer().items():
             with self.subTest(page=key, role='freelancer'):
                 self.client.force_login(self.freelancer)
                 self.assertEqual(self.nav_labels(url), EXPECTED_TABS_FREELANCER)
             with self.subTest(page=key, role='director'):
+                if key == 'tasks':
+                    continue
                 self.client.force_login(self.director)
-                self.assertEqual(self.nav_labels(url), EXPECTED_TABS)
+                self.assertEqual(self.nav_labels(url), EXPECTED_TABS_DIRECTOR)
 
     def test_freelancer_nav_has_no_link_to_room_team(self):
         self.client.force_login(self.freelancer)
@@ -529,13 +560,17 @@ class RoomTeamTabAccessTests(RoomTabsTestCase):
         hrefs = [url for url, _css, _label in parse_room_tabs(response.content.decode())]
         self.assertNotIn(self.tab_urls()['team'], hrefs)
 
-    def test_director_and_teamlead_nav_keeps_six_tabs(self):
-        for user in (self.director, self.teamlead):
-            with self.subTest(role=user.role):
-                self.client.force_login(user)
-                self.assertEqual(
-                    self.nav_labels(self.tab_urls()['overview']), EXPECTED_TABS
-                )
+    def test_director_nav_omits_team_and_tasks_tabs(self):
+        self.client.force_login(self.director)
+        self.assertEqual(
+            self.nav_labels(self.tab_urls()['overview']), EXPECTED_TABS_DIRECTOR
+        )
+
+    def test_teamlead_nav_keeps_six_tabs(self):
+        self.client.force_login(self.teamlead)
+        self.assertEqual(
+            self.nav_labels(self.tab_urls()['overview']), EXPECTED_TABS
+        )
 
     def test_teamlead_nav_is_the_same_on_every_room_page(self):
         self.client.force_login(self.teamlead)
@@ -550,9 +585,12 @@ class RoomTeamTabAccessTests(RoomTabsTestCase):
         self.client.force_login(self.freelancer)
         self.assertEqual(self.client.get(self.tab_urls()['team']).status_code, 403)
 
-    def test_director_opens_room_team(self):
+    def test_director_room_team_redirects_to_overview(self):
         self.client.force_login(self.director)
-        self.assertEqual(self.client.get(self.tab_urls()['team']).status_code, 200)
+        self.assertRedirects(
+            self.client.get(self.tab_urls()['team']),
+            self.tab_urls()['overview'],
+        )
 
     def test_teamlead_opens_room_team(self):
         self.client.force_login(self.teamlead)
@@ -565,26 +603,32 @@ class RoomTeamTabAccessTests(RoomTabsTestCase):
             with self.subTest(page=key):
                 self.assertEqual(self.client.get(url).status_code, 200)
 
+    def test_director_keeps_access_to_non_ops_pages(self):
+        self.client.force_login(self.director)
+        for key, url in self.pages_visible_to_director().items():
+            with self.subTest(page=key):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
     # --- флаги контекста ---
 
-    def test_nav_context_flags_follow_the_project_not_the_role(self):
-        """`show_team_tab` — про связь с проектом, а не про название роли."""
+    def test_nav_context_flags_follow_ops_ownership(self):
+        """Команда/задачи — у тимлида; директор видит только обзорный контур."""
         expectations = (
-            (self.director, True),
-            (self.teamlead, True),
-            (self.freelancer, False),
+            (self.director, False, False),
+            (self.teamlead, True, True),
+            (self.freelancer, False, True),
         )
-        for user, expected in expectations:
+        for user, show_team, show_tasks in expectations:
             with self.subTest(role=user.role):
                 self.client.force_login(user)
                 response = self.client.get(self.tab_urls()['overview'])
-                self.assertIs(response.context['show_team_tab'], expected)
+                self.assertIs(response.context['show_team_tab'], show_team)
+                self.assertIs(response.context['show_tasks_tab'], show_tasks)
 
     def test_can_create_task_belongs_to_the_teamlead_only(self):
         """Постановка задач — право тимлида проекта, не владельца."""
         expectations = (
             (self.teamlead, True),
-            (self.director, False),
             (self.freelancer, False),
         )
         for user, expected in expectations:
@@ -592,3 +636,7 @@ class RoomTeamTabAccessTests(RoomTabsTestCase):
                 self.client.force_login(user)
                 response = self.client.get(self.tab_urls()['tasks'])
                 self.assertIs(response.context['can_create_task'], expected)
+
+        self.client.force_login(self.director)
+        response = self.client.get(self.tab_urls()['tasks'])
+        self.assertRedirects(response, self.tab_urls()['overview'])
