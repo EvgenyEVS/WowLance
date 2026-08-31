@@ -89,6 +89,8 @@ def onboarding_progress(items: list[dict]) -> dict:
 
 
 def director_metrics(user) -> dict:
+    from .director_stats import director_finance_metrics
+
     projects = Project.objects.filter(owner=user)
     active = projects.filter(
         status__in=[Project.Status.STAFFING, Project.Status.ACTIVE],
@@ -97,11 +99,13 @@ def director_metrics(user) -> dict:
         project__owner=user,
         qualification_status=Lead.Qualification.HOT,
     ).count()
-    return {
+    metrics = {
         'projects_total': projects.count(),
         'rooms_active': active,
         'hot_leads': hot_leads,
     }
+    metrics.update(director_finance_metrics(user))
+    return metrics
 
 
 def freelancer_metrics(user) -> dict:

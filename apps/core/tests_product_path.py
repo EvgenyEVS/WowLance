@@ -1,5 +1,7 @@
 """Тесты Epic A/B: архитектура, wizard, каталог→комната, invite, метрики."""
 
+from decimal import Decimal
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -214,8 +216,12 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Чеклист запуска')
         self.assertContains(response, 'Горячие лиды')
+        self.assertContains(response, 'Потратил')
+        self.assertContains(response, '0 ₽')
+        self.assertContains(response, 'контур сделок не в этом релизе')
         metrics = director_metrics(self.director)
         self.assertEqual(metrics['projects_total'], 0)
+        self.assertEqual(metrics['earned_total'], Decimal('0.00'))
 
     def test_freelancer_dashboard_checklist(self):
         self.client.force_login(self.freelancer)
