@@ -40,7 +40,6 @@
                     <a href="{% url 'core:home' %}">Дашборд</a>
                     <a href="{% url 'rooms:project_list' %}">Комнаты</a>
                     <a href="{% url 'profiles:edit' %}">Профиль</a>
-                    <a href="{% url 'profiles:catalog' %}">Каталог</a>
                     {% endif %}
                     <span class="user-role">{{ user.get_role_display }}</span>
                     <form method="post" action="{% url 'users:logout' %}" class="logout-form">
