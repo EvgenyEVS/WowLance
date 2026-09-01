@@ -37,7 +37,7 @@ from apps.rooms.services import (
     ensure_room_for_project,
     launch_project,
 )
-from apps.rooms.tests_room_tabs import EXPECTED_TABS, parse_room_tabs
+from apps.rooms.tests_room_tabs import EXPECTED_TABS_DIRECTOR, parse_room_tabs
 from apps.test_helpers import make_director, make_freelancer, make_teamlead, make_user
 from apps.users.models import User
 
@@ -189,13 +189,13 @@ class RoomChatFeatureToggleTests(RoomChatTestCase):
         response = self.client.get(self.comms_url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Чат отключён')
-        self.assertNotContains(response, 'id="chat-messages"')
+        self.assertNotContains(response, 'id="chat-messages-team"')
         self.assertNotContains(response, self.send_url)
 
     def test_comms_page_shows_working_chat_when_enabled(self):
         self.client.force_login(self.director)
         response = self.client.get(self.comms_url)
-        self.assertContains(response, 'id="chat-messages"')
+        self.assertContains(response, 'id="chat-messages-team"')
         self.assertContains(response, self.messages_url)
         self.assertContains(response, self.send_url)
 
@@ -379,7 +379,7 @@ class RoomChatHtmxTests(RoomChatTestCase):
         self.assertContains(response, 'Только лента')
         self.assertNotContains(response, 'class="room-tabs"')
         self.assertNotContains(response, '<html')
-        self.assertNotContains(response, 'id="chat-messages"')
+        self.assertNotContains(response, 'id="chat-messages-team"')
 
     def test_htmx_send_returns_updated_partial(self):
         response = self.client.post(
@@ -578,7 +578,7 @@ class RoomChatRegressionTests(RoomChatTestCase):
 
     def test_video_section_is_untouched_by_chat(self):
         response = self.client.get(self.comms_url)
-        self.assertContains(response, 'id="comms-video"')
+        self.assertContains(response, 'id="comms-team-video"')
         self.assertContains(response, 'Видеовстреча')
         self.assertContains(response, 'Открыть видеокомнату')
 
@@ -593,7 +593,8 @@ class RoomChatRegressionTests(RoomChatTestCase):
         labels = [
             label for _url, _css, label in parse_room_tabs(response.content.decode())
         ]
-        self.assertEqual(labels, EXPECTED_TABS)
+        # Директор-владелец: без «Команда»/«Задачи» (room_nav_context).
+        self.assertEqual(labels, EXPECTED_TABS_DIRECTOR)
 
     def test_comms_tab_is_still_reachable_for_every_member(self):
         for user in (self.director, self.teamlead, self.freelancer):
@@ -623,3 +624,114 @@ class RoomChatRegressionTests(RoomChatTestCase):
             404,
         )
         self.assertEqual(Room.objects.count(), rooms_before)
+
+
+
+class DirectorTeamleadCommsTests(RoomChatTestCase):
+    """Приватный контур директор↔тимлид: доступ, изоляция каналов, хаб."""
+
+    def setUp(self):
+        super().setUp()
+        self.dt_messages_url = reverse(
+            'rooms:room_dt_chat_messages', kwargs={'project_id': self.project.id}
+        )
+        self.dt_send_url = reverse(
+            'rooms:room_dt_chat_send', kwargs={'project_id': self.project.id}
+        )
+        self.hub_url = reverse(
+            'rooms:room_comms_teamlead', kwargs={'project_id': self.project.id}
+        )
+
+    def test_owner_and_teamlead_see_dt_section_freelancer_does_not(self):
+        self.client.force_login(self.director)
+        body = self.client.get(self.comms_url).content.decode()
+        self.assertIn('id="comms-dt"', body)
+        self.assertIn('id="comms-team"', body)
+
+        self.client.force_login(self.teamlead)
+        body = self.client.get(self.comms_url).content.decode()
+        self.assertIn('id="comms-dt"', body)
+
+        self.client.force_login(self.freelancer)
+        body = self.client.get(self.comms_url).content.decode()
+        self.assertNotIn('id="comms-dt"', body)
+        self.assertIn('id="comms-team"', body)
+
+    def test_freelancer_gets_403_on_private_endpoints(self):
+        self.client.force_login(self.freelancer)
+        self.assertEqual(self.client.get(self.dt_messages_url).status_code, 403)
+        self.assertEqual(
+            self.client.post(self.dt_send_url, {'text': 'секрет'}).status_code, 403
+        )
+        self.assertEqual(self.client.get(self.hub_url).status_code, 403)
+        self.assertFalse(
+            RoomChatMessage.objects.filter(text='секрет').exists()
+        )
+
+    def test_admin_does_not_get_dt_channel_by_platform_role(self):
+        admin = make_user(email='admin@dt-chat.test', role=User.Roles.ADMIN)
+        self.client.force_login(admin)
+        # Админ платформы может иметь доступ к комнате, но не к DT-контуру.
+        response = self.client.get(self.dt_messages_url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_channels_are_isolated(self):
+        from apps.rooms.models import RoomChatMessage as Msg
+
+        post_chat_message(
+            self.room, self.director, 'команда', channel=Msg.Channel.TEAM
+        )
+        post_chat_message(
+            self.room,
+            self.director,
+            'приватно',
+            channel=Msg.Channel.DIRECTOR_TEAMLEAD,
+        )
+        team = recent_chat_messages(self.room, channel=Msg.Channel.TEAM)
+        dt = recent_chat_messages(
+            self.room, channel=Msg.Channel.DIRECTOR_TEAMLEAD
+        )
+        self.assertEqual([m.text for m in team], ['команда'])
+        self.assertEqual([m.text for m in dt], ['приватно'])
+
+        self.client.force_login(self.director)
+        team_body = self.client.get(self.messages_url).content.decode()
+        dt_body = self.client.get(self.dt_messages_url).content.decode()
+        self.assertIn('команда', team_body)
+        self.assertNotIn('приватно', team_body)
+        self.assertIn('приватно', dt_body)
+        self.assertNotIn('команда', dt_body)
+
+    def test_hub_has_cards_without_live_feed_and_draft_does_not_create_room(self):
+        self.client.force_login(self.director)
+        response = self.client.get(self.hub_url)
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('Коммуникация с тимлидом', body)
+        self.assertIn('wowlance-dt-', body)
+        self.assertIn('#comms-dt-chat', body)
+        self.assertNotIn('id="chat-messages-dt"', body)
+
+        draft = Project.objects.create(
+            owner=self.director, name='Черновик DT', status=Project.Status.DRAFT
+        )
+        rooms_before = Room.objects.count()
+        hub = reverse('rooms:room_comms_teamlead', kwargs={'project_id': draft.id})
+        response = self.client.get(hub)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Room.objects.count(), rooms_before)
+
+    def test_overview_button_only_for_owner_with_teamlead(self):
+        overview = reverse('rooms:room_overview', kwargs={'project_id': self.project.id})
+        self.client.force_login(self.director)
+        body = self.client.get(overview).content.decode()
+        self.assertIn('Коммуникация с тимлидом', body)
+        self.assertIn('/room/comms/teamlead/', body)
+
+        self.client.force_login(self.teamlead)
+        body = self.client.get(overview).content.decode()
+        self.assertNotIn('Коммуникация с тимлидом', body)
+
+        self.client.force_login(self.freelancer)
+        body = self.client.get(overview).content.decode()
+        self.assertNotIn('Коммуникация с тимлидом', body)

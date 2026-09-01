@@ -1,17 +1,17 @@
 {% extends 'base.html' %}
 
 {% comment %}
-Вкладка «Коммуникации»: рабочий чат комнаты + ссылка на видеокомнату.
+Вкладка «Коммуникации»: два контура на одной странице.
 
-Видеовстреча — внешняя ссылка на публичный Jitsi (ADR-001, MVP): не iframe,
-не JWT и не self-hosted. Адрес приходит из контекста
-(`services.room_video_call_url`) и собран сервером из `Room.id`; из браузера
-он не принимается, поэтому подменить комнату встречи нельзя.
+1) «Коммуникация с тимлидом» — только owner и тимлид этого проекта
+   (`show_director_teamlead_comms` из room_nav_context). Приватный Jitsi
+   и канал director_teamlead.
+2) «Коммуникация с командой» — все участники комнаты. Командный Jitsi
+   и канал team.
 
-Чат работает без SPA и сокетов: обычные Django-формы плюс HTMX-опрос
-(ADR-001). Разметка ленты живёт в одном месте — rooms/_chat_messages.html,
-который одинаково используется при первой отрисовке страницы, при опросе
-и в ответе на отправку.
+Видео — внешние ссылки на публичный Jitsi (ADR-001, MVP): не iframe,
+не JWT. Чат — Django-формы + HTMX-опрос без сокетов; две ленты с разными
+id и разными hx-get/hx-post, один partial `_chat_messages.html`.
 {% endcomment %}
 
 {% block title %}Коммуникации — {{ project.name }}{% endblock %}
@@ -19,85 +19,130 @@
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
-<div class="room-grid">
-    <section class="info-block comms-section" id="comms-video">
-        <div class="section-head">
-            <h3>Видеовстреча</h3>
-        </div>
-        <p class="muted">
-            Одна постоянная комната на всю команду проекта — без пересылки
-            приглашений в мессенджерах. Ссылка открывается в новой вкладке.
-        </p>
-        {% comment %}
-        `target="_blank"` вместе с `rel="noopener noreferrer"`: внешняя
-        вкладка не получает ни ссылки на `window.opener`, ни Referer нашей
-        страницы.
-        {% endcomment %}
-        <p>
-            <a class="btn btn-primary" id="comms-video-link"
-               href="{{ video_call_url }}"
-               target="_blank" rel="noopener noreferrer">Открыть видеокомнату</a>
-        </p>
-        <p class="help-text">
-            Встреча идёт на публичном сервисе meet.jit.si: ссылку знает вся
-            команда комнаты, отдельного пароля у неё нет.
-        </p>
-    </section>
+{% if show_director_teamlead_comms %}
+<section class="comms-contour" id="comms-dt">
+    <h2 class="comms-contour-title">Коммуникация с тимлидом</h2>
+    <div class="room-grid">
+        <section class="info-block comms-section" id="comms-dt-video">
+            <div class="section-head">
+                <h3>Видеовстреча</h3>
+            </div>
+            <p class="muted">
+                Приватная комната только для вас и тимлида этого проекта.
+                Ссылка открывается в новой вкладке.
+            </p>
+            <p>
+                <a class="btn btn-primary" id="comms-dt-video-link"
+                   href="{{ dt_video_call_url }}"
+                   target="_blank" rel="noopener noreferrer">Открыть видеокомнату</a>
+            </p>
+            <p class="help-text">
+                Встреча идёт на публичном сервисе meet.jit.si. Адрес знает
+                только владелец и тимлид — команде проекта он не показывается.
+            </p>
+        </section>
 
-    <section class="info-block comms-section" id="comms-chat">
-        <div class="section-head">
-            <h3>Чат комнаты</h3>
-            {% if not room.chat_enabled %}<span class="comms-status">Отключён</span>{% endif %}
-        </div>
+        <section class="info-block comms-section" id="comms-dt-chat">
+            <div class="section-head">
+                <h3>Чат с тимлидом</h3>
+                {% if not room.chat_enabled %}<span class="comms-status">Отключён</span>{% endif %}
+            </div>
 
-        {% if room.chat_enabled %}
-        {% comment %}
-        Контейнер ленты сам себя обновляет: hx-get раз в 7 секунд и только
-        когда вкладка браузера видима — фоновая вкладка не должна опрашивать
-        сервер. Ответ — тот же partial, поэтому swap идёт в innerHTML.
-        Без JavaScript опроса не будет, но лента отрисована сервером и
-        обновляется обычной перезагрузкой страницы.
-        {% endcomment %}
-        <div class="chat-log"
-             id="chat-messages"
-             role="log"
-             aria-live="polite"
-             hx-get="{% url 'rooms:room_chat_messages' project.id %}"
-             hx-trigger="every 7s [document.visibilityState === 'visible']"
-             hx-swap="innerHTML">
-            {% include 'rooms/_chat_messages.html' %}
-        </div>
+            {% if room.chat_enabled %}
+            <div class="chat-log"
+                 id="chat-messages-dt"
+                 role="log"
+                 aria-live="polite"
+                 hx-get="{% url 'rooms:room_dt_chat_messages' project.id %}"
+                 hx-trigger="every 7s [document.visibilityState === 'visible']"
+                 hx-swap="innerHTML">
+                {% include 'rooms/_chat_messages.html' with chat_messages=dt_chat_messages chat_is_director_teamlead=True %}
+            </div>
 
-        {% comment %}
-        Форма остаётся обычным POST с action и csrf_token: при выключенном
-        JavaScript браузер отправит её сам, а view ответит редиректом.
-        HTMX перехватывает ту же форму и подменяет только ленту.
-        {% endcomment %}
-        <form class="chat-form"
-              method="post"
-              action="{% url 'rooms:room_chat_send' project.id %}"
-              hx-post="{% url 'rooms:room_chat_send' project.id %}"
-              hx-target="#chat-messages"
-              hx-swap="innerHTML"
-              hx-on::after-request="this.reset()">
-            {% csrf_token %}
-            {{ chat_form.text }}
-            <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
-        </form>
-        {% else %}
-        <p class="muted">Чат отключён для этой комнаты.</p>
-        <p class="help-text">
-            Сообщения не отправляются и не читаются, пока чат выключен.
-            Включить его можно в настройках комнаты в админке платформы.
-        </p>
-        {% endif %}
-    </section>
-</div>
+            <form class="chat-form"
+                  method="post"
+                  action="{% url 'rooms:room_dt_chat_send' project.id %}"
+                  hx-post="{% url 'rooms:room_dt_chat_send' project.id %}"
+                  hx-target="#chat-messages-dt"
+                  hx-swap="innerHTML"
+                  hx-on::after-request="this.reset()">
+                {% csrf_token %}
+                {{ dt_chat_form.text }}
+                <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
+            </form>
+            {% else %}
+            <p class="muted">Чат отключён для этой комнаты.</p>
+            {% endif %}
+        </section>
+    </div>
+</section>
+{% endif %}
+
+<section class="comms-contour" id="comms-team">
+    <h2 class="comms-contour-title">Коммуникация с командой</h2>
+    <div class="room-grid">
+        <section class="info-block comms-section" id="comms-team-video">
+            <div class="section-head">
+                <h3>Видеовстреча</h3>
+            </div>
+            <p class="muted">
+                Одна постоянная комната на всю команду проекта — без пересылки
+                приглашений в мессенджерах. Ссылка открывается в новой вкладке.
+            </p>
+            <p>
+                <a class="btn btn-primary" id="comms-video-link"
+                   href="{{ team_video_call_url }}"
+                   target="_blank" rel="noopener noreferrer">Открыть видеокомнату</a>
+            </p>
+            <p class="help-text">
+                Встреча идёт на публичном сервисе meet.jit.si: ссылку знает вся
+                команда комнаты, отдельного пароля у неё нет.
+            </p>
+        </section>
+
+        <section class="info-block comms-section" id="comms-team-chat">
+            <div class="section-head">
+                <h3>Чат комнаты</h3>
+                {% if not room.chat_enabled %}<span class="comms-status">Отключён</span>{% endif %}
+            </div>
+
+            {% if room.chat_enabled %}
+            <div class="chat-log"
+                 id="chat-messages-team"
+                 role="log"
+                 aria-live="polite"
+                 hx-get="{% url 'rooms:room_chat_messages' project.id %}"
+                 hx-trigger="every 7s [document.visibilityState === 'visible']"
+                 hx-swap="innerHTML">
+                {% include 'rooms/_chat_messages.html' with chat_messages=team_chat_messages chat_is_director_teamlead=False %}
+            </div>
+
+            <form class="chat-form"
+                  method="post"
+                  action="{% url 'rooms:room_chat_send' project.id %}"
+                  hx-post="{% url 'rooms:room_chat_send' project.id %}"
+                  hx-target="#chat-messages-team"
+                  hx-swap="innerHTML"
+                  hx-on::after-request="this.reset()">
+                {% csrf_token %}
+                {{ team_chat_form.text }}
+                <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
+            </form>
+            {% else %}
+            <p class="muted">Чат отключён для этой комнаты.</p>
+            <p class="help-text">
+                Сообщения не отправляются и не читаются, пока чат выключен.
+                Включить его можно в настройках комнаты в админке платформы.
+            </p>
+            {% endif %}
+        </section>
+    </div>
+</section>
 
 <div class="info-block" style="margin-top: 16px;">
     <p class="help-text">
         Остальная работа команды идёт на соседних вкладках:
-        <a href="{% url 'rooms:room_team' project.id %}">Команда</a>,
+        {% if show_team_tab %}<a href="{% url 'rooms:room_team' project.id %}">Команда</a>,{% endif %}
         <a href="{% url 'pipeline:room_tasks' project.id %}">Задачи</a>,
         <a href="{% url 'pipeline:room_leads' project.id %}">Лиды</a>.
     </p>

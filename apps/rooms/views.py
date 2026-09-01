@@ -28,6 +28,7 @@ from .forms import (
 from .models import (
     Project,
     RoomActivity,
+    RoomChatMessage,
     RoomDocument,
     RoomFunctionSlot,
     RoomMember,
@@ -52,8 +53,10 @@ from .services import (
     handle_project_paid,
     launch_project,
     log_room_activity,
+    director_teamlead_video_call_url,
     room_nav_context,
     room_video_call_url,
+    user_can_access_director_teamlead_comms,
     save_functional_roles_and_sync_slots,
     update_project_vision,
     user_can_access_project,
@@ -743,16 +746,14 @@ def room_document_delete(request, project_id, document_id):
 
 @login_required
 def room_comms(request, project_id):
-    """Вкладка «Коммуникации»: чат комнаты и ссылка на видеокомнату.
+    """Вкладка «Коммуникации»: два контура — директор↔тимлид и команда.
 
-    Страница только читает состояние: сообщения отправляет отдельный POST
-    (`room_chat_send`), а обновляет ленту отдельный GET (`room_chat_messages`).
-    Видеовстреча — внешняя ссылка на Jitsi, собранная сервером; ни iframe,
-    ни JWT, ни собственного хостинга здесь нет (ADR-001, MVP).
+    Страница только читает состояние. Сообщения и опрос — отдельные endpoints
+    по каналам (`team` / `director_teamlead`). Видео — внешние ссылки Jitsi
+    без iframe/JWT (ADR-001, MVP).
 
-    При выключенном `chat_enabled` вкладка остаётся доступной и честно
-    показывает, что чат отключён: сама секция чата не рендерится, поэтому
-    опрос выключенного чата не запускается.
+    Верхнюю секцию видят только owner и тимлид этого проекта
+    (`show_director_teamlead_comms` из `room_nav_context`).
     """
     project = _get_accessible_project(request.user, project_id)
     room = getattr(project, 'room', None)
@@ -762,16 +763,58 @@ def room_comms(request, project_id):
         # комнату побочным эффектом GET-запроса.
         return redirect('rooms:project_detail', project_id=project.id)
 
-    return render(request, 'rooms/room_comms.html', {
+    nav = room_nav_context(request.user, project)
+    show_dt = nav['show_director_teamlead_comms']
+    chat_enabled = room.chat_enabled
+    context = {
         'project': project,
         'room': room,
-        # Адрес видеокомнаты собирает сервер из `Room.id` — из браузера
-        # он не приходит и подмене не подлежит (`services.room_video_call_url`).
-        'video_call_url': room_video_call_url(room),
-        'chat_form': RoomChatMessageForm() if room.chat_enabled else None,
-        'chat_messages': (
-            chat.recent_chat_messages(room) if room.chat_enabled else []
+        'team_video_call_url': room_video_call_url(room),
+        'team_chat_form': RoomChatMessageForm() if chat_enabled else None,
+        'team_chat_messages': (
+            chat.recent_chat_messages(room, channel=RoomChatMessage.Channel.TEAM)
+            if chat_enabled
+            else []
         ),
+        'active_tab': 'comms',
+        **nav,
+    }
+    if show_dt:
+        context.update({
+            'dt_video_call_url': director_teamlead_video_call_url(project),
+            'dt_chat_form': RoomChatMessageForm() if chat_enabled else None,
+            'dt_chat_messages': (
+                chat.recent_chat_messages(
+                    room, channel=RoomChatMessage.Channel.DIRECTOR_TEAMLEAD
+                )
+                if chat_enabled
+                else []
+            ),
+        })
+    return render(request, 'rooms/room_comms.html', context)
+
+
+@login_required
+@require_safe
+def room_comms_teamlead(request, project_id):
+    """Хаб «Коммуникация с тимлидом»: карточки видео и чата без ленты.
+
+    GET не создаёт комнату у черновика. Доступ — только owner или teamlead
+    этого проекта; иначе 403.
+    """
+    project = _get_accessible_project(request.user, project_id)
+    if not user_can_access_director_teamlead_comms(request.user, project):
+        raise PermissionDenied(
+            'Коммуникация с тимлидом доступна только владельцу и тимлиду проекта.'
+        )
+    room = getattr(project, 'room', None)
+    if room is None:
+        return redirect('rooms:project_detail', project_id=project.id)
+
+    return render(request, 'rooms/room_comms_teamlead.html', {
+        'project': project,
+        'room': room,
+        'dt_video_call_url': director_teamlead_video_call_url(project),
         'active_tab': 'comms',
         **room_nav_context(request.user, project),
     })
@@ -797,32 +840,37 @@ def _get_chat_room(request, project_id):
     return project, room
 
 
-def _chat_partial(request, project, room, error=None):
-    """Свежий список сообщений — общий ответ и для опроса, и для отправки."""
+def _chat_partial(request, project, room, *, channel, error=None):
+    """Свежий список сообщений канала — общий ответ для опроса и отправки."""
     return render(request, 'rooms/_chat_messages.html', {
         'project': project,
-        'chat_messages': chat.recent_chat_messages(room),
+        'chat_messages': chat.recent_chat_messages(room, channel=channel),
         'chat_error': error,
+        'chat_is_director_teamlead': (
+            channel == RoomChatMessage.Channel.DIRECTOR_TEAMLEAD
+        ),
     })
 
 
 @login_required
 @require_safe
 def room_chat_messages(request, project_id):
-    """Лента сообщений чата для HTMX-опроса.
+    """Лента командного чата для HTMX-опроса.
 
     `require_safe` — не украшение: этот адрес вызывается каждые несколько
     секунд, и он обязан оставаться строго read-only. Ни одной записи в БД
     здесь нет, комната по пути тоже не создаётся.
     """
     project, room = _get_chat_room(request, project_id)
-    return _chat_partial(request, project, room)
+    return _chat_partial(
+        request, project, room, channel=RoomChatMessage.Channel.TEAM
+    )
 
 
 @login_required
 @require_POST
 def room_chat_send(request, project_id):
-    """Отправка сообщения в чат комнаты.
+    """Отправка сообщения в командный чат комнаты.
 
     Доступ проверяется здесь заново, на сервере: HTMX-запрос ничем не
     привилегированнее прямого POST, поэтому чужая комната отсекается до
@@ -836,19 +884,88 @@ def room_chat_send(request, project_id):
     form = RoomChatMessageForm(request.POST)
     error = None
     if form.is_valid():
-        chat.post_chat_message(room, request.user, form.cleaned_data['text'])
+        chat.post_chat_message(
+            room,
+            request.user,
+            form.cleaned_data['text'],
+            channel=RoomChatMessage.Channel.TEAM,
+        )
     else:
         error = ' '.join(
             str(message) for errors in form.errors.values() for message in errors
         )
 
     if request.headers.get('HX-Request'):
-        return _chat_partial(request, project, room, error=error)
+        return _chat_partial(
+            request,
+            project,
+            room,
+            channel=RoomChatMessage.Channel.TEAM,
+            error=error,
+        )
 
     if error:
         messages.error(request, error)
     return redirect('rooms:room_comms', project_id=project.id)
 
+
+def _get_dt_chat_room(request, project_id):
+    """Комната для приватного канала директор↔тимлид + включённый чат."""
+    project, room = _get_chat_room(request, project_id)
+    if not user_can_access_director_teamlead_comms(request.user, project):
+        raise PermissionDenied(
+            'Приватный чат доступен только владельцу и тимлиду проекта.'
+        )
+    return project, room
+
+
+@login_required
+@require_safe
+def room_dt_chat_messages(request, project_id):
+    """Лента приватного чата директор↔тимлид для HTMX-опроса."""
+    project, room = _get_dt_chat_room(request, project_id)
+    return _chat_partial(
+        request,
+        project,
+        room,
+        channel=RoomChatMessage.Channel.DIRECTOR_TEAMLEAD,
+    )
+
+
+@login_required
+@require_POST
+def room_dt_chat_send(request, project_id):
+    """Отправка в приватный канал директор↔тимлид."""
+    project, room = _get_dt_chat_room(request, project_id)
+    form = RoomChatMessageForm(request.POST)
+    error = None
+    if form.is_valid():
+        chat.post_chat_message(
+            room,
+            request.user,
+            form.cleaned_data['text'],
+            channel=RoomChatMessage.Channel.DIRECTOR_TEAMLEAD,
+        )
+    else:
+        error = ' '.join(
+            str(message) for errors in form.errors.values() for message in errors
+        )
+
+    if request.headers.get('HX-Request'):
+        return _chat_partial(
+            request,
+            project,
+            room,
+            channel=RoomChatMessage.Channel.DIRECTOR_TEAMLEAD,
+            error=error,
+        )
+
+    if error:
+        messages.error(request, error)
+    return redirect(
+        reverse('rooms:room_comms', kwargs={'project_id': project.id})
+        + '#comms-dt-chat'
+    )
 
 @login_required
 def room_team(request, project_id):

@@ -1122,8 +1122,8 @@ class JitsiVideoRoomTests(RoomCompletionTestCase):
     def test_chat_section_is_untouched(self):
         response = self.get(self.comms_url, self.director)
         self.assertContains(response, 'Чат комнаты')
-        self.assertContains(response, 'id="chat-messages"')
-        self.assertContains(response, 'id="comms-chat"')
+        self.assertContains(response, 'id="chat-messages-team"')
+        self.assertContains(response, 'id="comms-team-chat"')
 
     def test_url_does_not_depend_on_request_data(self):
         """Адрес встречи не приходит из браузера: query-параметры игнорируются."""

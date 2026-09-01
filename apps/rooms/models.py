@@ -700,7 +700,15 @@ class RoomChatMessage(models.Model):
 
     Автор удаляется через `SET_NULL`: сообщение — часть истории комнаты и
     переживает уход участника, в UI показываясь как «Удалённый участник».
+
+    `channel` разделяет два контура: командный чат комнаты и приватный
+    канал директор↔тимлид. Значение по умолчанию — `team`, чтобы старые
+    сообщения остались в общем чате после миграции.
     """
+
+    class Channel(models.TextChoices):
+        TEAM = 'team', _('Команда')
+        DIRECTOR_TEAMLEAD = 'director_teamlead', _('Директор — тимлид')
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     room = models.ForeignKey(
@@ -716,6 +724,12 @@ class RoomChatMessage(models.Model):
         related_name='room_chat_messages',
         verbose_name=_('Автор'),
     )
+    channel = models.CharField(
+        max_length=32,
+        choices=Channel.choices,
+        default=Channel.TEAM,
+        verbose_name=_('Канал'),
+    )
     text = models.TextField(verbose_name=_('Сообщение'))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Отправлено'))
 
@@ -727,6 +741,10 @@ class RoomChatMessage(models.Model):
             models.Index(
                 fields=['room', 'created_at'],
                 name='room_chat_room_created_idx',
+            ),
+            models.Index(
+                fields=['room', 'channel', 'created_at'],
+                name='room_chat_chan_created_idx',
             ),
         ]
 

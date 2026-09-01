@@ -41,6 +41,11 @@ urlpatterns = [
     ),
     path('projects/<uuid:project_id>/room/comms/', views.room_comms, name='room_comms'),
     path(
+        'projects/<uuid:project_id>/room/comms/teamlead/',
+        views.room_comms_teamlead,
+        name='room_comms_teamlead',
+    ),
+    path(
         'projects/<uuid:project_id>/room/comms/chat/messages/',
         views.room_chat_messages,
         name='room_chat_messages',
@@ -49,6 +54,16 @@ urlpatterns = [
         'projects/<uuid:project_id>/room/comms/chat/send/',
         views.room_chat_send,
         name='room_chat_send',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/comms/dt/chat/messages/',
+        views.room_dt_chat_messages,
+        name='room_dt_chat_messages',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/comms/dt/chat/send/',
+        views.room_dt_chat_send,
+        name='room_dt_chat_send',
     ),
     path('projects/<uuid:project_id>/room/team/', views.room_team, name='room_team'),
     path(

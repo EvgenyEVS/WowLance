@@ -42,6 +42,9 @@ TEST_LAUNCH_PAYMENT_AMOUNT_LABEL = '₽1 000'
 #: браузера и не настраивается пользователем.
 JITSI_BASE_URL = 'https://meet.jit.si'
 JITSI_ROOM_PREFIX = 'wowlance-room'
+#: Отдельный префикс для приватной встречи директор↔тимлид: не должен
+#: совпадать с командным `wowlance-room-<room.id>`.
+JITSI_DIRECTOR_TEAMLEAD_PREFIX = 'wowlance-dt'
 
 
 def room_video_call_url(room: Room) -> str:
@@ -57,6 +60,15 @@ def room_video_call_url(room: Room) -> str:
     вне этого этапа.
     """
     return f'{JITSI_BASE_URL}/{JITSI_ROOM_PREFIX}-{room.id}'
+
+
+def director_teamlead_video_call_url(project: Project) -> str:
+    """Приватная Jitsi-ссылка директор↔тимлид этого проекта.
+
+    Ключ — `Project.id`, а не `Room.id`: контур не должен совпасть с
+    командной встречей. JWT и self-hosted не используем (ADR-001, MVP).
+    """
+    return f'{JITSI_BASE_URL}/{JITSI_DIRECTOR_TEAMLEAD_PREFIX}-{project.id}'
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +508,19 @@ def user_can_view_tasks_tab(user, project: Project) -> bool:
     return False
 
 
+def user_can_access_director_teamlead_comms(user, project: Project) -> bool:
+    """Приватный контур директор↔тимлид: только owner или teamlead ЭТОГО проекта.
+
+    Платформенный `ADMIN` и «любой director» права не получают: иначе чужой
+    директор или админ платформы видели бы переписку и ссылку на встречу.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if project.owner_id == user.id:
+        return True
+    return project.teamlead_id == user.id
+
+
 def room_nav_context(user, project: Project) -> dict:
     """Ролевая часть context для `rooms/_room_header.html`.
 
@@ -504,11 +529,20 @@ def room_nav_context(user, project: Project) -> dict:
     поэтому вкладки не расходятся между разделами. Глобального context
     processor здесь нет намеренно: флаги зависят от конкретного проекта.
     """
+    is_owner = (
+        getattr(user, 'is_authenticated', False) and project.owner_id == user.id
+    )
     return {
         'show_team_tab': user_can_view_team_tab(user, project),
         'show_tasks_tab': user_can_view_tasks_tab(user, project),
         'can_create_task': user_can_create_task(user, project),
         'can_appoint_teamlead': user_can_appoint_teamlead(user, project),
+        # Верхняя секция на «Коммуникациях» и доступ к приватным URL.
+        'show_director_teamlead_comms': user_can_access_director_teamlead_comms(
+            user, project
+        ),
+        # Кнопка в шапке «Обзора»: только владельцу и только когда тимлид уже есть.
+        'show_teamlead_comms_button': bool(is_owner and project.teamlead_id),
     }
 
 

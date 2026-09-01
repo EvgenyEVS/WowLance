@@ -202,8 +202,8 @@ class RoomChatMessageAdmin(admin.ModelAdmin):
     Найти нужную комнату можно по проекту, автора — по email.
     """
 
-    list_display = ['room', 'author', 'short_text', 'created_at']
-    list_filter = ['created_at']
+    list_display = ['room', 'author', 'channel', 'short_text', 'created_at']
+    list_filter = ['channel', 'created_at']
     search_fields = ['room__project__name', 'author__email']
     autocomplete_fields = ['room', 'author']
     readonly_fields = ['created_at']

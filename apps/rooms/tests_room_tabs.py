@@ -336,8 +336,8 @@ class RoomCommsTabTests(RoomTabsTestCase):
         response = self.client.get(self.url)
         self.assertContains(response, 'Видеовстреча')
         self.assertContains(response, 'Чат комнаты')
-        self.assertContains(response, 'id="comms-video"')
-        self.assertContains(response, 'id="comms-chat"')
+        self.assertContains(response, 'id="comms-team-video"')
+        self.assertContains(response, 'id="comms-team-chat"')
 
     def test_page_reflects_chat_enabled_and_get_never_changes_it(self):
         """chat_enabled управляет секцией чата, но GET его не переключает.
@@ -349,14 +349,14 @@ class RoomCommsTabTests(RoomTabsTestCase):
         """
         self.client.force_login(self.director)
         self.assertTrue(self.project.room.chat_enabled)
-        self.assertContains(self.client.get(self.url), 'id="chat-messages"')
+        self.assertContains(self.client.get(self.url), 'id="chat-messages-team"')
         self.project.room.refresh_from_db()
         self.assertTrue(self.project.room.chat_enabled)
 
         Room.objects.filter(pk=self.project.room.pk).update(chat_enabled=False)
         response = self.client.get(self.url)
         self.assertContains(response, 'Чат отключён')
-        self.assertNotContains(response, 'id="chat-messages"')
+        self.assertNotContains(response, 'id="chat-messages-team"')
         self.project.room.refresh_from_db()
         self.assertFalse(self.project.room.chat_enabled)
 

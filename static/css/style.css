@@ -741,7 +741,22 @@ textarea::placeholder {
     color: var(--accent-contrast);
 }
 
-/* Вкладка «Коммуникации»: секции-каркас до подключения видео и чата. */
+/* Вкладка «Коммуникации»: два контура + кнопка в шапке Обзора. */
+.comms-contour + .comms-contour {
+    margin-top: 28px;
+}
+
+.comms-contour-title {
+    margin: 0 0 12px;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.room-teamlead-comms-btn {
+    margin-left: 10px;
+    vertical-align: middle;
+}
+
 .comms-status {
     flex-shrink: 0;
     align-self: center;
