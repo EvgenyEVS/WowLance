@@ -231,19 +231,22 @@ class FixedTeamleadUxRegressionTests(RoomCompletionTestCase):
     def test_teamlead_has_no_remove_button(self):
         self.assertNotIn('fr-remove', self.teamlead_row())
 
-    def test_numeric_count_above_one_is_still_accepted(self):
+    def test_numeric_count_above_one_is_rejected(self):
+        """Прямой POST count=2 не обходит правило «тимлид только один»."""
         self.client.force_login(self.director)
-        self.client.post(
+        response = self.client.post(
             reverse('rooms:room_functional_roles_update', args=[self.project.id]),
             {'role_key': 'teamlead', 'action': 'set', 'count': '2'},
             headers={'HX-Request': 'true'},
         )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'только один')
         self.project.refresh_from_db()
         counts = {
             entry['role_key']: entry['count']
             for entry in get_project_composition(self.project)
         }
-        self.assertEqual(counts['teamlead'], 2)
+        self.assertEqual(counts['teamlead'], 1)
 
 
 # ---------------------------------------------------------------------------

@@ -797,10 +797,10 @@ def room_comms(request, project_id):
 @login_required
 @require_safe
 def room_comms_teamlead(request, project_id):
-    """Хаб «Коммуникация с тимлидом»: карточки видео и чата без ленты.
+    """Страница «Коммуникация с тимлидом»: только приватный видео+чат.
 
-    GET не создаёт комнату у черновика. Доступ — только owner или teamlead
-    этого проекта; иначе 403.
+    Командный контур остаётся на вкладке `room_comms`. GET не создаёт
+    комнату у черновика. Доступ — только owner или teamlead этого проекта.
     """
     project = _get_accessible_project(request.user, project_id)
     if not user_can_access_director_teamlead_comms(request.user, project):
@@ -811,11 +811,21 @@ def room_comms_teamlead(request, project_id):
     if room is None:
         return redirect('rooms:project_detail', project_id=project.id)
 
+    chat_enabled = room.chat_enabled
     return render(request, 'rooms/room_comms_teamlead.html', {
         'project': project,
         'room': room,
         'dt_video_call_url': director_teamlead_video_call_url(project),
-        'active_tab': 'comms',
+        'dt_chat_form': RoomChatMessageForm() if chat_enabled else None,
+        'dt_chat_messages': (
+            chat.recent_chat_messages(
+                room, channel=RoomChatMessage.Channel.DIRECTOR_TEAMLEAD
+            )
+            if chat_enabled
+            else []
+        ),
+        # Отдельная страница: ни одна вкладка не подсвечивается как «текущая».
+        'active_tab': '',
         **room_nav_context(request.user, project),
     })
 
@@ -962,10 +972,8 @@ def room_dt_chat_send(request, project_id):
 
     if error:
         messages.error(request, error)
-    return redirect(
-        reverse('rooms:room_comms', kwargs={'project_id': project.id})
-        + '#comms-dt-chat'
-    )
+    return redirect('rooms:room_comms_teamlead', project_id=project.id)
+
 
 @login_required
 def room_team(request, project_id):

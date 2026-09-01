@@ -752,6 +752,15 @@ textarea::placeholder {
     font-weight: 700;
 }
 
+.room-title-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.room-title-link:hover {
+    text-decoration: underline;
+}
+
 .room-teamlead-comms-btn {
     margin-left: 10px;
     vertical-align: middle;

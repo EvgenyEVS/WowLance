@@ -702,15 +702,16 @@ class DirectorTeamleadCommsTests(RoomChatTestCase):
         self.assertIn('приватно', dt_body)
         self.assertNotIn('команда', dt_body)
 
-    def test_hub_has_cards_without_live_feed_and_draft_does_not_create_room(self):
+    def test_hub_shows_dt_chat_live_without_team_section(self):
         self.client.force_login(self.director)
         response = self.client.get(self.hub_url)
         self.assertEqual(response.status_code, 200)
         body = response.content.decode()
         self.assertIn('Коммуникация с тимлидом', body)
         self.assertIn('wowlance-dt-', body)
-        self.assertIn('#comms-dt-chat', body)
-        self.assertNotIn('id="chat-messages-dt"', body)
+        self.assertIn('id="comms-dt"', body)
+        self.assertIn('id="chat-messages-dt"', body)
+        self.assertNotIn('id="comms-team"', body)
 
         draft = Project.objects.create(
             owner=self.director, name='Черновик DT', status=Project.Status.DRAFT
@@ -735,3 +736,12 @@ class DirectorTeamleadCommsTests(RoomChatTestCase):
         self.client.force_login(self.freelancer)
         body = self.client.get(overview).content.decode()
         self.assertNotIn('Коммуникация с тимлидом', body)
+
+    def test_room_title_links_to_overview_from_any_tab(self):
+        overview = reverse('rooms:room_overview', kwargs={'project_id': self.project.id})
+        self.client.force_login(self.director)
+        for url in (self.comms_url, self.hub_url, overview):
+            with self.subTest(url=url):
+                body = self.client.get(url).content.decode()
+                self.assertIn(f'href="{overview}"', body)
+                self.assertIn('room-title-link', body)

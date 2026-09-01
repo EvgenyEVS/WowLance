@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% comment %}
+Страница «Коммуникация с тимлидом»: только приватный контур (видео + чат).
+
+Командная коммуникация остаётся на вкладке «Коммуникации». Доступ закрыт
+во view (`user_can_access_director_teamlead_comms`).
+{% endcomment %}
+
+{% block title %}Коммуникация с тимлидом — {{ project.name }}{% endblock %}
+
+{% block content %}
+{% include 'rooms/_room_header.html' %}
+
+<section class="comms-contour" id="comms-dt">
+    <h2 class="comms-contour-title">Коммуникация с тимлидом</h2>
+    <div class="room-grid">
+        <section class="info-block comms-section" id="comms-dt-video">
+            <div class="section-head">
+                <h3>Видеовстреча</h3>
+            </div>
+            <p class="muted">
+                Приватная комната только для вас и тимлида этого проекта.
+                Ссылка открывается в новой вкладке.
+            </p>
+            <p>
+                <a class="btn btn-primary" id="comms-dt-video-link"
+                   href="{{ dt_video_call_url }}"
+                   target="_blank" rel="noopener noreferrer">Открыть видеокомнату</a>
+            </p>
+            <p class="help-text">
+                Встреча идёт на публичном сервисе meet.jit.si. Адрес знает
+                только владелец и тимлид — команде проекта он не показывается.
+            </p>
+        </section>
+
+        <section class="info-block comms-section" id="comms-dt-chat">
+            <div class="section-head">
+                <h3>Чат с тимлидом</h3>
+                {% if not room.chat_enabled %}<span class="comms-status">Отключён</span>{% endif %}
+            </div>
+
+            {% if room.chat_enabled %}
+            <div class="chat-log"
+                 id="chat-messages-dt"
+                 role="log"
+                 aria-live="polite"
+                 hx-get="{% url 'rooms:room_dt_chat_messages' project.id %}"
+                 hx-trigger="every 7s [document.visibilityState === 'visible']"
+                 hx-swap="innerHTML">
+                {% include 'rooms/_chat_messages.html' with chat_messages=dt_chat_messages chat_is_director_teamlead=True %}
+            </div>
+
+            <form class="chat-form"
+                  method="post"
+                  action="{% url 'rooms:room_dt_chat_send' project.id %}"
+                  hx-post="{% url 'rooms:room_dt_chat_send' project.id %}"
+                  hx-target="#chat-messages-dt"
+                  hx-swap="innerHTML"
+                  hx-on::after-request="this.reset()">
+                {% csrf_token %}
+                {{ dt_chat_form.text }}
+                <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
+            </form>
+            {% else %}
+            <p class="muted">Чат отключён для этой комнаты.</p>
+            {% endif %}
+        </section>
+    </div>
+</section>
+{% endblock %}

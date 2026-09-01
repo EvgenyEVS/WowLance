@@ -10,7 +10,7 @@
 <div class="page-header">
     <div>
         <p><a href="{% url 'rooms:project_list' %}">← Проекты</a></p>
-        <h1>{{ project.name }}</h1>
+        <h1><a class="room-title-link" href="{% url 'rooms:room_overview' project.id %}">{{ project.name }}</a></h1>
         <p class="subtitle">Статус: {{ project.get_status_display }}
             {% if project.teamlead %} · Тимлид: {{ project.teamlead.full_name }}{% if active_tab == 'overview' and show_teamlead_comms_button %}
             <a class="btn btn-secondary btn-sm room-teamlead-comms-btn"
