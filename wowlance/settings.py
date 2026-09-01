@@ -155,6 +155,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'apps.rooms.context_processors.add_to_room',
+                'apps.pipeline.context_processors.freelancer_earnings',
             ],
         },
     },

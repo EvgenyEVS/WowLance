@@ -10,7 +10,15 @@
 <div class="page-header">
     <div>
         <p><a href="{% url 'rooms:project_list' %}">← Проекты</a></p>
-        <h1><a class="room-title-link" href="{% url 'rooms:room_overview' project.id %}">{{ project.name }}</a></h1>
+        <div class="room-title-row">
+            <h1><a class="room-title-link" href="{% url 'rooms:room_overview' project.id %}">{{ project.name }}</a></h1>
+            {% if user.role == 'freelancer' and freelancer_project_earned != None %}
+            <a href="{% url 'pipeline:freelancer_project_accruals' project.id %}"
+               class="btn btn-secondary btn-sm header-earned-link">
+                Я заработал {{ freelancer_project_earned|floatformat:0 }} долларов на этом проекте
+            </a>
+            {% endif %}
+        </div>
         <p class="subtitle">Статус: {{ project.get_status_display }}
             {% if project.teamlead %} · Тимлид: {{ project.teamlead.full_name }}{% endif %}
             {% if show_owner_dt_comms_button %}

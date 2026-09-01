@@ -94,6 +94,14 @@ body::before {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+}
+
+.header-earned-link {
+    white-space: normal;
+    text-align: left;
+    max-width: 28rem;
+    line-height: 1.25;
 }
 
 .logo {
@@ -759,6 +767,17 @@ textarea::placeholder {
 
 .room-title-link:hover {
     text-decoration: underline;
+}
+
+.room-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.room-title-row h1 {
+    margin: 0;
 }
 
 .room-teamlead-comms-btn,

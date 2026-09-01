@@ -536,6 +536,15 @@ def room_nav_context(user, project: Project) -> dict:
         getattr(user, 'is_authenticated', False)
         and project.teamlead_id == user.id
     )
+    is_freelancer = (
+        getattr(user, 'is_authenticated', False)
+        and getattr(user, 'role', None) == User.Roles.FREELANCER
+    )
+    freelancer_project_earned = None
+    if is_freelancer:
+        from apps.pipeline.accruals import earned_on_project
+
+        freelancer_project_earned = earned_on_project(user, project)
     return {
         'show_team_tab': user_can_view_team_tab(user, project),
         'show_tasks_tab': user_can_view_tasks_tab(user, project),
@@ -551,6 +560,8 @@ def room_nav_context(user, project: Project) -> dict:
         'show_teamlead_dt_comms_button': bool(is_teamlead),
         # Подписи DT-секции: owner говорит «с тимлидом», teamlead — «с директором».
         'dt_comms_labels_as_owner': bool(is_owner),
+        # Кнопка заработка фрилансера у названия проекта; у остальных ролей None.
+        'freelancer_project_earned': freelancer_project_earned,
     }
 
 

@@ -237,6 +237,10 @@ def review_report(*, report: Report, reviewer: User, approve: bool, comment: str
 
     report.save()
     task.save(update_fields=['status', 'updated_at'])
+    if approve:
+        from .accruals import ensure_accrual_for_approved_report
+
+        ensure_accrual_for_approved_report(report)
     return report
 
 

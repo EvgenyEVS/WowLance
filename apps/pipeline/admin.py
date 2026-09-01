@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Lead, LeadStatusHistory, Report, Task
+from .models import FreelancerAccrual, Lead, LeadStatusHistory, Report, Task
 
 
 class ReportInline(admin.TabularInline):
@@ -51,3 +51,14 @@ class LeadAdmin(admin.ModelAdmin):
 class LeadStatusHistoryAdmin(admin.ModelAdmin):
     list_display = ['lead', 'old_status', 'new_status', 'changed_by', 'created_at']
     list_filter = ['new_status']
+
+
+@admin.register(FreelancerAccrual)
+class FreelancerAccrualAdmin(admin.ModelAdmin):
+    list_display = [
+        'title', 'freelancer', 'project', 'amount', 'created_at',
+    ]
+    list_filter = ['created_at']
+    search_fields = ['title', 'freelancer__email', 'project__name']
+    autocomplete_fields = ['freelancer', 'project', 'report']
+    readonly_fields = ['created_at']

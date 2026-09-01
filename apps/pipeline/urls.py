@@ -66,4 +66,14 @@ urlpatterns = [
         views.teamlead_report,
         name='teamlead_report',
     ),
+    path(
+        'earnings/',
+        views.freelancer_accruals,
+        name='freelancer_accruals',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/earnings/',
+        views.freelancer_project_accruals,
+        name='freelancer_project_accruals',
+    ),
 ]
