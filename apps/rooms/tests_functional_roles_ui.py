@@ -283,7 +283,7 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
         self.assert_read_only(self.get_overview(self.freelancer))
 
     def test_freelancer_does_not_see_finance_metrics(self):
-        """Фрилансер видит упрощённый состав, без юнит-экономики и конфигуратора."""
+        """Фрилансер без юнит-экономики и конфигуратора на Обзоре."""
         self.save_composition(teamlead=1, seller_middle=2)
         config = FunctionalRoleConfig.objects.get(role_key='seller_middle')
         summary = get_unit_economics_summary(self.project)
@@ -291,9 +291,9 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
 
         self.assertFalse(response.context['can_view_unit_economics_finance'])
         self.assertFalse(response.context['can_view_composition_staffing'])
-        self.assertContains(response, 'Состав команды')
-        self.assertContains(response, 'id="team-composition-overview"')
-        self.assertContains(response, 'Закрытые лиды (всего)')
+        self.assertNotContains(response, 'Состав команды')
+        self.assertNotContains(response, 'team-composition-overview')
+        self.assertNotContains(response, 'Закрытые лиды')
         self.assertNotContains(response, 'functional-roles-configurator')
         self.assertNotContains(response, 'Юнит-экономика')
         self.assertNotContains(response, 'Производительность')
