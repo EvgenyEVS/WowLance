@@ -1,0 +1,43 @@
+{% comment %}
+Состав команды на Обзоре для фрилансера: функция, имя, закрытые лиды.
+
+Без юнит-экономики и без колонки подбора. «Закрытые лиды» = карточки,
+которые исполнитель создал (всего / на этом проекте).
+{% endcomment %}
+<div class="info-block" id="team-composition-overview" style="margin-top: 16px;">
+    <div class="section-head">
+        <h3>Состав команды</h3>
+    </div>
+    <div class="fr-table-scroll">
+        <table class="data-table fr-table">
+            <thead>
+                <tr>
+                    <th scope="col">Функция</th>
+                    <th scope="col">Имя</th>
+                    <th scope="col">Закрытые лиды (всего)</th>
+                    <th scope="col">Закрытые лиды (проект)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in team_composition_rows %}
+                <tr>
+                    <th scope="row" class="fr-role">{{ row.role_label }}</th>
+                    <td>
+                        {% if row.is_vacancy %}
+                        <span class="muted">—</span>
+                        {% else %}
+                        {{ row.name }}
+                        {% endif %}
+                    </td>
+                    <td class="fr-num">{{ row.leads_total }}</td>
+                    <td class="fr-num">{{ row.leads_on_project }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="muted">Состав команды ещё не задан.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

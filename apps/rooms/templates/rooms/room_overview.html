@@ -5,9 +5,18 @@
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
+{% if is_freelancer_task_preview %}
+{% if my_membership and my_membership.role_in_room == 'freelancer' and my_membership.ready_status != 'ready' %}
+<form method="post" action="{% url 'rooms:room_confirm_ready' project.id %}" style="margin-bottom: 16px;">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Готов к работе</button>
+</form>
+{% endif %}
+{% else %}
 {% comment %}
 SLA-блок стартовой задачи. Формулировки говорят о стартовой задаче,
 а не о фактическом звонке. Источник истины — сохранённый Task.deadline.
+У фрилансера баннер ниже, только если задача назначена ему.
 {% endcomment %}
 {% if start_calls_task %}
     {% if start_calls_is_done %}
@@ -32,12 +41,13 @@ SLA-блок стартовой задачи. Формулировки гово�
     готовность, появится стартовая задача со сроком 24 часа.
 </div>
 {% endif %}
+{% endif %}
 
 <div class="room-hub">
     {% comment %}
-    Порядок Обзора: метрики → лента + вводные → канбан → состав.
-    Операционка (управление командой, постановка задач) у тимлида.
-    Фрилансер не видит конфигуратор, каталог и список команды.
+    Порядок Обзора: для директора/тимлида — метрики → лента + вводные →
+    канбан → состав. Для фрилансера — свои цифры → вводные → мои задачи →
+    (опционально) свой SLA. Конфигуратор только при can_view_unit_economics_finance.
     {% endcomment %}
     {% if project_metrics %}
     <div class="metrics-strip" id="project-overview-metrics">
@@ -64,7 +74,29 @@ SLA-блок стартовой задачи. Формулировки гово�
     </div>
     {% endif %}
 
+    {% if my_project_stats %}
+    <div class="metrics-strip" id="freelancer-project-stats">
+        <div class="metric-card">
+            <span class="metric-label">Открытые задачи</span>
+            <strong class="metric-value">{{ my_project_stats.open_tasks }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">На проверке</span>
+            <strong class="metric-value">{{ my_project_stats.tasks_in_review }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Лиды</span>
+            <strong class="metric-value">{{ my_project_stats.leads }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Отчёты приняты</span>
+            <strong class="metric-value">{{ my_project_stats.reports_approved }}</strong>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="room-grid">
+        {% if not is_freelancer_task_preview %}
         <div class="info-block">
             <h3>Лента событий</h3>
             {% if activities %}
@@ -82,6 +114,7 @@ SLA-блок стартовой задачи. Формулировки гово�
             </div>
             {% endif %}
         </div>
+        {% endif %}
 
         <div class="info-block" id="project-vision">
             <div class="section-head">
@@ -167,6 +200,26 @@ SLA-блок стартовой задачи. Формулировки гово�
         {% endif %}
     </div>
 
+    {% if is_freelancer_task_preview and start_calls_task %}
+        {% if start_calls_is_done %}
+        <div class="sla-banner sla-done" style="margin-top: 16px;">
+            <strong>Стартовая задача «{{ start_calls_task.title }}» закрыта.</strong>
+            <span class="sla-deadline">Дедлайн SLA был {{ start_calls_deadline|date:"d.m.Y H:i" }}</span>
+            <span class="sla-note">Закрытие задачи фиксирует работу по ней, а не факт состоявшегося звонка.</span>
+        </div>
+        {% else %}
+        <div class="sla-banner {% if start_calls_is_overdue %}sla-overdue{% else %}sla-active{% endif %}"
+             style="margin-top: 16px;"
+             data-sla-deadline="{{ start_calls_deadline|date:'c' }}">
+            <strong>SLA стартовой задачи «{{ start_calls_task.title }}»</strong>
+            <span class="sla-deadline">Дедлайн: {{ start_calls_deadline|date:"d.m.Y H:i" }}</span>
+            <span class="sla-countdown" data-sla-countdown>
+                {% if start_calls_is_overdue %}SLA просрочен{% else %}Осталось: {{ start_calls_deadline|timeuntil }}{% endif %}
+            </span>
+        </div>
+        {% endif %}
+    {% endif %}
+
     {% if can_appoint_teamlead and not project.teamlead_id %}
     <div class="info-block" style="margin-top: 16px;" id="appoint-teamlead">
         <h3>Назначить тимлида</h3>
@@ -189,9 +242,15 @@ SLA-блок стартовой задачи. Формулировки гово�
     </div>
     {% endif %}
 
+    {% if is_freelancer_task_preview %}
+    {% include 'rooms/_team_composition_overview.html' %}
+    {% endif %}
+
+    {% if can_view_unit_economics_finance %}
     <div class="fr-configurator-slot" style="margin-top: 16px;">
         {% include 'rooms/_unit_economics_table.html' %}
     </div>
+    {% endif %}
 
     {% if can_view_composition_staffing and staffing_summary.total %}
     <div class="info-block" style="margin-top: 16px;">
@@ -215,13 +274,6 @@ SLA-блок стартовой задачи. Формулировки гово�
     </div>
     {% endif %}
 </div>
-
-{% if my_membership and my_membership.role_in_room == 'freelancer' and my_membership.ready_status != 'ready' %}
-<form method="post" action="{% url 'rooms:room_confirm_ready' project.id %}" style="margin-top: 16px;">
-    {% csrf_token %}
-    <button type="submit" class="btn btn-primary">Готов к работе</button>
-</form>
-{% endif %}
 {% endblock %}
 
 {% block extra_js %}

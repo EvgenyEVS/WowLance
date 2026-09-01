@@ -283,7 +283,7 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
         self.assert_read_only(self.get_overview(self.freelancer))
 
     def test_freelancer_does_not_see_finance_metrics(self):
-        """Фрилансер видит состав/лиды, без стоимости, часов, CPL, прогноза."""
+        """Фрилансер видит упрощённый состав, без юнит-экономики и конфигуратора."""
         self.save_composition(teamlead=1, seller_middle=2)
         config = FunctionalRoleConfig.objects.get(role_key='seller_middle')
         summary = get_unit_economics_summary(self.project)
@@ -292,11 +292,14 @@ class ConfiguratorAccessTests(ConfiguratorTestCase):
         self.assertFalse(response.context['can_view_unit_economics_finance'])
         self.assertFalse(response.context['can_view_composition_staffing'])
         self.assertContains(response, 'Состав команды')
+        self.assertContains(response, 'id="team-composition-overview"')
+        self.assertContains(response, 'Закрытые лиды (всего)')
+        self.assertNotContains(response, 'functional-roles-configurator')
         self.assertNotContains(response, 'Юнит-экономика')
-        self.assertContains(response, config.productivity_text)
-        self.assertContains(response, f'{config.hot_leads_per_month}')
-        self.assertContains(response, 'Hot leads / мес')
-        self.assertContains(response, 'Производительность')
+        self.assertNotContains(response, 'Производительность')
+        self.assertNotContains(response, 'Hot leads / мес')
+        self.assertNotContains(response, config.productivity_text)
+        self.assertNotContains(response, f'{config.hot_leads_per_month}')
 
         self.assertNotContains(response, 'Стоимость / мес')
         self.assertNotContains(response, 'Часы / мес')

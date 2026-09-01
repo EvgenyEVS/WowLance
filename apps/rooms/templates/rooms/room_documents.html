@@ -45,9 +45,11 @@
     {% empty %}
     <div class="empty-state">
         <h3>Папка пуста</h3>
-        <p>Загрузите презентацию, скрипт звонка или бриф — как в Dropbox комнаты.</p>
         {% if can_upload %}
+        <p>Загрузите презентацию, скрипт звонка или бриф — как в Dropbox комнаты.</p>
         <a href="#upload" class="btn btn-primary" onclick="document.getElementById('upload').scrollIntoView({behavior:'smooth'}); return false;">Загрузить файл</a>
+        {% else %}
+        <p>Скрипты, бриф и презентации загружает тимлид проекта. Когда файлы появятся, они будут на этой вкладке.</p>
         {% endif %}
     </div>
     {% endfor %}

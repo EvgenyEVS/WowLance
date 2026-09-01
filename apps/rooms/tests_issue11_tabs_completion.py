@@ -868,9 +868,12 @@ class OverviewKanbanPreviewTests(RoomCompletionTestCase):
 
         self.assertContains(response, 'Мои задачи')
         self.assertNotContains(response, 'Задачи (канбан)')
+        self.assertNotContains(response, 'kanban-board')
         for title in self.KANBAN_COLUMN_TITLES:
             with self.subTest(column=title):
-                self.assertNotContains(response, title)
+                # Заголовки колонок канбана — не путать с меткой «На проверке»
+                # в полосе my_project_stats фрилансера.
+                self.assertNotContains(response, f'<h4>{title}')
         self.assertEqual(response.context['kanban_preview'], [])
 
     def test_freelancer_does_not_see_foreign_tasks(self):

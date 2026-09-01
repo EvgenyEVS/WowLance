@@ -35,7 +35,11 @@ from .models import (
     TeamleadInvite,
 )
 from .director_stats import project_overview_metrics
-from .onboarding import staffing_projects_for_user
+from .onboarding import (
+    freelancer_project_stats,
+    staffing_projects_for_user,
+    team_composition_lead_rows,
+)
 from .presets import (
     ARCHITECTURE_PRESETS,
     apply_preset_to_form_initial,
@@ -438,19 +442,27 @@ def room_overview(request, project_id):
     room = ensure_room_for_project(project)
     members = room.members.select_related('user').all()
     my_membership = members.filter(user=request.user).first()
-    activities = (
-        room.activities.select_related('actor').all()[:ROOM_ACTIVITY_FEED_LIMIT]
-    )
     is_freelancer_task_preview = request.user.role == User.Roles.FREELANCER
+    # Лента комнаты — операционка; фрилансеру на Обзоре её не показываем.
+    if is_freelancer_task_preview:
+        activities = []
+    else:
+        activities = (
+            room.activities.select_related('actor').all()[:ROOM_ACTIVITY_FEED_LIMIT]
+        )
     project_tasks = Task.objects.filter(project=project).select_related('assignee')
     if is_freelancer_task_preview:
         my_tasks_preview = list(
             project_tasks.filter(assignee=request.user)[:FREELANCER_TASK_PREVIEW_LIMIT]
         )
         kanban_preview = []
+        my_project_stats = freelancer_project_stats(request.user, project)
+        team_composition_rows = team_composition_lead_rows(project, room)
     else:
         my_tasks_preview = []
         kanban_preview = task_columns(project_tasks[:50])
+        my_project_stats = None
+        team_composition_rows = None
     cards = selectors.slot_cards(room)
     staffing_summary = selectors.staffing_summary(cards)
     # Метрики шапки — для управленческого контура (директор/тимлид),
@@ -462,6 +474,12 @@ def room_overview(request, project_id):
     )
 
     start_calls_task = get_start_calls_task(project)
+    # Фрилансер видит SLA только по стартовой задаче, назначенной ему.
+    if is_freelancer_task_preview and (
+        start_calls_task is None
+        or start_calls_task.assignee_id != request.user.id
+    ):
+        start_calls_task = None
     start_calls_deadline = start_calls_task.deadline if start_calls_task else None
     start_calls_is_done = bool(
         start_calls_task and start_calls_task.status == Task.Status.CLOSED
@@ -497,6 +515,8 @@ def room_overview(request, project_id):
         'slot_cards': cards,
         'staffing_summary': staffing_summary,
         'project_metrics': overview_metrics,
+        'my_project_stats': my_project_stats,
+        'team_composition_rows': team_composition_rows,
         'start_calls_task': start_calls_task,
         'start_calls_deadline': start_calls_deadline,
         'start_calls_is_overdue': start_calls_is_overdue,

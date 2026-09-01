@@ -287,6 +287,39 @@ class RoomMaterialsTabTests(RoomTabsTestCase):
         self.assertEqual(self.url, f'/projects/{self.project.id}/room/documents/')
         self.assertEqual(self.client.get(self.url).status_code, 200)
 
+    def test_freelancer_empty_folder_is_reader_copy(self):
+        """Пустая папка у фрилансера: текст читателя, без призыва загрузить."""
+        self.client.force_login(self.freelancer)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Папка пуста')
+        self.assertContains(response, 'загружает тимлид проекта')
+        self.assertNotContains(response, 'Загрузите презентацию')
+        self.assertNotContains(response, 'Загрузить файл')
+        self.assertNotContains(response, 'enctype="multipart/form-data"')
+        self.assertNotContains(response, 'как в Dropbox')
+
+    def test_teamlead_empty_folder_keeps_uploader_copy(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Папка пуста')
+        self.assertContains(response, 'Загрузите презентацию')
+        self.assertContains(response, 'Загрузить файл')
+        self.assertContains(response, 'enctype="multipart/form-data"')
+
+    def test_freelancer_sees_existing_document_title(self):
+        RoomDocument.objects.create(
+            room=self.project.room,
+            title='Презентация продукта',
+            file=SimpleUploadedFile('deck.txt', b'deck', content_type='text/plain'),
+            uploaded_by=self.teamlead,
+        )
+        self.client.force_login(self.freelancer)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Презентация продукта')
+        self.assertNotContains(response, 'Папка пуста')
+
 
 class RoomCommsTabTests(RoomTabsTestCase):
     """Пункты 14–18: доступ к коммуникациям и содержимое каркаса."""

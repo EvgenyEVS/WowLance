@@ -1,6 +1,6 @@
 """Онбординг-чеклисты и метрики дашбордов."""
 
-from apps.pipeline.models import Lead, Task
+from apps.pipeline.models import Lead, Report, Task
 from apps.users.models import User
 
 from .models import Project, RoomMember
@@ -123,6 +123,136 @@ def freelancer_metrics(user) -> dict:
         'open_tasks': open_tasks,
         'rating': rating,
     }
+
+
+def freelancer_project_stats(user, project: Project) -> dict:
+    """Свои цифры фрилансера на одном проекте — полоса Обзора комнаты.
+
+    Не путать с `freelancer_metrics` на дашборде `/`: здесь только этот
+    проект, без рейтинга и счётчика комнат.
+    """
+    my_tasks = Task.objects.filter(project=project, assignee=user)
+    return {
+        'open_tasks': my_tasks.exclude(status=Task.Status.CLOSED).count(),
+        'tasks_in_review': my_tasks.filter(
+            status=Task.Status.READY_FOR_REVIEW,
+        ).count(),
+        'leads': Lead.objects.filter(project=project, creator=user).count(),
+        'reports_approved': Report.objects.filter(
+            task__project=project,
+            author=user,
+            review_status=Report.ReviewStatus.APPROVED,
+        ).count(),
+    }
+
+
+def team_composition_lead_rows(project: Project, room) -> list[dict]:
+    """Состав команды для Обзора: функция → имя → закрытые лиды.
+
+    «Закрытые лиды» в MVP = карточки лидов, созданные исполнителем
+    (`Lead.creator`): отдельного статуса closed у лида нет. Считаем
+    всего по платформе и только на этом проекте.
+    """
+    from collections import defaultdict
+
+    from django.db.models import Count
+
+    from .staffing import selectors
+    from .unit_economics import get_unit_economics_summary
+
+    summary = get_unit_economics_summary(project)
+    if not summary.rows:
+        return []
+
+    by_role: dict[str, list] = defaultdict(list)
+    for card in selectors.slot_cards(room):
+        by_role[card.slot.role_key].append(card)
+
+    user_ids = [
+        card.member.user_id
+        for cards in by_role.values()
+        for card in cards
+        if card.member is not None
+    ]
+    # Тимлид может быть назначен без слота — всё равно показываем строку.
+    if project.teamlead_id and project.teamlead_id not in user_ids:
+        user_ids.append(project.teamlead_id)
+
+    totals = {
+        row['creator_id']: row['c']
+        for row in (
+            Lead.objects.filter(creator_id__in=user_ids)
+            .values('creator_id')
+            .annotate(c=Count('id'))
+        )
+    }
+    on_project = {
+        row['creator_id']: row['c']
+        for row in (
+            Lead.objects.filter(project=project, creator_id__in=user_ids)
+            .values('creator_id')
+            .annotate(c=Count('id'))
+        )
+    }
+
+    rows: list[dict] = []
+    for econ in summary.rows:
+        cards = by_role.get(econ.role_key, [])
+        assigned = [card for card in cards if card.member is not None]
+        vacancies = [card for card in cards if card.member is None]
+
+        if (
+            econ.role_key == 'teamlead'
+            and not assigned
+            and project.teamlead_id
+        ):
+            uid = project.teamlead_id
+            rows.append({
+                'role_key': econ.role_key,
+                'role_label': econ.label,
+                'name': project.teamlead.full_name,
+                'user_id': uid,
+                'leads_total': totals.get(uid, 0),
+                'leads_on_project': on_project.get(uid, 0),
+                'is_vacancy': False,
+            })
+            continue
+
+        for card in assigned:
+            uid = card.member.user_id
+            rows.append({
+                'role_key': econ.role_key,
+                'role_label': econ.label,
+                'name': card.member.user.full_name,
+                'user_id': uid,
+                'leads_total': totals.get(uid, 0),
+                'leads_on_project': on_project.get(uid, 0),
+                'is_vacancy': False,
+            })
+        for _card in vacancies:
+            rows.append({
+                'role_key': econ.role_key,
+                'role_label': econ.label,
+                'name': None,
+                'user_id': None,
+                'leads_total': 0,
+                'leads_on_project': 0,
+                'is_vacancy': True,
+            })
+        # Слотов ещё нет, но функция в составе есть — одна пустая строка.
+        if not cards and econ.count:
+            for _ in range(econ.count):
+                rows.append({
+                    'role_key': econ.role_key,
+                    'role_label': econ.label,
+                    'name': None,
+                    'user_id': None,
+                    'leads_total': 0,
+                    'leads_on_project': 0,
+                    'is_vacancy': True,
+                })
+    return rows
+
 
 
 def teamlead_metrics(user) -> dict:
