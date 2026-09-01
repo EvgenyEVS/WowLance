@@ -305,3 +305,48 @@ class LeadStatusHistory(models.Model):
 
     def __str__(self):
         return f'{self.old_status} → {self.new_status}'
+
+
+class FreelancerAccrual(models.Model):
+    """Журнал начислений фрилансеру (демо-заглушка, не кошелёк)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    freelancer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='accruals',
+        verbose_name=_('Фрилансер'),
+    )
+    project = models.ForeignKey(
+        'rooms.Project',
+        on_delete=models.CASCADE,
+        related_name='freelancer_accruals',
+        verbose_name=_('Проект'),
+    )
+    report = models.OneToOneField(
+        Report,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='accrual',
+        verbose_name=_('Отчёт'),
+    )
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        verbose_name=_('Сумма (USD)'),
+    )
+    title = models.CharField(max_length=255, verbose_name=_('Основание'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Начислено'))
+
+    class Meta:
+        verbose_name = _('Начисление фрилансеру')
+        verbose_name_plural = _('Начисления фрилансерам')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.title} — {self.amount}'
+
+    def clean(self):
+        if self.amount is not None and self.amount < 0:
+            raise ValidationError({'amount': _('Сумма не может быть отрицательной.')})

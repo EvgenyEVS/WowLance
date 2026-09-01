@@ -25,7 +25,7 @@ from .forms import (
     TeamleadPeriodReportForm,
 )
 from .kanban import lead_columns, task_columns
-from .models import Lead, Report, Task
+from .models import FreelancerAccrual, Lead, Report, Task
 from .teamlead_report import build_teamlead_period_report
 from .services import (
     TaskCloseError,
@@ -414,4 +414,40 @@ def teamlead_report(request):
     return render(request, 'pipeline/teamlead_report.html', {
         'form': form,
         'report': report,
+    })
+
+
+@login_required
+def freelancer_accruals(request):
+    """Общая история начислений текущего фрилансера."""
+    if request.user.role != User.Roles.FREELANCER:
+        raise PermissionDenied('История начислений доступна только фрилансеру.')
+    accruals = (
+        FreelancerAccrual.objects.filter(freelancer=request.user)
+        .select_related('project', 'report', 'report__task')
+    )
+    return render(request, 'pipeline/freelancer_accruals.html', {
+        'accruals': accruals,
+        'project': None,
+    })
+
+
+@login_required
+def freelancer_project_accruals(request, project_id):
+    """История начислений фрилансера на одном проекте (страница комнаты)."""
+    if request.user.role != User.Roles.FREELANCER:
+        raise PermissionDenied('История начислений доступна только фрилансеру.')
+    project = _get_project(request.user, project_id)
+    accruals = (
+        FreelancerAccrual.objects.filter(
+            freelancer=request.user,
+            project=project,
+        )
+        .select_related('project', 'report', 'report__task')
+    )
+    return render(request, 'pipeline/freelancer_accruals.html', {
+        'project': project,
+        'accruals': accruals,
+        'active_tab': '',
+        **room_nav_context(request.user, project),
     })

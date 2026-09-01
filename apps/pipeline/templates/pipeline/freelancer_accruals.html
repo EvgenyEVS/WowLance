@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+
+{% comment %}
+Журнал начислений фрилансера: общий (`/earnings/`) или по проекту
+(`/projects/.../room/earnings/`). Не кошелёк и не выплата — только история.
+{% endcomment %}
+
+{% block title %}{% if project %}Начисления — {{ project.name }}{% else %}Мои начисления{% endif %}{% endblock %}
+
+{% block content %}
+{% if project %}
+{% include 'rooms/_room_header.html' %}
+{% else %}
+<div class="page-header">
+    <div>
+        <h1>Мои начисления</h1>
+        <p class="subtitle">Журнал начислений на WowLance</p>
+    </div>
+</div>
+{% endif %}
+
+<div class="info-block">
+    {% if accruals %}
+    <div class="fr-table-scroll">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th scope="col">Дата</th>
+                    {% if not project %}<th scope="col">Проект</th>{% endif %}
+                    <th scope="col">Основание</th>
+                    <th scope="col">Сумма</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in accruals %}
+                <tr>
+                    <td>{{ row.created_at|date:"d.m.Y H:i" }}</td>
+                    {% if not project %}
+                    <td>
+                        <a href="{% url 'rooms:room_overview' row.project_id %}">{{ row.project.name }}</a>
+                    </td>
+                    {% endif %}
+                    <td>{{ row.title }}</td>
+                    <td class="fr-num">{{ row.amount|floatformat:0 }} долларов</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>Начислений пока нет.</p>
+    </div>
+    {% endif %}
+    <p class="help-text" style="margin-top: 12px;">
+        Это журнал начислений, не кошелёк и не выплата.
+    </p>
+</div>
+{% endblock %}
