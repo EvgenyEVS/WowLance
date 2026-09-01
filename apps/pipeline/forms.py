@@ -1,9 +1,84 @@
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from apps.rooms.models import Project
 from apps.users.models import User
 from .models import Lead, Report, Task
 from .services import parse_checklist_text
+from .teamlead_report import default_report_period
+
+
+class TeamleadPeriodReportForm(forms.Form):
+    """Параметры отчёта тимлида за период: «с», «по» и проект.
+
+    Форма только разбирает и валидирует запрос — агрегация живёт в
+    `apps.pipeline.teamlead_report.build_teamlead_period_report`.
+
+    Обе даты `required=False` намеренно: по контракту и пустой запрос
+    (`/teamlead/report/`), и явно пустые параметры
+    (`?date_from=&date_to=`) означают период по умолчанию — последние семь
+    календарных дней, включая сегодня. Подстановка дефолта происходит в
+    `clean()`, поэтому связанная форма с пустыми данными остаётся валидной.
+
+    Пустой `project` означает «Все проекты»: сервис в этом случае берёт все
+    проекты, где пользователь — тимлид.
+    """
+
+    date_from = forms.DateField(
+        label=_('С'),
+        required=False,
+        widget=forms.DateInput(
+            attrs={'class': 'form-control', 'type': 'date'},
+            format='%Y-%m-%d',
+        ),
+        input_formats=['%Y-%m-%d'],
+    )
+    date_to = forms.DateField(
+        label=_('По'),
+        required=False,
+        widget=forms.DateInput(
+            attrs={'class': 'form-control', 'type': 'date'},
+            format='%Y-%m-%d',
+        ),
+        input_formats=['%Y-%m-%d'],
+    )
+    project = forms.ModelChoiceField(
+        label=_('Проект'),
+        queryset=Project.objects.none(),
+        required=False,
+        empty_label=_('Все проекты'),
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        default_from, default_to = default_report_period()
+        self.fields['date_from'].initial = default_from
+        self.fields['date_to'].initial = default_to
+        if user is not None and getattr(user, 'is_authenticated', False):
+            # Без фильтра по статусу: отчёт за прошедший период нужен и по
+            # завершённому проекту. Сужение queryset'ом закрывает выбор
+            # чужого проекта на уровне формы; отдельный 403 за чужой
+            # `project_id` выдаёт view.
+            self.fields['project'].queryset = (
+                Project.objects.filter(teamlead=user).order_by('created_at')
+            )
+
+    def clean(self):
+        cleaned = super().clean()
+        default_from, default_to = default_report_period()
+        date_from = cleaned.get('date_from') or default_from
+        date_to = cleaned.get('date_to') or default_to
+
+        if date_from > date_to:
+            raise forms.ValidationError(
+                _('Дата «С» не может быть позже даты «По».')
+            )
+
+        cleaned['date_from'] = date_from
+        cleaned['date_to'] = date_to
+        return cleaned
 
 
 class TaskCreateForm(forms.Form):

@@ -22,9 +22,11 @@ from .forms import (
     ReportReviewForm,
     ReportSubmitForm,
     TaskCreateForm,
+    TeamleadPeriodReportForm,
 )
 from .kanban import lead_columns, task_columns
 from .models import Lead, Report, Task
+from .teamlead_report import build_teamlead_period_report
 from .services import (
     TaskCloseError,
     close_task,
@@ -365,4 +367,51 @@ def manager_inbox(request):
     return render(request, 'pipeline/manager_inbox.html', {
         'tasks': tasks,
         'has_platform_manager': has_platform_manager,
+    })
+
+
+@login_required
+def teamlead_report(request):
+    """Отчёт тимлида за период. Только чтение, только GET.
+
+    View тонкий: разбор запроса — в `TeamleadPeriodReportForm`, все цифры —
+    в `build_teamlead_period_report`. Здесь остаются ровно две вещи, которые
+    формой не выражаются: ролевой guard и 403 за чужой `project_id`.
+
+    Право даёт только роль TEAMLEAD. `user_can_access_project` сознательно не
+    используется: он пропустил бы владельца-директора и любого участника
+    комнаты, а отчёт — рабочее место тимлида.
+    """
+    if request.user.role != User.Roles.TEAMLEAD:
+        raise PermissionDenied('Отчёт за период доступен только тимлиду.')
+
+    # Чужой проект обязан давать 403, а не «Выберите корректный вариант»
+    # от ModelChoiceField: иначе владелец чужого проекта по ответу формы
+    # понимал бы, что проект существует.
+    raw_project = (request.GET.get('project') or '').strip()
+    if raw_project:
+        try:
+            requested = Project.objects.get(pk=raw_project)
+        except (Project.DoesNotExist, ValidationError, ValueError):
+            # Несуществующий или битый id — обычная ошибка формы (200),
+            # а не 403 и тем более не 500.
+            requested = None
+        if requested is not None and requested.teamlead_id != request.user.id:
+            raise PermissionDenied('Это не ваш проект.')
+
+    # Форма связывается всегда, в том числе пустым QueryDict: по контракту
+    # запрос без параметров означает период по умолчанию, а не пустой экран.
+    form = TeamleadPeriodReportForm(request.GET, user=request.user)
+    report = None
+    if form.is_valid():
+        report = build_teamlead_period_report(
+            user=request.user,
+            date_from=form.cleaned_data['date_from'],
+            date_to=form.cleaned_data['date_to'],
+            project=form.cleaned_data['project'],
+        )
+
+    return render(request, 'pipeline/teamlead_report.html', {
+        'form': form,
+        'report': report,
     })

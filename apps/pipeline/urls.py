@@ -61,4 +61,9 @@ urlpatterns = [
         name='lead_qualify',
     ),
     path('manager/inbox/', views.manager_inbox, name='manager_inbox'),
+    path(
+        'teamlead/report/',
+        views.teamlead_report,
+        name='teamlead_report',
+    ),
 ]

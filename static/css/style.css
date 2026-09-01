@@ -2316,3 +2316,52 @@ textarea::placeholder {
     flex-direction: column;
     gap: 10px;
 }
+
+/* ---------------------------------------------------------------------------
+   Отчёт тимлида за период + печать
+   Своих цветов и компонентов не вводит: страница собрана из существующих
+   feature-card / metrics-strip / data-table. Здесь только раскладка шапки
+   и правила @media print.
+   --------------------------------------------------------------------------- */
+
+.report-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.report-scope {
+    color: var(--text-dim);
+    margin: 4px 0 20px;
+}
+
+.report-block {
+    margin-bottom: 20px;
+}
+
+@media print {
+    /* Экранная обвязка на бумаге не нужна: остаётся только сам отчёт. */
+    .site-header,
+    .site-footer,
+    .no-print {
+        display: none !important;
+    }
+
+    body {
+        background: #fff;
+        color: #000;
+    }
+
+    .report-block {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    .feature-card,
+    .metric-card,
+    .data-table {
+        box-shadow: none;
+    }
+}

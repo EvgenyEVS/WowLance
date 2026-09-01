@@ -19,6 +19,29 @@
             <strong class="metric-value">{{ metrics.warm_hot_leads }}</strong>
         </div>
     </div>
+    <div class="feature-card">
+        <h3>Отчёт за период</h3>
+        <p>Задачи, отчёты и лиды за выбранные даты — по проекту или по всем сразу</p>
+        <form method="get" action="{% url 'pipeline:teamlead_report' %}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="{{ report_form.date_from.id_for_label }}">С</label>
+                    {{ report_form.date_from }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ report_form.date_to.id_for_label }}">По</label>
+                    {{ report_form.date_to }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ report_form.project.id_for_label }}">Проект</label>
+                    {{ report_form.project }}
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Сформировать</button>
+            </div>
+        </form>
+    </div>
     <div class="features">
         <div class="feature-card">
             <h3>Проекты</h3>

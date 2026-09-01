@@ -253,7 +253,16 @@ def close_task(task: Task, user: User) -> Task:
             raise TaskCloseError('Задача должна быть в статусе «Утверждена».')
 
     task.status = Task.Status.CLOSED
-    task.save(update_fields=['status', 'updated_at'])
+    update_fields = ['status', 'updated_at']
+    # Фактический момент закрытия фиксируется ровно один раз. Повторный
+    # вызов возможен для задач с `report_required=False` (Quality Gate выше
+    # их не проверяет) — например стартовой задачи SLA. Такой вызов не
+    # должен сдвигать исходное время: SLA и статистика исполнителей
+    # считают по первому закрытию, а не по последнему нажатию кнопки.
+    if task.closed_at is None:
+        task.closed_at = timezone.now()
+        update_fields.append('closed_at')
+    task.save(update_fields=update_fields)
     return task
 
 

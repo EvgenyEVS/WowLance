@@ -1,4 +1,5 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -177,6 +178,137 @@ class TaskReportFlowTests(PipelineProjectMixin, TestCase):
                 self.assertFalse(
                     Task.objects.filter(title=f'Задача от {actor.role}').exists()
                 )
+
+
+class TaskClosedAtTests(PipelineProjectMixin, TestCase):
+    """`Task.closed_at` — фактический момент закрытия задачи.
+
+    Отдельно от `updated_at` (`auto_now`, сдвигается при любом сохранении):
+    SLA стартовой задачи, статистика исполнителей и будущий рейтинг должны
+    опираться на неизменную отметку первого закрытия.
+    """
+
+    def setUp(self):
+        self._build_project('closed')
+
+    def _approved_task(self, title='Задача с отчётом'):
+        """Задача с `report_required=True`, доведённая до статуса APPROVED."""
+        task = create_task(
+            project=self.project,
+            assignee=self.freelancer,
+            created_by=self.teamlead,
+            title=title,
+        )
+        report = submit_report(
+            task=task,
+            author=self.freelancer,
+            content_text='Отчёт по задаче: обзвонил десять контактов.',
+            attachment=_png(),
+        )
+        review_report(report=report, reviewer=self.teamlead, approve=True, comment='Ок')
+        task.refresh_from_db()
+        return task
+
+    def _no_report_task(self, title='Задача без отчёта'):
+        """Аналог стартовой задачи SLA: `report_required=False`."""
+        return create_task(
+            project=self.project,
+            assignee=self.freelancer,
+            created_by=self.teamlead,
+            title=title,
+            report_required=False,
+        )
+
+    def test_new_task_has_no_closed_at(self):
+        task = self._no_report_task('Ещё не закрыта')
+        self.assertIsNone(task.closed_at)
+
+    # A. Обычная задача с обязательным отчётом.
+    def test_close_sets_closed_at_for_report_required_task(self):
+        task = self._approved_task()
+        self.assertIsNone(task.closed_at)
+
+        close_task(task, self.teamlead)
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, Task.Status.CLOSED)
+        self.assertIsNotNone(task.closed_at)
+
+    # B. Время: closed_at — именно момент закрытия, а не что-то ещё.
+    def test_closed_at_stores_the_moment_of_closing(self):
+        task = self._approved_task('Задача с фиксированным временем')
+        moment = timezone.make_aware(
+            datetime(2026, 3, 17, 12, 30, 45),
+            timezone.get_current_timezone(),
+        )
+
+        with patch('apps.pipeline.services.timezone.now', return_value=moment):
+            close_task(task, self.teamlead)
+
+        task.refresh_from_db()
+        self.assertEqual(task.closed_at, moment)
+
+    # C. report_required=False — путь стартовой задачи SLA.
+    def test_close_sets_closed_at_when_report_is_not_required(self):
+        task = self._no_report_task()
+        self.assertIsNone(task.closed_at)
+
+        close_task(task, self.teamlead)
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, Task.Status.CLOSED)
+        self.assertIsNotNone(task.closed_at)
+
+    # D. Повторное закрытие не сдвигает исходную отметку.
+    def test_second_close_keeps_the_original_closed_at(self):
+        task = self._no_report_task('Закрывается дважды')
+        first = timezone.make_aware(
+            datetime(2026, 3, 17, 9, 0, 0),
+            timezone.get_current_timezone(),
+        )
+        second = first + timedelta(days=2)
+
+        with patch('apps.pipeline.services.timezone.now', return_value=first):
+            close_task(task, self.teamlead)
+        task.refresh_from_db()
+        self.assertEqual(task.closed_at, first)
+
+        # Quality Gate для `report_required=False` повторный вызов не
+        # отклоняет — защита должна быть именно в записи `closed_at`.
+        with patch('apps.pipeline.services.timezone.now', return_value=second):
+            close_task(task, self.teamlead)
+
+        task.refresh_from_db()
+        self.assertEqual(task.status, Task.Status.CLOSED)
+        self.assertEqual(task.closed_at, first)
+        # Наглядно, почему `updated_at` не годится на роль времени закрытия:
+        # второе сохранение сдвинуло его, а `closed_at` остался на месте.
+        self.assertEqual(task.updated_at, second)
+
+    # E. Неуспешное закрытие ничего не фиксирует.
+    def test_failed_close_leaves_closed_at_empty(self):
+        task = create_task(
+            project=self.project,
+            assignee=self.freelancer,
+            created_by=self.teamlead,
+            title='Задача без утверждённого отчёта',
+        )
+
+        with self.assertRaises(TaskCloseError):
+            close_task(task, self.teamlead)
+
+        task.refresh_from_db()
+        self.assertNotEqual(task.status, Task.Status.CLOSED)
+        self.assertIsNone(task.closed_at)
+
+    def test_close_without_permission_leaves_closed_at_empty(self):
+        task = self._approved_task('Чужой закрыть не может')
+
+        with self.assertRaises(PermissionDenied):
+            close_task(task, self.outsider)
+
+        task.refresh_from_db()
+        self.assertIsNone(task.closed_at)
 
 
 class LeadHotHandoffTests(PipelineProjectMixin, TestCase):

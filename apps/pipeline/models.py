@@ -78,6 +78,18 @@ class Task(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Создана'))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_('Обновлена'))
+    #: Фактический момент закрытия задачи. Ставится один раз в
+    #: `apps.pipeline.services.close_task` и больше не сдвигается.
+    #: Нужен SLA, статистике исполнителей и будущему рейтингу, потому что
+    #: `updated_at` — `auto_now` и переписывается при любом сохранении.
+    #: `null=True` обязателен: задачам, закрытым до появления поля, честное
+    #: время закрытия задним числом не восстановить — у них остаётся NULL.
+    closed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_('Закрыта'),
+    )
 
     class Meta:
         verbose_name = _('Задача')

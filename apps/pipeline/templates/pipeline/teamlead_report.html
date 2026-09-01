@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+
+{% comment %}
+Страница отчёта тимлида за период.
+
+Шаблон только показывает готовые цифры: всё считает
+`apps.pipeline.teamlead_report.build_teamlead_period_report`, здесь нет ни
+одного вычисления. Русские подписи статусов SLA разложены явными `{% if %}`:
+сервис отдаёт машинные ключи (`on_time`, `overdue`, …) и о UI не знает.
+{% endcomment %}
+
+{% block title %}Отчёт тимлида за период{% endblock %}
+
+{% block content %}
+<div class="dashboard teamlead-report">
+    <div class="report-head">
+        <h1>Отчёт тимлида за период</h1>
+        {% if report %}
+        <button type="button" class="btn btn-secondary no-print" onclick="window.print()">
+            Печать
+        </button>
+        {% endif %}
+    </div>
+
+    {% if form.errors %}
+    <div class="alert alert-error">
+        {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+        {% for field in form %}
+            {% for error in field.errors %}<p>{{ field.label }}: {{ error }}</p>{% endfor %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="get" action="{% url 'pipeline:teamlead_report' %}" class="no-print">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="{{ form.date_from.id_for_label }}">С</label>
+                {{ form.date_from }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.date_to.id_for_label }}">По</label>
+                {{ form.date_to }}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.project.id_for_label }}">Проект</label>
+                {{ form.project }}
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Сформировать</button>
+            <a href="{% url 'core:home' %}" class="btn btn-ghost">На дашборд</a>
+        </div>
+    </form>
+
+    {% if report %}
+    <p class="report-scope">
+        <strong>С:</strong> {{ report.period.date_from|date:"d.m.Y" }} ·
+        <strong>По:</strong> {{ report.period.date_to|date:"d.m.Y" }} ·
+        <strong>Проект:</strong>
+        {% if report.scope.is_all_projects %}Все проекты{% else %}{{ report.scope.project.name }}{% endif %}
+    </p>
+
+    <section class="feature-card report-block">
+        <h3>Задачи</h3>
+        <div class="metrics-strip">
+            <div class="metric-card">
+                <span class="metric-label">Создано</span>
+                <strong class="metric-value">{{ report.tasks.created }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">В работе</span>
+                <strong class="metric-value">{{ report.tasks.in_progress }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">На проверке</span>
+                <strong class="metric-value">{{ report.tasks.ready_for_review }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Утверждено, не закрыто</span>
+                <strong class="metric-value">{{ report.tasks.approved_not_closed }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Закрыто</span>
+                <strong class="metric-value">{{ report.tasks.closed }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Просрочено</span>
+                <strong class="metric-value">{{ report.tasks.overdue }}</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="feature-card report-block">
+        <h3>Отчёты</h3>
+        <div class="metrics-strip">
+            <div class="metric-card">
+                <span class="metric-label">Сдано</span>
+                <strong class="metric-value">{{ report.reports.submitted }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Утверждено</span>
+                <strong class="metric-value">{{ report.reports.approved }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Отклонено</span>
+                <strong class="metric-value">{{ report.reports.rejected }}</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="feature-card report-block">
+        <h3>Лиды</h3>
+        <div class="metrics-strip">
+            <div class="metric-card">
+                <span class="metric-label">Cold</span>
+                <strong class="metric-value">{{ report.leads.cold }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Warm</span>
+                <strong class="metric-value">{{ report.leads.warm }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Hot</span>
+                <strong class="metric-value">{{ report.leads.hot }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Передано менеджеру</span>
+                <strong class="metric-value">{{ report.leads.handed_to_manager }}</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="feature-card report-block">
+        <h3>Команда</h3>
+        <p class="muted">Текущий состав на момент формирования отчёта.</p>
+        <div class="metrics-strip">
+            <div class="metric-card">
+                <span class="metric-label">Ready</span>
+                <strong class="metric-value">{{ report.team.ready }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Не ready</span>
+                <strong class="metric-value">{{ report.team.not_ready }}</strong>
+            </div>
+            <div class="metric-card">
+                <span class="metric-label">Отказы / пропуски подбора за период</span>
+                <strong class="metric-value">{{ report.team.selection_skips_declines }}</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="feature-card report-block">
+        <h3>SLA стартовой задачи</h3>
+        {% if report.sla %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Проект</th>
+                    <th>Состояние</th>
+                    <th>Дедлайн</th>
+                    <th>Закрыта</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.sla %}
+                <tr>
+                    <td>{{ row.project_name }}</td>
+                    <td>
+                        {% if row.status == 'no_start_task' %}Нет стартовой задачи
+                        {% elif row.status == 'on_time' %}В срок
+                        {% elif row.status == 'overdue' %}Просрочена
+                        {% elif row.status == 'in_progress' %}В работе
+                        {% elif row.status == 'closed_time_unknown' %}Закрыта, время закрытия неизвестно
+                        {% endif %}
+                    </td>
+                    <td>{{ row.deadline|date:"d.m.Y H:i"|default:"—" }}</td>
+                    <td>{{ row.closed_at|date:"d.m.Y H:i"|default:"—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Нет проектов для отчёта.</p>
+        {% endif %}
+    </section>
+    {% endif %}
+</div>
+{% endblock %}
