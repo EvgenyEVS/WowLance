@@ -1,5 +1,6 @@
 from django.shortcuts import render
 
+from apps.pipeline.forms import TeamleadPeriodReportForm
 from apps.rooms.onboarding import (
     director_metrics,
     director_onboarding,
@@ -38,6 +39,10 @@ def home(request):
 
     if request.user.role == User.Roles.TEAMLEAD:
         context['metrics'] = teamlead_metrics(request.user)
+        # Незаполненная форма отчёта за период: даты уже проставлены
+        # дефолтом (последние 7 дней), проект пуст = все проекты.
+        # Считает и рендерит отчёт отдельная страница pipeline.
+        context['report_form'] = TeamleadPeriodReportForm(user=request.user)
         return render(request, 'core/teamlead_dashboard.html', context)
 
     if request.user.role == User.Roles.MANAGER:

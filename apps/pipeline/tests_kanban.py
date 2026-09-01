@@ -185,6 +185,8 @@ class TaskWorkflowRegressionTests(KanbanTestCase):
             close_task(task, self.teamlead)
         task.refresh_from_db()
         self.assertNotEqual(task.status, Task.Status.CLOSED)
+        # Неуспешное закрытие не фиксирует момент закрытия.
+        self.assertIsNone(task.closed_at)
 
     def test_close_task_after_approval_still_works(self):
         task = self.make_task('Полный цикл', Task.Status.IN_PROGRESS)
@@ -194,6 +196,7 @@ class TaskWorkflowRegressionTests(KanbanTestCase):
         close_task(task, self.teamlead)
         task.refresh_from_db()
         self.assertEqual(task.status, Task.Status.CLOSED)
+        self.assertIsNotNone(task.closed_at)
         self.assertEqual(report.task.reports.first().review_status,
                          Report.ReviewStatus.APPROVED)
 
