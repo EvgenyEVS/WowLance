@@ -484,17 +484,29 @@ class ConfiguratorTeamleadTests(ConfiguratorTestCase):
         self.assertContains(response, 'обязательна: минимум 1')
         self.assertEqual(composition_of(self.project)['teamlead'], 1)
 
-    def test_teamlead_count_above_one_stays_allowed(self):
-        """Числовой ввод Тимлида не запрещается новым UI-правилом."""
+    def test_teamlead_count_above_one_is_rejected(self):
+        """Тимлид не может быть больше 1 — ни через set, ни через inc."""
+        # Прямой set=2 должен быть отклонён
         response = self.post_update(
             user=self.director, role_key='teamlead', action='set', count='2'
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(composition_of(self.project)['teamlead'], 2)
+        self.assertContains(response, 'только один')
+        self.assertEqual(composition_of(self.project)['teamlead'], 1)
 
-    def test_teamlead_numeric_input_has_min_one(self):
+        # Inc тоже не должен поднимать выше 1
+        response = self.post_update(
+            user=self.director, role_key='teamlead', action='inc'
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'только один')
+        self.assertEqual(composition_of(self.project)['teamlead'], 1)
+
+    def test_teamlead_numeric_input_has_min_and_max_one(self):
+        """У input тимлида есть и min="1", и max="1"."""
         row = self.teamlead_row(self.get_overview(self.director))
         self.assertIn('min="1"', row)
+        self.assertIn('max="1"', row)
 
 
 # ---------------------------------------------------------------------------

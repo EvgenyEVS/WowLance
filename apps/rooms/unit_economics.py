@@ -261,7 +261,8 @@ def _validate_fixed_roles(counts: dict[str, int]) -> None:
             raise FunctionalRolesError(
                 f'Функция «{role.label}» обязательна: минимум 1.'
             )
-
+    if 'teamlead' in counts and counts['teamlead'] > 1:
+        raise FunctionalRolesError('Тимлид может быть только один.')
 
 def _load_business_values() -> dict[str, FunctionalRoleConfig]:
     return {config.role_key: config for config in FunctionalRoleConfig.objects.all()}
