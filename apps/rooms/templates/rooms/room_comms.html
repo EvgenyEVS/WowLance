@@ -3,15 +3,13 @@
 {% comment %}
 Вкладка «Коммуникации»: два контура на одной странице.
 
-1) «Коммуникация с тимлидом» — только owner и тимлид этого проекта
-   (`show_director_teamlead_comms` из room_nav_context). Приватный Jitsi
-   и канал director_teamlead.
-2) «Коммуникация с командой» — все участники комнаты. Командный Jitsi
-   и канал team.
+1) Приватный DT — owner и тимлид этого проекта
+   (`show_director_teamlead_comms`). Подписи зависят от роли зрителя
+   (`dt_comms_labels_as_owner`): «с тимлидом» / «с директором».
+2) «Коммуникация с командой» — все участники комнаты.
 
-Видео — внешние ссылки на публичный Jitsi (ADR-001, MVP): не iframe,
-не JWT. Чат — Django-формы + HTMX-опрос без сокетов; две ленты с разными
-id и разными hx-get/hx-post, один partial `_chat_messages.html`.
+Видео — внешние ссылки на публичный Jitsi (ADR-001, MVP). Чат — HTMX
+без сокетов; две ленты с разными id и endpoints.
 {% endcomment %}
 
 {% block title %}Коммуникации — {{ project.name }}{% endblock %}
@@ -21,14 +19,18 @@ id и разными hx-get/hx-post, один partial `_chat_messages.html`.
 
 {% if show_director_teamlead_comms %}
 <section class="comms-contour" id="comms-dt">
-    <h2 class="comms-contour-title">Коммуникация с тимлидом</h2>
+    <h2 class="comms-contour-title">{% if dt_comms_labels_as_owner %}Коммуникация с тимлидом{% else %}Коммуникация с директором{% endif %}</h2>
     <div class="room-grid">
         <section class="info-block comms-section" id="comms-dt-video">
             <div class="section-head">
                 <h3>Видеовстреча</h3>
             </div>
             <p class="muted">
+                {% if dt_comms_labels_as_owner %}
                 Приватная комната только для вас и тимлида этого проекта.
+                {% else %}
+                Приватная комната только для вас и владельца этого проекта.
+                {% endif %}
                 Ссылка открывается в новой вкладке.
             </p>
             <p>
@@ -44,7 +46,7 @@ id и разными hx-get/hx-post, один partial `_chat_messages.html`.
 
         <section class="info-block comms-section" id="comms-dt-chat">
             <div class="section-head">
-                <h3>Чат с тимлидом</h3>
+                <h3>{% if dt_comms_labels_as_owner %}Чат с тимлидом{% else %}Чат с директором{% endif %}</h3>
                 {% if not room.chat_enabled %}<span class="comms-status">Отключён</span>{% endif %}
             </div>
 
@@ -143,7 +145,7 @@ id и разными hx-get/hx-post, один partial `_chat_messages.html`.
     <p class="help-text">
         Остальная работа команды идёт на соседних вкладках:
         {% if show_team_tab %}<a href="{% url 'rooms:room_team' project.id %}">Команда</a>,{% endif %}
-        <a href="{% url 'pipeline:room_tasks' project.id %}">Задачи</a>,
+        {% if show_tasks_tab %}<a href="{% url 'pipeline:room_tasks' project.id %}">Задачи</a>,{% endif %}
         <a href="{% url 'pipeline:room_leads' project.id %}">Лиды</a>.
     </p>
 </div>

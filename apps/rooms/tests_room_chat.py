@@ -722,20 +722,62 @@ class DirectorTeamleadCommsTests(RoomChatTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Room.objects.count(), rooms_before)
 
-    def test_overview_button_only_for_owner_with_teamlead(self):
-        overview = reverse('rooms:room_overview', kwargs={'project_id': self.project.id})
-        self.client.force_login(self.director)
-        body = self.client.get(overview).content.decode()
-        self.assertIn('Коммуникация с тимлидом', body)
-        self.assertIn('/room/comms/teamlead/', body)
+    def test_dt_header_buttons_on_all_tabs_for_owner_and_teamlead(self):
+        """Кнопки DT в шапке на любой вкладке: владелец ↔ тимлид, якорь #comms-dt-chat."""
+        pid = self.project.id
+        owner_href = f'{self.comms_url}#comms-dt-chat'
+        tab_urls = [
+            reverse('rooms:room_overview', kwargs={'project_id': pid}),
+            reverse('pipeline:room_leads', kwargs={'project_id': pid}),
+            reverse('rooms:room_documents', kwargs={'project_id': pid}),
+            self.comms_url,
+        ]
 
+        self.client.force_login(self.director)
+        for url in tab_urls:
+            with self.subTest(role='owner', url=url):
+                body = self.client.get(url).content.decode()
+                self.assertIn('Коммуникация с тимлидом', body)
+                self.assertIn(owner_href, body)
+                self.assertNotIn('Коммуникация с директором', body)
+
+        # Тимлид видит свою кнопку и на операционных вкладках.
+        teamlead_tabs = tab_urls + [
+            reverse('rooms:room_team', kwargs={'project_id': pid}),
+            reverse('pipeline:room_tasks', kwargs={'project_id': pid}),
+        ]
         self.client.force_login(self.teamlead)
-        body = self.client.get(overview).content.decode()
-        self.assertNotIn('Коммуникация с тимлидом', body)
+        for url in teamlead_tabs:
+            with self.subTest(role='teamlead', url=url):
+                body = self.client.get(url).content.decode()
+                self.assertIn('Коммуникация с директором', body)
+                self.assertIn(owner_href, body)
+                self.assertNotIn('Коммуникация с тимлидом', body)
 
         self.client.force_login(self.freelancer)
-        body = self.client.get(overview).content.decode()
+        body = self.client.get(
+            reverse('rooms:room_overview', kwargs={'project_id': pid})
+        ).content.decode()
         self.assertNotIn('Коммуникация с тимлидом', body)
+        self.assertNotIn('Коммуникация с директором', body)
+
+    def test_dt_comms_labels_are_role_aware(self):
+        self.client.force_login(self.director)
+        body = self.client.get(self.comms_url).content.decode()
+        self.assertIn('Коммуникация с тимлидом', body)
+        self.assertIn('Чат с тимлидом', body)
+        self.assertNotIn('Чат с директором', body)
+
+        self.client.force_login(self.teamlead)
+        body = self.client.get(self.comms_url).content.decode()
+        self.assertIn('Коммуникация с директором', body)
+        self.assertIn('Чат с директором', body)
+        self.assertNotIn('Чат с тимлидом', body)
+
+        self.client.force_login(self.teamlead)
+        hub_body = self.client.get(self.hub_url).content.decode()
+        self.assertIn('Коммуникация с директором', hub_body)
+        self.assertIn('Чат с директором', hub_body)
 
     def test_room_title_links_to_overview_from_any_tab(self):
         overview = reverse('rooms:room_overview', kwargs={'project_id': self.project.id})

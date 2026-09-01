@@ -761,7 +761,8 @@ textarea::placeholder {
     text-decoration: underline;
 }
 
-.room-teamlead-comms-btn {
+.room-teamlead-comms-btn,
+.room-dt-comms-btn {
     margin-left: 10px;
     vertical-align: middle;
 }
