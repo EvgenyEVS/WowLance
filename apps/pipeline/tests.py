@@ -405,10 +405,10 @@ class TaskViewFlowTests(PipelineProjectMixin, TestCase):
         Проверяются все три уровня сразу — `can_create_task` в context,
         наличие `create_form` и видимость самой формы, — потому что
         рассогласование между ними и есть та ошибка, которую тест ловит.
+        Директор на «Задачи» не заходит: редирект на «Обзор».
         """
         expectations = (
             (self.teamlead, True),
-            (self.director, False),
             (self.freelancer, False),
         )
         for user, expected in expectations:
@@ -424,12 +424,27 @@ class TaskViewFlowTests(PipelineProjectMixin, TestCase):
                     self.assertIsNone(response.context['create_form'])
                     self.assertNotContains(response, 'Новая задача')
 
-    def test_director_keeps_manage_team_context_on_the_tasks_page(self):
-        """Сужено право на задачи, а не `can_manage_team`: он прежний."""
         self.client.force_login(self.director)
         response = self.client.get(self.tasks_url())
-        self.assertTrue(response.context['can_manage_team'])
-        self.assertFalse(response.context['can_create_task'])
+        self.assertRedirects(
+            response,
+            reverse('rooms:room_overview', kwargs={'project_id': self.project.id}),
+        )
+
+    def test_director_has_no_manage_team_and_no_tasks_tab(self):
+        """Операционка у тимлида: директор не управляет командой и не видит доску."""
+        self.client.force_login(self.director)
+        response = self.client.get(self.tasks_url())
+        self.assertRedirects(
+            response,
+            reverse('rooms:room_overview', kwargs={'project_id': self.project.id}),
+        )
+        overview = self.client.get(
+            reverse('rooms:room_overview', kwargs={'project_id': self.project.id})
+        )
+        self.assertFalse(overview.context['can_manage_team'])
+        self.assertFalse(overview.context['show_tasks_tab'])
+        self.assertFalse(overview.context['show_team_tab'])
 
     def test_teamlead_board_keeps_four_columns_and_every_task_of_the_room(self):
         """Доска тимлида не урезана: четыре колонки и задачи всех исполнителей.

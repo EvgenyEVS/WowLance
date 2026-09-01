@@ -51,11 +51,13 @@ class FreelancerOverviewUITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'Каталог')
 
-    def test_director_overview_has_team_management(self):
-        """Директор на Обзоре видит 'Управление командой' и список команды."""
+    def test_director_overview_is_read_only_ops_stay_with_teamlead(self):
+        """Директор на Обзоре без операционных кнопок: состав и назначение тимлида."""
         self.client.force_login(self.director)
         response = self.client.get(reverse('rooms:room_overview', kwargs={'project_id': self.project.id}))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Управление командой')
-        self.assertContains(response, 'Команда')
+        self.assertNotContains(response, 'Управление командой')
+        self.assertNotContains(response, '>Команда</h3>')
+        self.assertNotContains(response, '>Команда</a>')
+        self.assertContains(response, 'Назначить тимлида')

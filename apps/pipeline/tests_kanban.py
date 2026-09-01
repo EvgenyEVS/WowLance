@@ -121,7 +121,7 @@ class TaskKanbanColumnsTests(KanbanTestCase):
 
     def test_page_renders_four_column_headers(self):
         self.make_task('Видимая задача')
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         response = self.client.get(self.tasks_url)
         for title in EXPECTED_TASK_TITLES:
             with self.subTest(title=title):
@@ -129,7 +129,7 @@ class TaskKanbanColumnsTests(KanbanTestCase):
 
     def test_page_columns_come_from_the_shared_definition(self):
         self.make_task('Видимая задача')
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         titles = [
             column['title']
             for column in self.client.get(self.tasks_url).context['kanban_columns']
@@ -139,7 +139,7 @@ class TaskKanbanColumnsTests(KanbanTestCase):
     def test_task_and_overview_boards_use_the_same_columns(self):
         """Обе страницы берут колонки из одного места и не расходятся."""
         self.make_task('Видимая задача')
-        self.client.force_login(self.director)
+        self.client.force_login(self.teamlead)
         tasks_page = self.client.get(self.tasks_url).context['kanban_columns']
         overview = self.client.get(
             reverse('rooms:room_overview', args=[self.project.id])

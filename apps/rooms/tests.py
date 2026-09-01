@@ -161,11 +161,13 @@ class RoomViewTests(TestCase):
         )
         self.assertRedirects(
             assign,
-            reverse('rooms:room_team', kwargs={'project_id': project.id}),
+            reverse('rooms:room_overview', kwargs={'project_id': project.id}),
         )
         project.refresh_from_db()
         self.assertEqual(project.teamlead_id, self.teamlead.id)
 
+        self.client.logout()
+        self.client.login(username='tl@rooms.test', password=self.password)
         add = self.client.post(
             reverse('rooms:room_add_freelancer', kwargs={'project_id': project.id}),
             {'freelancer': str(self.freelancer.id)},
@@ -206,6 +208,9 @@ class RoomViewTests(TestCase):
     def test_document_upload(self):
         project = self._create_project_via_form()
         self.client.post(reverse('rooms:project_launch', kwargs={'project_id': project.id}))
+        assign_teamlead(project, self.teamlead)
+        self.client.logout()
+        self.client.login(username='tl@rooms.test', password=self.password)
         response = self.client.post(
             reverse('rooms:room_document_upload', kwargs={'project_id': project.id}),
             {
@@ -228,6 +233,12 @@ class RoomViewTests(TestCase):
     def test_project_list_scoped_by_role(self):
         project = self._create_project_via_form()
         self.client.post(reverse('rooms:project_launch', kwargs={'project_id': project.id}))
+        self.client.post(
+            reverse('rooms:room_assign_teamlead', kwargs={'project_id': project.id}),
+            {'teamlead': str(self.teamlead.id)},
+        )
+        self.client.logout()
+        self.client.login(username='tl@rooms.test', password=self.password)
         self.client.post(
             reverse('rooms:room_add_freelancer', kwargs={'project_id': project.id}),
             {'freelancer': str(self.freelancer.id)},

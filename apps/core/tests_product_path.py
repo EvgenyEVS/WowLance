@@ -13,6 +13,7 @@ from apps.rooms.onboarding import director_metrics, director_onboarding, onboard
 from apps.rooms.presets import get_architecture_preset
 from apps.rooms.services import (
     accept_teamlead_invite,
+    assign_teamlead,
     create_teamlead_invite,
     launch_project,
 )
@@ -107,6 +108,7 @@ class CatalogAddToRoomTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.director = make_director(email='cat@test.com')
+        self.teamlead = make_teamlead(email='cattl@test.com')
         self.freelancer = make_freelancer(email='sale@test.com')
         profile = self.freelancer.freelancer_profile
         profile.skills = ['SPIN', 'Cold calls']
@@ -123,7 +125,8 @@ class CatalogAddToRoomTests(TestCase):
             status=Project.Status.DRAFT,
         )
         launch_project(self.project)
-        self.client.force_login(self.director)
+        assign_teamlead(self.project, self.teamlead)
+        self.client.force_login(self.teamlead)
 
     def test_add_from_catalog_to_room(self):
         url = reverse('rooms:catalog_add_to_room', kwargs={'user_id': self.freelancer.id})
@@ -241,6 +244,7 @@ class RoomHubPolishTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.director = make_director(email='hub@test.com')
+        self.teamlead = make_teamlead(email='hubtl@test.com')
         self.freelancer = make_freelancer(email='hubf@test.com')
         self.project = Project.objects.create(
             owner=self.director,
@@ -251,8 +255,9 @@ class RoomHubPolishTests(TestCase):
             status=Project.Status.DRAFT,
         )
         launch_project(self.project)
+        assign_teamlead(self.project, self.teamlead)
         from apps.rooms.services import add_freelancer_to_room
-        add_freelancer_to_room(self.project.room, self.freelancer, actor=self.director)
+        add_freelancer_to_room(self.project.room, self.freelancer, actor=self.teamlead)
         Task.objects.create(
             project=self.project,
             assignee=self.freelancer,
@@ -272,6 +277,7 @@ class RoomHubPolishTests(TestCase):
         self.assertContains(response, 'Позвонить 10 лидам')
 
     def test_tasks_kanban_columns(self):
+        self.client.force_login(self.teamlead)
         response = self.client.get(
             reverse('pipeline:room_tasks', kwargs={'project_id': self.project.id}),
         )
@@ -287,6 +293,7 @@ class RoomHubPolishTests(TestCase):
         self.assertContains(response, 'Папка пуста')
 
     def test_document_upload_logs_activity(self):
+        self.client.force_login(self.teamlead)
         upload = SimpleUploadedFile('brief.txt', b'hello', content_type='text/plain')
         response = self.client.post(
             reverse('rooms:room_document_upload', kwargs={'project_id': self.project.id}),

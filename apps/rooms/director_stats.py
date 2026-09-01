@@ -121,3 +121,31 @@ def director_finance_metrics(user) -> dict:
         'money_saved_total': estimated_money_saved(projects),
         'money_saved_caption': 'оценка платформы',
     }
+
+
+def project_overview_metrics(project: Project, staffing_summary: dict | None = None) -> dict:
+    """Цифры шапки «Обзора» одного проекта (не глобальный дашборд)."""
+    from apps.pipeline.models import Lead, Task
+
+    summary = staffing_summary or {}
+    open_tasks = (
+        Task.objects.filter(project=project)
+        .exclude(status=Task.Status.CLOSED)
+        .count()
+    )
+    in_review = Task.objects.filter(
+        project=project,
+        status=Task.Status.READY_FOR_REVIEW,
+    ).count()
+    hot_leads = Lead.objects.filter(
+        project=project,
+        qualification_status=Lead.Qualification.HOT,
+    ).count()
+    return {
+        'budget': _money(project.budget),
+        'hot_leads': hot_leads,
+        'open_tasks': open_tasks,
+        'tasks_in_review': in_review,
+        'slots_filled': int(summary.get('filled') or 0),
+        'slots_total': int(summary.get('total') or 0),
+    }

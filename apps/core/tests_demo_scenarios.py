@@ -83,6 +83,20 @@ class DemoHardeningScenarioTests(TestCase):
             ).status_code,
             200,
         )
+        # Директор на «Команду» не заходит — редирект на обзор.
+        team_resp = client.get(
+            reverse('rooms:room_team', kwargs={'project_id': project.id})
+        )
+        self.assertEqual(team_resp.status_code, 302)
+        self.assertIn(
+            reverse('rooms:room_overview', kwargs={'project_id': project.id}),
+            team_resp['Location'],
+        )
+
+        client = Client()
+        self.assertTrue(
+            client.login(username='teamlead@wowlance.demo', password='DemoPass123!')
+        )
         self.assertEqual(
             client.get(
                 reverse('rooms:room_team', kwargs={'project_id': project.id})

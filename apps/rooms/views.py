@@ -33,6 +33,7 @@ from .models import (
     RoomMember,
     TeamleadInvite,
 )
+from .director_stats import project_overview_metrics
 from .onboarding import staffing_projects_for_user
 from .presets import (
     ARCHITECTURE_PRESETS,
@@ -56,10 +57,12 @@ from .services import (
     save_functional_roles_and_sync_slots,
     update_project_vision,
     user_can_access_project,
+    user_can_appoint_teamlead,
     user_can_edit_functional_roles,
     user_can_edit_project_vision,
     user_can_manage_team,
     user_can_view_composition_staffing,
+    user_can_view_tasks_tab,
     user_can_view_team_tab,
 )
 from .staffing import matching, selectors
@@ -111,7 +114,7 @@ def _get_slot_for_staffing(request, project_id, slot_id):
     """
     project = _get_accessible_project(request.user, project_id)
     if not user_can_manage_team(request.user, project):
-        raise PermissionDenied('Подбором кандидатов управляют директор и тимлид.')
+        raise PermissionDenied('Подбором кандидатов управляет тимлид проекта.')
     room = ensure_room_for_project(project)
     slot = get_object_or_404(RoomFunctionSlot, id=slot_id, room=room)
     return project, room, slot
@@ -423,7 +426,7 @@ def project_pay(request, project_id):
 
 @login_required
 def room_overview(request, project_id):
-    """Hub комнаты: вводные + activity feed."""
+    """Hub комнаты: метрики, лента, вводные, канбан, состав."""
     project = _get_accessible_project(request.user, project_id)
     room = ensure_room_for_project(project) if project.status != Project.Status.DRAFT else getattr(project, 'room', None)
     if room is None and project.status == Project.Status.DRAFT:
@@ -435,10 +438,6 @@ def room_overview(request, project_id):
     activities = (
         room.activities.select_related('actor').all()[:ROOM_ACTIVITY_FEED_LIMIT]
     )
-    # Превью задач зависит от роли. Фильтрация — здесь, а не в шаблоне:
-    # шаблон не знает ни ролей, ни правил доступа и только рисует то, что
-    # ему дали. Порядок задач общий и не переопределяется — `Task.Meta`
-    # (`-created_at`), поэтому «первые пять» это пять последних задач.
     is_freelancer_task_preview = request.user.role == User.Roles.FREELANCER
     project_tasks = Task.objects.filter(project=project).select_related('assignee')
     if is_freelancer_task_preview:
@@ -449,16 +448,16 @@ def room_overview(request, project_id):
     else:
         my_tasks_preview = []
         kanban_preview = task_columns(project_tasks[:50])
-    # Обзор показывает те же карточки слотов только на чтение: собственной
-    # копии правил подбора у него нет, управление остаётся на вкладке «Команда».
     cards = selectors.slot_cards(room)
+    staffing_summary = selectors.staffing_summary(cards)
+    # Метрики шапки — для управленческого контура (директор/тимлид),
+    # не для исполнителя с превью «Мои задачи».
+    overview_metrics = (
+        None
+        if is_freelancer_task_preview
+        else project_overview_metrics(project, staffing_summary)
+    )
 
-    # SLA стартовой задачи. Задача ищется тем же публичным helper'ом, каким
-    # её создаёт автоматика активации, — второго определения ключа (и уж тем
-    # более поиска по русскому названию) у «Обзора» нет. Дедлайн берётся
-    # только из сохранённого `Task.deadline`: GET ничего не пересчитывает и
-    # ничего не создаёт. Просрочка считается на сервере, чтобы страница
-    # оставалась честной и без JavaScript.
     start_calls_task = get_start_calls_task(project)
     start_calls_deadline = start_calls_task.deadline if start_calls_task else None
     start_calls_is_done = bool(
@@ -471,6 +470,20 @@ def room_overview(request, project_id):
     )
 
     can_edit_vision = user_can_edit_project_vision(request.user, project)
+    can_appoint = user_can_appoint_teamlead(request.user, project)
+    invite = None
+    invite_url = None
+    if can_appoint and not project.teamlead_id:
+        invite = (
+            TeamleadInvite.objects.filter(project=project, is_active=True)
+            .order_by('-created_at')
+            .first()
+        )
+        if invite and invite.is_valid:
+            invite_url = absolute_uri(
+                request,
+                reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token}),
+            )
 
     return render(request, 'rooms/room_overview.html', {
         'project': project,
@@ -479,37 +492,28 @@ def room_overview(request, project_id):
         'my_membership': my_membership,
         'activities': activities,
         'slot_cards': cards,
-        'staffing_summary': selectors.staffing_summary(cards),
+        'staffing_summary': staffing_summary,
+        'project_metrics': overview_metrics,
         'start_calls_task': start_calls_task,
         'start_calls_deadline': start_calls_deadline,
         'start_calls_is_overdue': start_calls_is_overdue,
         'start_calls_is_done': start_calls_is_done,
-        # Те же четыре колонки, что и на вкладке «Задачи»: определение одно
-        # (`apps.pipeline.kanban`), поэтому доски не расходятся. Урезания
-        # списка колонок здесь больше нет — «В работе» пропала бы первой.
-        # Фрилансеру чужая доска не показывается: у него свой короткий
-        # список, и `kanban_preview` для него пустой.
         'kanban_preview': kanban_preview,
         'is_freelancer_task_preview': is_freelancer_task_preview,
         'my_tasks_preview': my_tasks_preview,
         'can_manage_team': user_can_manage_team(request.user, project),
+        'can_appoint_teamlead': can_appoint,
+        'teamlead_form': AssignTeamleadForm() if can_appoint and not project.teamlead_id else None,
+        'invite_url': invite_url,
         'can_launch': (
             request.user.id == project.owner_id
             and project.status == Project.Status.DRAFT
         ),
         'active_tab': 'overview',
-        # Правка вводных: форма отдаётся только тому, кто действительно
-        # вправе сохранить (владелец + директор). Остальные получают `None`
-        # и видят те же вводные на чтение. Настоящая защита — та же проверка
-        # внутри `update_project_vision`.
         'can_edit_vision': can_edit_vision,
         'vision_form': (
             ProjectVisionForm.from_project(project) if can_edit_vision else None
         ),
-        # Конфигуратор функциональной команды собирается тем же билдером, что
-        # и HTMX-ответ, — второй копии context у страницы нет. Чтение состава
-        # ничего не пишет: проект без сохранённого состава показывает
-        # empty state, а не созданный на лету состав по умолчанию.
         **configurator.build_configurator_context(request.user, project, room),
         **room_nav_context(request.user, project),
     })
@@ -697,7 +701,7 @@ def room_documents(request, project_id):
 def room_document_upload(request, project_id):
     project = _get_accessible_project(request.user, project_id)
     if not user_can_manage_team(request.user, project):
-        raise PermissionDenied('Загружать материалы могут только директор и тимлид.')
+        raise PermissionDenied('Загружать материалы может только тимлид проекта.')
     room = ensure_room_for_project(project)
     form = RoomDocumentForm(request.POST, request.FILES)
     if form.is_valid():
@@ -850,13 +854,20 @@ def room_chat_send(request, project_id):
 def room_team(request, project_id):
     """Состав команды комнаты + invite тимлида.
 
-    Доступа к комнате мало: состав команды видят владелец проекта и тимлид
-    (`user_can_view_team_tab`). Скрытая вкладка защитой не является, поэтому
-    прямой GET закрывается здесь же — до создания комнаты и запросов состава.
+    Вкладка «Команда» — зона тимлида (`user_can_view_team_tab`). Директор
+    смотрит состав на «Обзоре»; прямой GET уводим туда же, а не в 403.
     """
     project = _get_accessible_project(request.user, project_id)
     if not user_can_view_team_tab(request.user, project):
-        raise PermissionDenied('Состав команды доступен директору проекта и тимлиду.')
+        # Владелец уходит на «Обзор»; остальные роли получают отказ —
+        # иначе скрытая вкладка превратилась бы в тихий редирект.
+        if project.owner_id == request.user.id:
+            messages.info(
+                request,
+                'Управление командой доступно тимлиду. На Обзоре — состав и метрики.',
+            )
+            return redirect('rooms:room_overview', project_id=project.id)
+        raise PermissionDenied('Вкладка «Команда» доступна только тимлиду проекта.')
     room = ensure_room_for_project(project)
     members = room.members.select_related('user').all()
     can_manage = user_can_manage_team(request.user, project)
@@ -881,10 +892,6 @@ def room_team(request, project_id):
         'members': members,
         'slot_cards': cards,
         'staffing_summary': selectors.staffing_summary(cards),
-        # «Требуется по плану проекта» — display-only: что и в каком
-        # количестве заказал директор, включая функции без слотов
-        # execution (`teamlead`, `database_assistant`). Context собирается
-        # на сервере, шаблон `input_data` не разбирает и слотов не создаёт.
         **configurator.build_planned_team_context(project, room),
         'can_staff_slots': can_manage and _staffing_is_open(project),
         'can_manage_team': can_manage,
@@ -892,7 +899,7 @@ def room_team(request, project_id):
             request.user
         ),
         'my_membership': my_membership,
-        'teamlead_form': AssignTeamleadForm() if can_manage else None,
+        'teamlead_form': None,
         'freelancer_form': AddFreelancerForm(room=room) if can_manage else None,
         'invite_url': invite_url,
         'active_tab': 'team',
@@ -904,8 +911,8 @@ def room_team(request, project_id):
 @require_POST
 def room_create_teamlead_invite(request, project_id):
     project = get_object_or_404(Project, id=project_id)
-    if request.user.id != project.owner_id and request.user.role != User.Roles.ADMIN:
-        raise PermissionDenied('Создавать приглашение может только директор.')
+    if not user_can_appoint_teamlead(request.user, project):
+        raise PermissionDenied('Создавать приглашение может только директор проекта.')
     ensure_room_for_project(project)
     invite = create_teamlead_invite(project, request.user)
     url = absolute_uri(
@@ -913,7 +920,23 @@ def room_create_teamlead_invite(request, project_id):
         reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token}),
     )
     messages.success(request, f'Ссылка-приглашение для тимлида создана: {url}')
-    return redirect('rooms:room_team', project_id=project.id)
+    return redirect('rooms:room_overview', project_id=project.id)
+
+
+@login_required
+@require_POST
+def room_assign_teamlead(request, project_id):
+    project = get_object_or_404(Project, id=project_id)
+    if not user_can_appoint_teamlead(request.user, project):
+        raise PermissionDenied('Назначать тимлида может только директор проекта.')
+
+    form = AssignTeamleadForm(request.POST)
+    if form.is_valid():
+        assign_teamlead(project, form.cleaned_data['teamlead'], actor=request.user)
+        messages.success(request, 'Тимлид назначен.')
+    else:
+        messages.error(request, 'Не удалось назначить тимлида. Есть активные тимлиды?')
+    return redirect('rooms:room_overview', project_id=project.id)
 
 
 def teamlead_invite_accept(request, token):
@@ -946,24 +969,6 @@ def teamlead_invite_accept(request, token):
         'form': form,
         'login_next': reverse('rooms:teamlead_invite_accept', kwargs={'token': token}),
     })
-
-
-@login_required
-@require_POST
-def room_assign_teamlead(request, project_id):
-    project = get_object_or_404(Project, id=project_id)
-    if not user_can_manage_team(request.user, project):
-        raise PermissionDenied
-    if request.user.id != project.owner_id and request.user.role != User.Roles.ADMIN:
-        raise PermissionDenied('Назначать тимлида может только директор.')
-
-    form = AssignTeamleadForm(request.POST)
-    if form.is_valid():
-        assign_teamlead(project, form.cleaned_data['teamlead'], actor=request.user)
-        messages.success(request, 'Тимлид назначен.')
-    else:
-        messages.error(request, 'Не удалось назначить тимлида. Есть активные тимлиды?')
-    return redirect('rooms:room_team', project_id=project.id)
 
 
 @login_required

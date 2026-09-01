@@ -12,6 +12,7 @@ from apps.rooms.services import (
     user_can_access_project,
     user_can_create_task,
     user_can_manage_team,
+    user_can_view_tasks_tab,
 )
 from apps.users.models import User
 
@@ -50,6 +51,12 @@ def _get_project(user, project_id):
 @login_required
 def room_tasks(request, project_id):
     project = _get_project(request.user, project_id)
+    if not user_can_view_tasks_tab(request.user, project):
+        messages.info(
+            request,
+            'Доска задач для операционной работы — у тимлида. На Обзоре доступно превью.',
+        )
+        return redirect('rooms:room_overview', project_id=project.id)
     tasks = (
         Task.objects.filter(project=project)
         .select_related('assignee', 'created_by', 'lead')
@@ -61,10 +68,6 @@ def room_tasks(request, project_id):
         tasks = tasks.filter(assignee=request.user)
 
     can_manage = user_can_manage_team(request.user, project)
-    # Форма постановки задачи идёт за `can_create_task` (тимлид проекта), а не
-    # за `can_manage_team`: последний шире и включает владельца проекта и
-    # платформенного admin. `can_manage_team` в context остаётся прежним —
-    # от него зависят другие элементы страницы.
     nav = room_nav_context(request.user, project)
     task_list = list(tasks)
     return render(request, 'pipeline/room_tasks.html', {
