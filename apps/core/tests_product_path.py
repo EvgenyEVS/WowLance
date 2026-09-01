@@ -108,6 +108,7 @@ class CatalogAddToRoomTests(TestCase):
     def setUp(self):
         self.client = Client()
         self.director = make_director(email='cat@test.com')
+        self.teamlead = make_teamlead(email='cattl@test.com')
         self.freelancer = make_freelancer(email='sale@test.com')
         profile = self.freelancer.freelancer_profile
         profile.skills = ['SPIN', 'Cold calls']
@@ -124,7 +125,8 @@ class CatalogAddToRoomTests(TestCase):
             status=Project.Status.DRAFT,
         )
         launch_project(self.project)
-        self.client.force_login(self.director)
+        assign_teamlead(self.project, self.teamlead)
+        self.client.force_login(self.teamlead)
 
     def test_add_from_catalog_to_room(self):
         url = reverse('rooms:catalog_add_to_room', kwargs={'user_id': self.freelancer.id})

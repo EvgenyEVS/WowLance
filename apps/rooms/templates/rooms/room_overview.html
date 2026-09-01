@@ -189,11 +189,9 @@ SLA-блок стартовой задачи. Формулировки гово�
     </div>
     {% endif %}
 
-    {% if can_view_composition_staffing %}
     <div class="fr-configurator-slot" style="margin-top: 16px;">
         {% include 'rooms/_unit_economics_table.html' %}
     </div>
-    {% endif %}
 
     {% if can_view_composition_staffing and staffing_summary.total %}
     <div class="info-block" style="margin-top: 16px;">
