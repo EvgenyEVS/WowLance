@@ -71,7 +71,7 @@ class FreelancerOverviewUITests(TestCase):
         self.assertContains(response, 'Назначить тимлида')
 
     def test_freelancer_overview_is_personal_workspace(self):
-        """Обзор фрилансера: вводные, свои задачи, своя статистика и состав без экономики."""
+        """Обзор фрилансера: вводные, свои задачи, своя статистика; без состава."""
         self.client.force_login(self.freelancer)
         response = self.client.get(self.overview_url)
 
@@ -80,12 +80,18 @@ class FreelancerOverviewUITests(TestCase):
         self.assertContains(response, 'Мои задачи')
         self.assertContains(response, 'id="freelancer-project-stats"')
         self.assertContains(response, 'Отчёты приняты')
-        self.assertIsNotNone(response.context['my_project_stats'])
-        self.assertContains(response, 'Состав команды')
-        self.assertContains(response, 'id="team-composition-overview"')
-        self.assertContains(response, 'Закрытые лиды (всего)')
-        self.assertContains(response, 'Закрытые лиды (проект)')
+        self.assertContains(response, '>Cold</span>')
+        self.assertContains(response, '>Warm</span>')
+        self.assertContains(response, '>Hot</span>')
+        stats = response.context['my_project_stats']
+        self.assertIsNotNone(stats)
+        self.assertIn('leads_cold', stats)
+        self.assertIn('leads_warm', stats)
+        self.assertIn('leads_hot', stats)
 
+        self.assertNotContains(response, 'team-composition-overview')
+        self.assertNotContains(response, 'Закрытые лиды')
+        self.assertNotContains(response, 'Состав команды')
         self.assertNotContains(response, 'functional-roles-configurator')
         self.assertNotContains(response, 'Юнит-экономика')
         self.assertNotContains(response, 'Производительность')
@@ -128,57 +134,54 @@ class FreelancerOverviewUITests(TestCase):
         self.assertContains(response, 'SLA стартовой задачи')
         self.assertContains(response, START_CALLS_TITLE)
 
-    def test_freelancer_team_composition_shows_names_and_lead_counts(self):
-        assign_teamlead(self.project, self.teamlead)
+    def test_freelancer_project_stats_count_only_own_leads_by_qualification(self):
+        colleague = make_freelancer(email='colleague@overview-ui.test')
+        RoomMember.objects.create(
+            room=self.project.room,
+            user=colleague,
+            role_in_room=RoomMember.RoleInRoom.FREELANCER,
+        )
         from apps.pipeline.models import Lead
-        from apps.rooms.models import RoomFunctionSlot, RoomMember
-        from apps.rooms.services import save_functional_roles_and_sync_slots
-
-        save_functional_roles_and_sync_slots(
-            self.project,
-            [
-                {'role_key': 'teamlead', 'count': 1},
-                {'role_key': 'seller_middle', 'count': 1},
-            ],
-            self.director,
-        )
-        slot = RoomFunctionSlot.objects.filter(
-            room=self.project.room, role_key='seller_middle', is_active=True
-        ).first()
-        self.assertIsNotNone(slot)
-        member = RoomMember.objects.get(
-            room=self.project.room, user=self.freelancer
-        )
-        member.function_slot = slot
-        member.role_key = 'seller_middle'
-        member.save(update_fields=['function_slot', 'role_key'])
 
         Lead.objects.create(
             project=self.project,
             creator=self.freelancer,
-            contact_info={'name': 'На проекте'},
-        )
-        other = Project.objects.create(
-            owner=self.director,
-            name='Другой проект',
-            status=Project.Status.DRAFT,
-            input_data={'offer': 'o', 'utp': 'u', 'audience': 'a', 'hot_criteria': 'h'},
+            contact_info={'name': 'Cold свой'},
+            qualification_status=Lead.Qualification.COLD,
         )
         Lead.objects.create(
-            project=other,
+            project=self.project,
             creator=self.freelancer,
-            contact_info={'name': 'На другом'},
+            contact_info={'name': 'Warm свой'},
+            qualification_status=Lead.Qualification.WARM,
+        )
+        Lead.objects.create(
+            project=self.project,
+            creator=self.freelancer,
+            contact_info={'name': 'Hot свой'},
+            qualification_status=Lead.Qualification.HOT,
+        )
+        Lead.objects.create(
+            project=self.project,
+            creator=colleague,
+            contact_info={'name': 'Cold чужой'},
+            qualification_status=Lead.Qualification.COLD,
+        )
+        Lead.objects.create(
+            project=self.project,
+            creator=colleague,
+            contact_info={'name': 'Hot чужой'},
+            qualification_status=Lead.Qualification.HOT,
         )
 
         self.client.force_login(self.freelancer)
         response = self.client.get(self.overview_url)
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.freelancer.full_name)
-        self.assertContains(response, self.teamlead.full_name)
-        rows = response.context['team_composition_rows']
-        seller = next(r for r in rows if r['user_id'] == self.freelancer.id)
-        self.assertEqual(seller['leads_on_project'], 1)
-        self.assertEqual(seller['leads_total'], 2)
+        stats = response.context['my_project_stats']
+        self.assertEqual(stats['leads_cold'], 1)
+        self.assertEqual(stats['leads_warm'], 1)
+        self.assertEqual(stats['leads_hot'], 1)
+        self.assertNotContains(response, 'team-composition-overview')
+        self.assertNotContains(response, 'Состав команды')
 
     def test_director_and_teamlead_keep_ops_overview_blocks(self):
         assign_teamlead(self.project, self.teamlead)

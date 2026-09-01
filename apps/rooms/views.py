@@ -35,11 +35,7 @@ from .models import (
     TeamleadInvite,
 )
 from .director_stats import project_overview_metrics
-from .onboarding import (
-    freelancer_project_stats,
-    staffing_projects_for_user,
-    team_composition_lead_rows,
-)
+from .onboarding import freelancer_project_stats, staffing_projects_for_user
 from .presets import (
     ARCHITECTURE_PRESETS,
     apply_preset_to_form_initial,
@@ -457,12 +453,10 @@ def room_overview(request, project_id):
         )
         kanban_preview = []
         my_project_stats = freelancer_project_stats(request.user, project)
-        team_composition_rows = team_composition_lead_rows(project, room)
     else:
         my_tasks_preview = []
         kanban_preview = task_columns(project_tasks[:50])
         my_project_stats = None
-        team_composition_rows = None
     cards = selectors.slot_cards(room)
     staffing_summary = selectors.staffing_summary(cards)
     # Метрики шапки — для управленческого контура (директор/тимлид),
@@ -516,7 +510,6 @@ def room_overview(request, project_id):
         'staffing_summary': staffing_summary,
         'project_metrics': overview_metrics,
         'my_project_stats': my_project_stats,
-        'team_composition_rows': team_composition_rows,
         'start_calls_task': start_calls_task,
         'start_calls_deadline': start_calls_deadline,
         'start_calls_is_overdue': start_calls_is_overdue,

@@ -85,8 +85,16 @@ SLA-блок стартовой задачи. Формулировки гово�
             <strong class="metric-value">{{ my_project_stats.tasks_in_review }}</strong>
         </div>
         <div class="metric-card">
-            <span class="metric-label">Лиды</span>
-            <strong class="metric-value">{{ my_project_stats.leads }}</strong>
+            <span class="metric-label">Cold</span>
+            <strong class="metric-value">{{ my_project_stats.leads_cold }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Warm</span>
+            <strong class="metric-value">{{ my_project_stats.leads_warm }}</strong>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Hot</span>
+            <strong class="metric-value">{{ my_project_stats.leads_hot }}</strong>
         </div>
         <div class="metric-card">
             <span class="metric-label">Отчёты приняты</span>
@@ -240,10 +248,6 @@ SLA-блок стартовой задачи. Формулировки гово�
         </form>
         {% endif %}
     </div>
-    {% endif %}
-
-    {% if is_freelancer_task_preview %}
-    {% include 'rooms/_team_composition_overview.html' %}
     {% endif %}
 
     {% if can_view_unit_economics_finance %}
