@@ -3,18 +3,24 @@
 Включается всеми страницами комнаты (rooms и pipeline), поэтому копий
 этого списка в шаблонах быть не должно: новая вкладка добавляется здесь.
 
-Ролевые флаги (`show_team_tab`, `show_tasks_tab`) приходят только из
-`services.room_nav_context`. Директор не видит «Команду» и «Задачи»:
-операционка у тимлида, заказчик смотрит «Обзор».
+Ролевые флаги (`show_team_tab`, `show_tasks_tab`, кнопки DT) приходят
+только из `services.room_nav_context`. Директор не видит «Команду» и
+«Задачи»: операционка у тимлида, заказчик смотрит «Обзор».
 {% endcomment %}
 <div class="page-header">
     <div>
         <p><a href="{% url 'rooms:project_list' %}">← Проекты</a></p>
         <h1><a class="room-title-link" href="{% url 'rooms:room_overview' project.id %}">{{ project.name }}</a></h1>
         <p class="subtitle">Статус: {{ project.get_status_display }}
-            {% if project.teamlead %} · Тимлид: {{ project.teamlead.full_name }}{% if active_tab == 'overview' and show_teamlead_comms_button %}
-            <a class="btn btn-secondary btn-sm room-teamlead-comms-btn"
-               href="{% url 'rooms:room_comms_teamlead' project.id %}">Коммуникация с тимлидом</a>{% endif %}{% endif %}
+            {% if project.teamlead %} · Тимлид: {{ project.teamlead.full_name }}{% endif %}
+            {% if show_owner_dt_comms_button %}
+            <a class="btn btn-secondary btn-sm room-dt-comms-btn"
+               href="{% url 'rooms:room_comms' project.id %}#comms-dt-chat">Коммуникация с тимлидом</a>
+            {% endif %}
+            {% if show_teamlead_dt_comms_button %}
+            <a class="btn btn-secondary btn-sm room-dt-comms-btn"
+               href="{% url 'rooms:room_comms' project.id %}#comms-dt-chat">Коммуникация с директором</a>
+            {% endif %}
         </p>
     </div>
 </div>

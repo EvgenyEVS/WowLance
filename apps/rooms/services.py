@@ -532,6 +532,10 @@ def room_nav_context(user, project: Project) -> dict:
     is_owner = (
         getattr(user, 'is_authenticated', False) and project.owner_id == user.id
     )
+    is_teamlead = (
+        getattr(user, 'is_authenticated', False)
+        and project.teamlead_id == user.id
+    )
     return {
         'show_team_tab': user_can_view_team_tab(user, project),
         'show_tasks_tab': user_can_view_tasks_tab(user, project),
@@ -541,8 +545,12 @@ def room_nav_context(user, project: Project) -> dict:
         'show_director_teamlead_comms': user_can_access_director_teamlead_comms(
             user, project
         ),
-        # Кнопка в шапке «Обзора»: только владельцу и только когда тимлид уже есть.
-        'show_teamlead_comms_button': bool(is_owner and project.teamlead_id),
+        # Кнопка владельца в шапке любой вкладки (тимлид уже назначен).
+        'show_owner_dt_comms_button': bool(is_owner and project.teamlead_id),
+        # Кнопка тимлида в шапке любой вкладки.
+        'show_teamlead_dt_comms_button': bool(is_teamlead),
+        # Подписи DT-секции: owner говорит «с тимлидом», teamlead — «с директором».
+        'dt_comms_labels_as_owner': bool(is_owner),
     }
 
 

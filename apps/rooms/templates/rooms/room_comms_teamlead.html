@@ -1,26 +1,30 @@
 {% extends 'base.html' %}
 
 {% comment %}
-Страница «Коммуникация с тимлидом»: только приватный контур (видео + чат).
+Страница приватного контура DT (видео + чат), без командной секции.
 
-Командная коммуникация остаётся на вкладке «Коммуникации». Доступ закрыт
-во view (`user_can_access_director_teamlead_comms`).
+Подписи симметричны роли зрителя (`dt_comms_labels_as_owner` из
+room_nav_context). Доступ закрыт во view.
 {% endcomment %}
 
-{% block title %}Коммуникация с тимлидом — {{ project.name }}{% endblock %}
+{% block title %}{% if dt_comms_labels_as_owner %}Коммуникация с тимлидом{% else %}Коммуникация с директором{% endif %} — {{ project.name }}{% endblock %}
 
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
 <section class="comms-contour" id="comms-dt">
-    <h2 class="comms-contour-title">Коммуникация с тимлидом</h2>
+    <h2 class="comms-contour-title">{% if dt_comms_labels_as_owner %}Коммуникация с тимлидом{% else %}Коммуникация с директором{% endif %}</h2>
     <div class="room-grid">
         <section class="info-block comms-section" id="comms-dt-video">
             <div class="section-head">
                 <h3>Видеовстреча</h3>
             </div>
             <p class="muted">
+                {% if dt_comms_labels_as_owner %}
                 Приватная комната только для вас и тимлида этого проекта.
+                {% else %}
+                Приватная комната только для вас и владельца этого проекта.
+                {% endif %}
                 Ссылка открывается в новой вкладке.
             </p>
             <p>
@@ -36,7 +40,7 @@
 
         <section class="info-block comms-section" id="comms-dt-chat">
             <div class="section-head">
-                <h3>Чат с тимлидом</h3>
+                <h3>{% if dt_comms_labels_as_owner %}Чат с тимлидом{% else %}Чат с директором{% endif %}</h3>
                 {% if not room.chat_enabled %}<span class="comms-status">Отключён</span>{% endif %}
             </div>
 
