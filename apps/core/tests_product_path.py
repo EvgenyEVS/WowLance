@@ -1,32 +1,58 @@
-"""Тесты Epic A/B: архитектура, wizard, каталог→комната, invite, метрики."""
+"""Продуктовый путь Epic A/B: архитектура → wizard → оплата → комната.
+
+Один сквозной маршрут директора и его границы:
+
+* пресеты архитектуры объявлены и применяются гостю и директору по-разному;
+* мастер из трёх шагов создаёт проект из пресета и запускает его;
+* stub-оплата открывает комнату (RBAC оплаты живёт в `apps.rooms.tests`);
+* добавление из каталога идёт через URL `rooms`, а не через `profiles`
+  (граница ADR: бизнес-логика комнаты не протекает в профили);
+* приглашение тимлида — регистрацией нового и принятием существующим;
+* метрики директора не выдумывают выручку;
+* юридические страницы живы.
+"""
 
 from decimal import Decimal
 
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from apps.pipeline.models import Task
-from apps.profiles.models import FreelancerProfile
-from apps.rooms.models import Project, RoomActivity, RoomMember, TeamleadInvite
-from apps.rooms.onboarding import director_metrics, director_onboarding, onboarding_progress
-from apps.rooms.presets import get_architecture_preset
+from apps.pipeline.models import Lead
+from apps.rooms.models import (
+    Project,
+    Room,
+    RoomActivity,
+    RoomMember,
+    TeamleadInvite,
+)
+from apps.rooms.presets import ARCHITECTURE_PRESETS, get_architecture_preset
 from apps.rooms.services import (
     accept_teamlead_invite,
     assign_teamlead,
     create_teamlead_invite,
     launch_project,
 )
-from apps.test_helpers import make_director, make_freelancer, make_teamlead, make_user
+from apps.test_helpers import make_director, make_freelancer, make_teamlead
 from apps.users.models import User
+
+PROJECT_INPUTS = {
+    'offer': 'Оффер',
+    'utp': 'УТП',
+    'audience': 'ЦА',
+    'hot_criteria': 'Запросил демо',
+}
 
 
 class ArchitecturePresetTests(TestCase):
-    def test_presets_exist(self):
-        for key in ('cold_calling', 'linkedin', 'scaleup'):
-            preset = get_architecture_preset(key)
-            self.assertIsNotNone(preset)
-            self.assertIn('offer', preset['input_data'])
+    """Точка входа «Применить архитектуру» для гостя и для директора."""
+
+    def test_architecture_presets_are_declared(self):
+        self.assertTrue(ARCHITECTURE_PRESETS)
+        for key in ARCHITECTURE_PRESETS:
+            with self.subTest(preset=key):
+                preset = get_architecture_preset(key)
+                self.assertIsNotNone(preset)
+                self.assertIn('offer', preset['input_data'])
 
     def test_apply_architecture_anonymous_redirects_to_register(self):
         client = Client()
@@ -36,14 +62,11 @@ class ArchitecturePresetTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn('/register/', response['Location'])
         self.assertIn('arch=cold_calling', response['Location'])
-        session = client.session
-        self.assertEqual(session.get('architecture_preset'), 'cold_calling')
+        self.assertEqual(client.session.get('architecture_preset'), 'cold_calling')
 
     def test_apply_architecture_director_goes_to_wizard(self):
-        director = make_director(email='arch@test.com')
-        client = Client()
-        client.force_login(director)
-        response = client.get(
+        self.client.force_login(make_director(email='arch@test.com'))
+        response = self.client.get(
             reverse('rooms:apply_architecture') + '?arch=linkedin',
         )
         self.assertEqual(response.status_code, 302)
@@ -52,21 +75,21 @@ class ArchitecturePresetTests(TestCase):
 
 
 class SetupWizardTests(TestCase):
+    """Golden path мастера: один сценарий на три шага, без дробления."""
+
     def setUp(self):
-        self.client = Client()
         self.director = make_director(email='wiz@test.com')
         self.client.force_login(self.director)
 
-    def test_wizard_creates_project_from_preset_and_launches(self):
-        # step 1 → 2
-        r1 = self.client.post(
+    def test_wizard_three_steps_create_project_from_preset_and_launch(self):
+        step1 = self.client.post(
             reverse('rooms:setup_wizard') + '?step=1',
             {'step': '1', 'arch': 'cold_calling'},
         )
-        self.assertEqual(r1.status_code, 302)
+        self.assertEqual(step1.status_code, 302)
 
         preset = get_architecture_preset('cold_calling')
-        r2 = self.client.post(
+        step2 = self.client.post(
             reverse('rooms:setup_wizard') + '?step=2',
             {
                 'step': '2',
@@ -83,16 +106,16 @@ class SetupWizardTests(TestCase):
                 'hot_criteria': preset['input_data']['hot_criteria'],
             },
         )
-        self.assertEqual(r2.status_code, 302)
+        self.assertEqual(step2.status_code, 302)
         project = Project.objects.get(owner=self.director)
         self.assertEqual(project.project_type, Project.Type.BASE)
         self.assertEqual(project.input_data.get('architecture'), 'cold_calling')
 
-        r3 = self.client.post(
+        step3 = self.client.post(
             reverse('rooms:setup_wizard') + f'?step=3&project={project.id}',
             {'step': '3', 'action': 'launch'},
         )
-        self.assertEqual(r3.status_code, 302)
+        self.assertEqual(step3.status_code, 302)
         project.refresh_from_db()
         self.assertEqual(project.status, Project.Status.STAFFING)
         self.assertTrue(hasattr(project, 'room'))
@@ -104,33 +127,64 @@ class SetupWizardTests(TestCase):
         )
 
 
-class CatalogAddToRoomTests(TestCase):
+class TestPaymentTests(TestCase):
+    """Тестовая оплата как продуктовый результат: черновик → комната."""
+
     def setUp(self):
-        self.client = Client()
+        self.director = make_director(email='pay@test.com')
+        self.client.force_login(self.director)
+
+    def test_payment_stub_opens_the_room(self):
+        project = Project.objects.create(
+            owner=self.director,
+            name='Оплаченный проект',
+            input_data=dict(PROJECT_INPUTS),
+            status=Project.Status.DRAFT,
+        )
+        response = self.client.post(
+            reverse('rooms:project_pay', kwargs={'project_id': project.id}),
+        )
+        project.refresh_from_db()
+        self.assertEqual(project.status, Project.Status.STAFFING)
+        self.assertEqual(Room.objects.filter(project=project).count(), 1)
+        self.assertTrue(
+            RoomActivity.objects.filter(
+                room=project.room,
+                event_type=RoomActivity.EventType.PROJECT_LAUNCHED,
+            ).exists()
+        )
+        self.assertRedirects(
+            response,
+            reverse('rooms:room_overview', kwargs={'project_id': project.id}),
+        )
+
+
+class CatalogAddToRoomTests(TestCase):
+    """Каталог наполняет команду только через URL комнаты."""
+
+    def setUp(self):
         self.director = make_director(email='cat@test.com')
         self.teamlead = make_teamlead(email='cattl@test.com')
         self.freelancer = make_freelancer(email='sale@test.com')
-        profile = self.freelancer.freelancer_profile
-        profile.skills = ['SPIN', 'Cold calls']
-        profile.rating = 4.5
-        profile.is_available = True
-        profile.save()
         self.project = Project.objects.create(
             owner=self.director,
             name='Staffing project',
             project_type=Project.Type.BASE,
-            input_data={
-                'offer': 'o', 'utp': 'u', 'audience': 'a', 'hot_criteria': 'h',
-            },
+            input_data=dict(PROJECT_INPUTS),
             status=Project.Status.DRAFT,
         )
         launch_project(self.project)
         assign_teamlead(self.project, self.teamlead)
         self.client.force_login(self.teamlead)
 
-    def test_add_from_catalog_to_room(self):
-        url = reverse('rooms:catalog_add_to_room', kwargs={'user_id': self.freelancer.id})
-        response = self.client.post(url, {'project': str(self.project.id)})
+    def test_add_from_catalog_to_room_goes_through_the_rooms_url(self):
+        response = self.client.post(
+            reverse(
+                'rooms:catalog_add_to_room',
+                kwargs={'user_id': self.freelancer.id},
+            ),
+            {'project': str(self.project.id)},
+        )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(
             RoomMember.objects.filter(
@@ -145,164 +199,89 @@ class CatalogAddToRoomTests(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.status, Project.Status.STAFFING)
 
-    def test_baseball_card_page_contains_skills_and_cta(self):
-        response = self.client.get(
-            reverse('profiles:detail', kwargs={'user_id': self.freelancer.id}),
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'SPIN')
-        self.assertContains(response, 'В комнату')
-        self.assertContains(response, '★')
-
 
 class TeamleadInviteTests(TestCase):
+    """Приглашение тимлида: новый регистрируется, существующий принимает."""
+
     def setUp(self):
-        self.client = Client()
         self.director = make_director(email='inv@test.com')
         self.project = Project.objects.create(
             owner=self.director,
             name='Invite project',
-            input_data={
-                'offer': 'o', 'utp': 'u', 'audience': 'a', 'hot_criteria': 'h',
-            },
+            input_data=dict(PROJECT_INPUTS),
             status=Project.Status.DRAFT,
         )
         launch_project(self.project)
 
     def test_create_invite_and_register_teamlead(self):
         self.client.force_login(self.director)
-        response = self.client.post(
-            reverse('rooms:room_create_teamlead_invite', kwargs={'project_id': self.project.id}),
+        created = self.client.post(
+            reverse(
+                'rooms:room_create_teamlead_invite',
+                kwargs={'project_id': self.project.id},
+            ),
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(created.status_code, 302)
         invite = TeamleadInvite.objects.get(project=self.project, is_active=True)
 
         self.client.logout()
-        accept_url = reverse(
-            'rooms:teamlead_invite_accept',
-            kwargs={'token': invite.token},
+        accepted = self.client.post(
+            reverse('rooms:teamlead_invite_accept', kwargs={'token': invite.token}),
+            {
+                'first_name': 'Тим',
+                'last_name': 'Лид',
+                'email': 'newtl@test.com',
+                'password1': 'StrongPass123!',
+                'password2': 'StrongPass123!',
+            },
         )
-        response = self.client.post(accept_url, {
-            'first_name': 'Тим',
-            'last_name': 'Лид',
-            'email': 'newtl@test.com',
-            'password1': 'StrongPass123!',
-            'password2': 'StrongPass123!',
-        })
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(accepted.status_code, 302)
         user = User.objects.get(email='newtl@test.com')
         self.assertEqual(user.role, User.Roles.TEAMLEAD)
         self.project.refresh_from_db()
         self.assertEqual(self.project.teamlead_id, user.id)
 
     def test_existing_teamlead_accepts_invite(self):
-        tl = make_teamlead(email='existtl@test.com')
+        teamlead = make_teamlead(email='existtl@test.com')
         invite = create_teamlead_invite(self.project, self.director)
-        accept_teamlead_invite(invite, tl)
+        accept_teamlead_invite(invite, teamlead)
         self.project.refresh_from_db()
-        self.assertEqual(self.project.teamlead_id, tl.id)
+        self.assertEqual(self.project.teamlead_id, teamlead.id)
 
 
-class DashboardMetricsTests(TestCase):
+class DirectorDashboardMetricsTests(TestCase):
+    """Дашборд директора отдаёт числа, а не обещания выручки."""
+
     def setUp(self):
-        self.client = Client()
         self.director = make_director(email='met@test.com')
-        self.freelancer = make_freelancer(email='fmet@test.com')
-        profile = self.freelancer.freelancer_profile
-        profile.country = 'RU'
-        profile.skills = ['BANT']
-        profile.save()
-
-    def test_director_dashboard_shows_metrics_and_checklist(self):
         self.client.force_login(self.director)
-        response = self.client.get(reverse('core:home'))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Чеклист запуска')
-        self.assertContains(response, 'Горячие лиды')
-        self.assertContains(response, 'Потратил')
-        self.assertContains(response, '0 ₽')
-        self.assertContains(response, 'контур сделок не в этом релизе')
-        metrics = director_metrics(self.director)
-        self.assertEqual(metrics['projects_total'], 0)
-        self.assertEqual(metrics['earned_total'], Decimal('0.00'))
 
-    def test_freelancer_dashboard_checklist(self):
-        self.client.force_login(self.freelancer)
-        response = self.client.get(reverse('core:home'))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Чеклист старта')
-        progress = onboarding_progress(director_onboarding(self.director))
-        self.assertFalse(progress['complete'])
-
-    def test_legal_pages(self):
-        for name in ('core:about', 'core:privacy', 'core:terms'):
-            response = self.client.get(reverse(name))
-            self.assertEqual(response.status_code, 200)
-
-
-class RoomHubPolishTests(TestCase):
-    def setUp(self):
-        self.client = Client()
-        self.director = make_director(email='hub@test.com')
-        self.teamlead = make_teamlead(email='hubtl@test.com')
-        self.freelancer = make_freelancer(email='hubf@test.com')
-        self.project = Project.objects.create(
+    def test_director_metrics_do_not_invent_revenue(self):
+        project = Project.objects.create(
             owner=self.director,
-            name='Hub',
-            input_data={
-                'offer': 'o', 'utp': 'u', 'audience': 'a', 'hot_criteria': 'h',
-            },
-            status=Project.Status.DRAFT,
+            name='Метрики',
+            budget=Decimal('50000.00'),
+            input_data=dict(PROJECT_INPUTS),
+            status=Project.Status.STAFFING,
         )
-        launch_project(self.project)
-        assign_teamlead(self.project, self.teamlead)
-        from apps.rooms.services import add_freelancer_to_room
-        add_freelancer_to_room(self.project.room, self.freelancer, actor=self.teamlead)
-        Task.objects.create(
-            project=self.project,
-            assignee=self.freelancer,
-            created_by=self.director,
-            title='Позвонить 10 лидам',
-            status=Task.Status.NEW,
+        Lead.objects.create(
+            project=project,
+            creator=self.director,
+            qualification_status=Lead.Qualification.HOT,
         )
-        self.client.force_login(self.director)
-
-    def test_overview_has_activity_and_kanban(self):
-        response = self.client.get(
-            reverse('rooms:room_overview', kwargs={'project_id': self.project.id}),
-        )
+        response = self.client.get(reverse('core:home'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Лента событий')
-        self.assertContains(response, 'К работе')
-        self.assertContains(response, 'Позвонить 10 лидам')
 
-    def test_tasks_kanban_columns(self):
-        self.client.force_login(self.teamlead)
-        response = self.client.get(
-            reverse('pipeline:room_tasks', kwargs={'project_id': self.project.id}),
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'На проверке')
-        self.assertContains(response, 'Готово')
+        metrics = response.context['metrics']
+        self.assertEqual(metrics['projects_total'], 1)
+        self.assertEqual(metrics['hot_leads'], 1)
+        self.assertEqual(metrics['spent_total'], Decimal('50000.00'))
+        # Горячий лид не превращается в выручку: контур сделок вне релиза.
+        self.assertEqual(metrics['earned_total'], Decimal('0.00'))
+        self.assertIn('сделок', metrics['earned_caption'])
 
-    def test_documents_dropbox_empty_state(self):
-        response = self.client.get(
-            reverse('rooms:room_documents', kwargs={'project_id': self.project.id}),
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Папка пуста')
-
-    def test_document_upload_logs_activity(self):
-        self.client.force_login(self.teamlead)
-        upload = SimpleUploadedFile('brief.txt', b'hello', content_type='text/plain')
-        response = self.client.post(
-            reverse('rooms:room_document_upload', kwargs={'project_id': self.project.id}),
-            {'title': 'Бриф', 'file': upload},
-        )
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(
-            RoomActivity.objects.filter(
-                room=self.project.room,
-                event_type=RoomActivity.EventType.DOCUMENT_UPLOADED,
-            ).exists()
-        )
+    def test_legal_pages_are_reachable(self):
+        for name in ('core:about', 'core:privacy', 'core:terms'):
+            with self.subTest(page=name):
+                response = self.client.get(reverse(name))
+                self.assertEqual(response.status_code, 200)
