@@ -100,8 +100,34 @@ core              ────▶  users / rooms / …     UI composition root
 
 - Не нарушены границы модулей (BIZ ↛ ROOM).  
 - Бизнес-логика в `services.py`, UI на русском.  
+- **Зелёный полный `python manage.py test`.** Прогон части suite (в том числе через `scripts/test_lite.*`) не делает PR готовым.
 - Есть тест или явный ручной чеклист для QA.  
 - В описании PR — как проверить локально.
+
+### Политика тестов (против test sprawl)
+
+Suite держим маленьким и быстрым: 15 файлов `tests*.py`, 161 тест, ~4 с.
+
+- **Максимум 2 теста на фичу**: один на доменный инвариант (service) плюс один на HTTP-доступ/видимость — и только если нужны оба.
+- **Матрицу ролей** проверяем одним методом через `subTest`, а не отдельным тестом на каждую роль.
+- **Новый `tests_*.py`** заводится только под новый bounded context.
+- **ROOM UI/RBAC** идут в `apps/rooms/tests_room_rbac.py`; новые `issue*`/`ui`/`tabs`-файлы не создаём.
+- **Третий тест на тот же POST** не добавляем, если он не защищает новый доменный инвариант.
+
+Запрещённые regression-паттерны:
+
+- `inspect.getsource` / `inspect.signature`;
+- разбор AST тела функций (в т.ч. «импорт лежит внутри функции»);
+- `makemigrations --check` как продуктовый тест;
+- `assertNumQueries`, `CaptureQueriesContext`;
+- SQL-строки: `str(qs.query)`, проверки `WHERE` / `NOT EXISTS`;
+- assertions по CSS-классам и парсинг разметки регулярками;
+- «плейсхолдер исчез»;
+- точное `HH:MM:SS` и отрендеренная дата (`strftime('%d.%m.%Y %H:%M')`);
+- точные подписи кнопок и длинные `assertContains` по русской копии — если то же самое проверяется через URL, `response.context` или доменное состояние;
+- проверки содержимого docstring.
+
+AST остаётся допустим только для границ импорта модулей — `apps/profiles/tests_boundaries.py` (`ast.Import` / `ast.ImportFrom`).
 
 ---
 
@@ -143,9 +169,11 @@ whitenoise   # на сервере для static (может быть тольк
 Отдельного `requirements.txt` в корне может не быть — при онбординге зафиксировать и добавить.
 
 ### Тесты
-- Django TestCase в `apps/*/tests*.py`
+- Django TestCase в `apps/*/tests*.py` — 15 файлов, 161 тест, ~4 с
 - Хелперы: `apps/test_helpers.py`
-- Запуск: `python manage.py test`
+- Запуск: `python manage.py test` — всегда целиком
+- `scripts/test_lite.ps1` / `scripts/test_lite.sh` — совместимые алиасы того же полного прогона; быстрого subset больше нет
+- Что можно и чего нельзя писать в тестах — раздел «Политика тестов»
 
 ---
 
