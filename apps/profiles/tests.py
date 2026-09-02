@@ -236,6 +236,22 @@ class CatalogAccessByRoleTests(TestCase):
 
         self.assertEqual(self.client.get(own_url).status_code, 200)
 
+    def test_catalog_back_link_only_for_hiring_roles(self):
+        """«К каталогу» — директору на чужой карточке; фрилансеру на своей — нет."""
+        own_url = reverse('profiles:detail', kwargs={'user_id': self.freelancer.id})
+
+        with self.subTest(role='freelancer_own'):
+            self.client.force_login(self.freelancer)
+            response = self.client.get(own_url)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotContains(response, 'К каталогу')
+
+        with self.subTest(role='director_foreign'):
+            self.client.force_login(self.director)
+            response = self.client.get(self.card_url)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'К каталогу')
+
     def test_anonymous_goes_to_login_not_403(self):
         """Поведение для гостя прежнее: логин, а не отказ."""
         response = self.client.get(self.catalog_url)

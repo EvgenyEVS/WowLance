@@ -15,7 +15,7 @@
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from apps.rooms.models import Project, Room, RoomActivity, RoomMember
+from apps.rooms.models import Project, Room, RoomActivity, RoomFunctionSlot, RoomMember
 from apps.rooms.services import (
     add_freelancer_to_room,
     assign_teamlead,
@@ -201,6 +201,26 @@ class ProjectPaidTests(TestCase):
             RoomActivity.objects.filter(
                 room=first,
                 event_type=RoomActivity.EventType.PROJECT_LAUNCHED,
+            ).count(),
+            1,
+        )
+
+    def test_handle_project_paid_applies_quick_start_slots_once(self):
+        """Оплата черновика без состава → слот seller_middle; повтор не дублирует."""
+        handle_project_paid(self.project, actor=self.director)
+        slots = RoomFunctionSlot.objects.filter(
+            room__project=self.project,
+            role_key='seller_middle',
+            is_active=True,
+        )
+        self.assertEqual(slots.count(), 1)
+
+        handle_project_paid(self.project, actor=self.director)
+        self.assertEqual(
+            RoomFunctionSlot.objects.filter(
+                room__project=self.project,
+                role_key='seller_middle',
+                is_active=True,
             ).count(),
             1,
         )

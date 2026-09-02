@@ -127,6 +127,7 @@ def profile_detail(request, user_id):
         'portfolio': portfolio,
         'portfolio_items': portfolio_items,
         'is_owner': is_owner,
+        'show_catalog_link': request.user.role in CATALOG_ROLES,
         'avatar_initials': ''.join(
             part[0] for part in user.full_name.split()[:2]
         ).upper() or user.email[:1].upper(),

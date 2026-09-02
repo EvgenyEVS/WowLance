@@ -10,6 +10,7 @@ from apps.rooms.services import (
     log_room_activity,
     room_nav_context,
     user_can_access_project,
+    user_can_access_task,
     user_can_create_task,
     user_can_manage_team,
     user_can_view_tasks_tab,
@@ -48,6 +49,23 @@ def _get_project(user, project_id):
         raise PermissionDenied('Нет доступа к проекту.')
     ensure_room_for_project(project)
     return project
+
+
+def _get_accessible_task(user, project_id, task_id):
+    """Карточка задачи: доступ к проекту или assignee (менеджерский handoff)."""
+    project = get_object_or_404(
+        Project.objects.select_related('owner', 'teamlead'),
+        id=project_id,
+    )
+    task = get_object_or_404(
+        Task.objects.select_related('assignee', 'lead').prefetch_related('reports'),
+        id=task_id,
+        project=project,
+    )
+    if not user_can_access_task(user, task):
+        raise PermissionDenied('Нет доступа к задаче.')
+    ensure_room_for_project(project)
+    return project, task
 
 
 @login_required
@@ -123,22 +141,13 @@ def task_create(request, project_id):
 
 @login_required
 def task_detail(request, project_id, task_id):
-    project = _get_project(request.user, project_id)
-    task = get_object_or_404(
-        Task.objects.select_related('assignee', 'lead').prefetch_related('reports'),
-        id=task_id,
-        project=project,
-    )
-    if (
-        request.user.role == User.Roles.FREELANCER
-        and task.assignee_id != request.user.id
-    ):
-        raise PermissionDenied
+    project, task = _get_accessible_task(request.user, project_id, task_id)
 
     reports = task.reports.select_related('author', 'reviewed_by').all()
     pending = reports.filter(review_status=Report.ReviewStatus.PENDING).first()
     can_manage = user_can_manage_team(request.user, project)
     is_assignee = task.assignee_id == request.user.id
+    can_open_lead = user_can_access_project(request.user, project)
 
     return render(request, 'pipeline/task_detail.html', {
         'project': project,
@@ -147,6 +156,7 @@ def task_detail(request, project_id, task_id):
         'pending_report': pending,
         'can_manage_team': can_manage,
         'is_assignee': is_assignee,
+        'can_open_lead': can_open_lead,
         'report_form': ReportSubmitForm() if is_assignee else None,
         'review_form': ReportReviewForm() if can_manage and pending else None,
         'can_close': task.can_be_closed(),
@@ -158,8 +168,7 @@ def task_detail(request, project_id, task_id):
 @login_required
 @require_POST
 def task_start(request, project_id, task_id):
-    project = _get_project(request.user, project_id)
-    task = get_object_or_404(Task, id=task_id, project=project)
+    project, task = _get_accessible_task(request.user, project_id, task_id)
     try:
         start_task(task, request.user)
         messages.success(request, 'Задача взята в работу.')
@@ -171,8 +180,7 @@ def task_start(request, project_id, task_id):
 @login_required
 @require_POST
 def task_submit_report(request, project_id, task_id):
-    project = _get_project(request.user, project_id)
-    task = get_object_or_404(Task, id=task_id, project=project)
+    project, task = _get_accessible_task(request.user, project_id, task_id)
     form = ReportSubmitForm(request.POST, request.FILES)
     if form.is_valid():
         try:
@@ -195,6 +203,8 @@ def task_submit_report(request, project_id, task_id):
 @login_required
 @require_POST
 def task_review_report(request, project_id, task_id, report_id):
+    # Review — только manage_team; доступ через карточку задачи не расширяет
+    # право проверки (менеджер-assignee отчёт тимлиду не утверждает).
     project = _get_project(request.user, project_id)
     task = get_object_or_404(Task, id=task_id, project=project)
     report = get_object_or_404(Report, id=report_id, task=task)
@@ -221,8 +231,7 @@ def task_review_report(request, project_id, task_id, report_id):
 @login_required
 @require_POST
 def task_close(request, project_id, task_id):
-    project = _get_project(request.user, project_id)
-    task = get_object_or_404(Task, id=task_id, project=project)
+    project, task = _get_accessible_task(request.user, project_id, task_id)
     try:
         close_task(task, request.user)
         messages.success(request, 'Задача закрыта.')

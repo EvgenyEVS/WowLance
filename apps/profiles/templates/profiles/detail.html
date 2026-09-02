@@ -36,7 +36,9 @@
                         <a href="{% url 'profiles:edit' %}">Редактировать</a>
                         {% endif %}
                         <a href="{% url 'profiles:portfolio' profile_user.id %}">Портфолио</a>
+                        {% if show_catalog_link %}
                         <a href="{% url 'profiles:catalog' %}">К каталогу</a>
+                        {% endif %}
                         {% if can_add_to_room and add_to_room_form %}
                         <form method="post" action="{% url 'rooms:catalog_add_to_room' profile_user.id %}" class="fc-menu-add">
                             {% csrf_token %}
