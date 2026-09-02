@@ -306,7 +306,7 @@ def setup_wizard(request):
             project = get_object_or_404(Project, id=project_id, owner=request.user)
 
     if request.method == 'POST' and step == '3' and project:
-        action = request.POST.get('action', 'launch')
+        action = request.POST.get('action', 'later')
         if action == 'launch':
             launch_project(project, actor=request.user)
             request.session.pop('wizard_project_id', None)

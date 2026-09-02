@@ -71,13 +71,12 @@
         <h3>{{ project.name }}</h3>
         <p><strong>Тип:</strong> {{ project.get_project_type_display }} · <strong>Уровень:</strong> {{ project.get_seller_level_display }}</p>
         <p><strong>Оффер:</strong> {{ project.offer|truncatechars:160 }}</p>
-        <p class="help-text">Запуск создаёт комнату без оплаты (MVP). Дальше — пригласите тимлида и добавьте фрилансеров.</p>
+        <p class="help-text">Оплатите запуск, чтобы открыть комнату. Дальше — пригласите тимлида и соберите команду.</p>
     </div>
     {% if project.status == 'draft' %}{% include 'rooms/_payment_stub.html' %}{% endif %}
     <form method="post">
         {% csrf_token %}
         <input type="hidden" name="step" value="3">
-        <button type="submit" name="action" value="launch" class="btn btn-primary">Запустить комнату</button>
         <button type="submit" name="action" value="later" class="btn btn-ghost">Оставить черновик</button>
     </form>
     {% else %}

@@ -521,6 +521,39 @@ class ManagerInboxTests(PipelineProjectMixin, TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_manager_opens_own_handoff_but_not_room_overview(self):
+        """Assignee открывает handoff; Обзор комнаты и чужой фрилансер — 403."""
+        lead = create_lead(
+            project=self.project,
+            creator=self.freelancer,
+            contact_info={'name': 'Hot Клиент', 'email': 'hot@client.test'},
+            source=Lead.Source.BASE,
+            qualification_status=Lead.Qualification.WARM,
+        )
+        set_lead_qualification(
+            lead=lead,
+            new_status=Lead.Qualification.HOT,
+            changed_by=self.teamlead,
+            matched_hot_criteria=['Запросил демо'],
+        )
+        handoff = Task.objects.get(lead=lead, task_type=Task.TaskType.MANAGER_HANDOFF)
+        task_url = reverse(
+            'pipeline:task_detail',
+            kwargs={'project_id': self.project.id, 'task_id': handoff.id},
+        )
+        overview_url = reverse(
+            'rooms:room_overview', kwargs={'project_id': self.project.id}
+        )
+
+        with self.subTest(actor='manager'):
+            self.client.force_login(self.manager)
+            self.assertEqual(self.client.get(task_url).status_code, 200)
+            self.assertEqual(self.client.get(overview_url).status_code, 403)
+
+        with self.subTest(actor='room_freelancer'):
+            self.client.force_login(self.freelancer)
+            self.assertEqual(self.client.get(task_url).status_code, 403)
+
 
 # ---------------------------------------------------------------------------
 # 13. Контракт досок

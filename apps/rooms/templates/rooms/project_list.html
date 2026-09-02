@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
 
-{% block title %}Проекты{% endblock %}
+{% block title %}{% if user.role == 'freelancer' %}Комнаты{% else %}Проекты{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>Проекты</h1>
+    <h1>{% if user.role == 'freelancer' %}Комнаты{% else %}Проекты{% endif %}</h1>
     {% if user.role == 'director' %}
     <a href="{% url 'rooms:setup_wizard' %}" class="btn btn-primary">Мастер запуска</a>
     {% endif %}

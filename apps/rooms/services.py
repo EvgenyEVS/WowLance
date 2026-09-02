@@ -319,6 +319,22 @@ def apply_package_and_sync_slots(project: Project, package_key: str, user):
     )
 
 
+def ensure_default_composition_package(project: Project, actor=None) -> None:
+    """Если снапшота состава ещё нет — пакет по architecture мастера.
+
+    `architecture=linkedin` → пакет `linkedin`, иначе `quick_start`.
+    Уже сохранённый директором состав не затираем. Пустой пул каталога
+    оставляет слот пустым — как у ручного применения пакета.
+    """
+    from .unit_economics import get_project_composition
+
+    if get_project_composition(project):
+        return
+    architecture = (project.input_data or {}).get('architecture')
+    package_key = 'linkedin' if architecture == 'linkedin' else 'quick_start'
+    apply_package_and_sync_slots(project, package_key, actor or project.owner)
+
+
 @transaction.atomic
 def launch_project(project: Project, actor=None) -> Project:
     """
@@ -335,6 +351,7 @@ def launch_project(project: Project, actor=None) -> Project:
         RoomActivity.EventType.PROJECT_LAUNCHED,
         actor=actor or project.owner,
     )
+    ensure_default_composition_package(project, actor=actor or project.owner)
     return project
 
 
@@ -431,6 +448,24 @@ def user_can_access_project(user, project: Project) -> bool:
     if project.teamlead_id == user.id:
         return True
     return RoomMember.objects.filter(room__project=project, user=user).exists()
+
+
+def user_can_access_task(user, task) -> bool:
+    """Доступ к карточке задачи: участник проекта или назначенный исполнитель.
+
+    Менеджер платформы получает handoff без членства в комнате — ему открыта
+    только своя задача (assignee), не Обзор и не доска. Фрилансер комнаты
+    по-прежнему видит только свои задачи, даже при доступе к проекту.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if task.assignee_id == user.id:
+        return True
+    if not user_can_access_project(user, task.project):
+        return False
+    if getattr(user, 'role', None) == User.Roles.FREELANCER:
+        return False
+    return True
 
 
 def user_can_manage_team(user, project: Project) -> bool:
@@ -627,7 +662,7 @@ def _after_project_paid(project: Project, room: Room, actor=None) -> None:
     Вызывается один раз — при переходе проекта из черновика в Staffing,
     поэтому шаги здесь не дублируются при повторной обработке оплаты.
 
-    TODO (вне текущего scope): автоматический тимлид, стартовые задачи,
-    письма участникам. Добавлять их нужно здесь, без правок views и URL оплаты.
+    Первый шаг MVP: стартовый пакет состава, если директор ещё не сохранил
+    строки на Обзоре. Дальше — тимлид / письма (вне текущего scope).
     """
-    return None
+    ensure_default_composition_package(project, actor=actor or project.owner)

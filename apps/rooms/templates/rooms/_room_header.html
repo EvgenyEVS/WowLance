@@ -9,7 +9,7 @@
 {% endcomment %}
 <div class="page-header">
     <div>
-        <p><a href="{% url 'rooms:project_list' %}">← Проекты</a></p>
+        <p><a href="{% url 'rooms:project_list' %}">{% if user.role == 'freelancer' %}← Комнаты{% else %}← Проекты{% endif %}</a></p>
         <div class="room-title-row">
             <h1><a class="room-title-link" href="{% url 'rooms:room_overview' project.id %}">{{ project.name }}</a></h1>
             {% if user.role == 'freelancer' and freelancer_project_earned != None %}

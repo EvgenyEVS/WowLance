@@ -27,7 +27,11 @@
 
     {% if task.lead %}
     <p><strong>Лид:</strong>
+        {% if can_open_lead %}
         <a href="{% url 'pipeline:lead_detail' project.id task.lead.id %}">{{ task.lead }}</a>
+        {% else %}
+        {{ task.lead }}
+        {% endif %}
     </p>
     {% endif %}
 </div>
