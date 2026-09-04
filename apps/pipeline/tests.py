@@ -481,6 +481,35 @@ class LeadHandoffTests(PipelineProjectMixin, TestCase):
             statuses, [Lead.Qualification.COLD, Lead.Qualification.WARM]
         )
 
+    def test_freelancer_post_qualification_returns_403(self):
+        """Фрилансер POST квалификации → 403, статус лида не меняется.
+        Тимлид по-прежнему редирект и смена статуса (золотой путь не ломается).
+        """
+        lead = self.make_lead(Lead.Qualification.COLD)
+        qualify_url = reverse(
+            'pipeline:lead_qualify',
+            kwargs={'project_id': self.project.id, 'lead_id': lead.id},
+        )
+        payload = {
+            'qualification_status': Lead.Qualification.HOT,
+            'comment': 'Попытка фрилансера',
+        }
+
+        with self.subTest(actor='freelancer'):
+            self.client.force_login(self.freelancer)
+            response = self.client.post(qualify_url, payload)
+            self.assertEqual(response.status_code, 403)
+            lead.refresh_from_db()
+            self.assertEqual(lead.qualification_status, Lead.Qualification.COLD)
+
+        with self.subTest(actor='teamlead'):
+            self.client.force_login(self.teamlead)
+            response = self.client.post(qualify_url, payload)
+            # Тимлид — редирект (200/302), статус меняется
+            self.assertIn(response.status_code, (200, 302))
+            lead.refresh_from_db()
+            self.assertEqual(lead.qualification_status, Lead.Qualification.HOT)
+
 
 # ---------------------------------------------------------------------------
 # 11-12. Инбокс менеджера
@@ -522,7 +551,10 @@ class ManagerInboxTests(PipelineProjectMixin, TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_manager_opens_own_handoff_but_not_room_overview(self):
-        """Assignee открывает handoff; Обзор комнаты и чужой фрилансер — 403."""
+        """Assignee открывает handoff; Обзор комнаты и чужой фрилансер — 403.
+        Менеджер не видит навигацию комнаты и «← К задачам», но видит
+        переход в inbox («Горячие лиды»). Тимлид/директор навигацию видят.
+        """
         lead = create_lead(
             project=self.project,
             creator=self.freelancer,
@@ -544,15 +576,41 @@ class ManagerInboxTests(PipelineProjectMixin, TestCase):
         overview_url = reverse(
             'rooms:room_overview', kwargs={'project_id': self.project.id}
         )
+        inbox_url = reverse('pipeline:manager_inbox')
+        tasks_url = reverse('pipeline:room_tasks', kwargs={'project_id': self.project.id})
 
         with self.subTest(actor='manager'):
             self.client.force_login(self.manager)
-            self.assertEqual(self.client.get(task_url).status_code, 200)
+            response = self.client.get(task_url)
+            self.assertEqual(response.status_code, 200)
+            # Навигации комнаты нет
+            self.assertNotContains(response, 'room-tabs')
+            # Нет ссылки «← К задачам»
+            self.assertNotContains(response, '← К задачам')
+            # Но есть переход в inbox
+            self.assertContains(response, '← Горячие лиды')
+            self.assertContains(response, inbox_url)
+            # Обзор комнаты — 403
             self.assertEqual(self.client.get(overview_url).status_code, 403)
 
         with self.subTest(actor='room_freelancer'):
             self.client.force_login(self.freelancer)
             self.assertEqual(self.client.get(task_url).status_code, 403)
+
+        with self.subTest(actor='teamlead'):
+            self.client.force_login(self.teamlead)
+            response = self.client.get(task_url)
+            self.assertEqual(response.status_code, 200)
+            # Тимлид видит навигацию комнаты и «← К задачам»
+            self.assertContains(response, 'room-tabs')
+            self.assertContains(response, '← К задачам')
+
+        with self.subTest(actor='director'):
+            self.client.force_login(self.director)
+            response = self.client.get(task_url)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'room-tabs')
+            self.assertContains(response, '← К задачам')
 
 
 # ---------------------------------------------------------------------------

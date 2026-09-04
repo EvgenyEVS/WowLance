@@ -141,13 +141,32 @@ def task_create(request, project_id):
 
 @login_required
 def task_detail(request, project_id, task_id):
-    project, task = _get_accessible_task(request.user, project_id, task_id)
+    # НОВОЕ: используем get_object_or_404 вместо _get_project,
+    # чтобы не блокировать менеджера до проверки прав на задачу.
+    project = get_object_or_404(Project, id=project_id)
+    task = get_object_or_404(
+        Task.objects.select_related('assignee', 'lead').prefetch_related('reports'),
+        id=task_id,
+        project=project,
+    )
+
+    is_assignee = task.assignee_id == request.user.id
+
+    # 1. Фрилансер видит только свои задачи (оригинальное строгое правило).
+    if request.user.role == User.Roles.FREELANCER and not is_assignee:
+        raise PermissionDenied('Фрилансер видит только свои задачи.')
+
+    # 2. Остальные роли: доступ к проекту ИЛИ исполнитель задачи.
+    # Это позволяет менеджеру открыть свою handoff-задачу, не будучи в комнате.
+    if not user_can_access_project(request.user, project) and not is_assignee:
+        raise PermissionDenied('Нет доступа к этой задаче.')
 
     reports = task.reports.select_related('author', 'reviewed_by').all()
     pending = reports.filter(review_status=Report.ReviewStatus.PENDING).first()
     can_manage = user_can_manage_team(request.user, project)
-    is_assignee = task.assignee_id == request.user.id
-    can_open_lead = user_can_access_project(request.user, project)
+
+    # Навигация комнаты только если есть доступ к проекту.
+    show_room_chrome = user_can_access_project(request.user, project)
 
     return render(request, 'pipeline/task_detail.html', {
         'project': project,
@@ -156,12 +175,12 @@ def task_detail(request, project_id, task_id):
         'pending_report': pending,
         'can_manage_team': can_manage,
         'is_assignee': is_assignee,
-        'can_open_lead': can_open_lead,
         'report_form': ReportSubmitForm() if is_assignee else None,
         'review_form': ReportReviewForm() if can_manage and pending else None,
         'can_close': task.can_be_closed(),
+        'can_open_lead': show_room_chrome and task.lead,
+        'show_room_chrome': show_room_chrome,
         'active_tab': 'tasks',
-        **room_nav_context(request.user, project),
     })
 
 
@@ -347,7 +366,7 @@ def lead_qualify(request, project_id, lead_id):
                     request,
                     'Создана задача менеджеру: связаться в течение 24 часов.',
                 )
-        except (PermissionDenied, ValidationError) as exc:
+        except ValidationError as exc:  # НОВОЕ: ловим только ValidationError
             messages.error(request, str(exc))
     else:
         messages.error(request, 'Некорректные данные квалификации.')
