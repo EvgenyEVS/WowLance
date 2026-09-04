@@ -3,9 +3,22 @@
 {% block title %}{{ task.title }}{% endblock %}
 
 {% block content %}
+{% comment %}
+Навигация комнаты (вкладки + «← К задачам») показывается только тем,
+кто имеет доступ к проекту (директор, тимлид, члены комнаты).
+Менеджер платформы открывает свою задачу передачи Hot, но в комнату
+не входит — поэтому у него нет ни вкладок, ни перехода на Обзор.
+Вместо этого менеджеру показывается ссылка «← Горячие лиды» в его inbox.
+Флаг show_room_chrome, а не ветвление по роли — см. ТЗ #48.
+{% endcomment %}
+{% if show_room_chrome %}
 {% include 'rooms/_room_header.html' %}
-
 <p><a href="{% url 'pipeline:room_tasks' project.id %}">← К задачам</a></p>
+{% else %}
+<p><a href="{% url 'pipeline:manager_inbox' %}">← Горячие лиды</a></p>
+{% endif %}
+
+<h1>{{ task.title }}</h1>
 
 <div class="info-block">
     <h2>{{ task.title }}</h2>
