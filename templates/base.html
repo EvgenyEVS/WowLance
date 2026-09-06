@@ -21,7 +21,7 @@
                 </a>
                 {% if user.is_authenticated and user.role == 'freelancer' %}
                 <a href="{% url 'pipeline:freelancer_accruals' %}" class="btn btn-secondary btn-sm header-earned-link">
-                    Я заработал всего {{ freelancer_earned_total|floatformat:0 }} долларов на WowLance
+                    Итого я заработал {{ freelancer_earned_total|floatformat:0 }} долларов на WowLance
                 </a>
                 {% endif %}
                 {% if user.is_authenticated and user.role == 'director' %}

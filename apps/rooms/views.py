@@ -1,9 +1,11 @@
+import mimetypes
+
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import Http404, HttpResponseBadRequest
+from django.http import FileResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -298,6 +300,24 @@ def _material_groups(documents):
         'title': MATERIALS_DEFAULT_GROUP_TITLE,
         'documents': docs,
     }]
+
+
+def _document_content_type(filename: str) -> str:
+    """MIME файла для открытия в браузере.
+
+    Для текста явно ставим UTF-8: иначе Windows открывает .txt как CP1251
+    и кириллица в скриптах звонка превращается в «РћС‚РєСЂС‹С‚РёРµ».
+    """
+    guessed, _encoding = mimetypes.guess_type(filename)
+    content_type = guessed or 'application/octet-stream'
+    textual = content_type.startswith('text/') or content_type in {
+        'application/json',
+        'application/javascript',
+        'application/xml',
+    }
+    if textual and 'charset=' not in content_type:
+        return f'{content_type}; charset=utf-8'
+    return content_type
 
 
 #: Сколько последних событий комнаты показывает «Обзор» (Issue #11).
@@ -865,6 +885,28 @@ def room_documents(request, project_id):
         'active_tab': 'documents',
         **room_nav_context(request.user, project),
     })
+
+
+@login_required
+@require_safe
+def room_document_file(request, project_id, document_id):
+    """Отдаёт файл материала с кодировкой для текста.
+
+    Прямой `/media/...` charset не ставит: браузер на русской Windows
+    читает .txt как системную кодировку. PDF и картинки без charset.
+    """
+    project = _get_accessible_project(request.user, project_id)
+    require_non_archived_room_member(request.user, project)
+    room = ensure_room_for_project(project)
+    doc = get_object_or_404(RoomDocument, id=document_id, room=room)
+    if not doc.file:
+        raise Http404
+    return FileResponse(
+        doc.file.open('rb'),
+        as_attachment=False,
+        filename=doc.file.name.rsplit('/', 1)[-1],
+        content_type=_document_content_type(doc.file.name),
+    )
 
 
 @login_required

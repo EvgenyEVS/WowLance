@@ -30,6 +30,11 @@ urlpatterns = [
     ),
     path('projects/<uuid:project_id>/room/documents/', views.room_documents, name='room_documents'),
     path(
+        'projects/<uuid:project_id>/room/documents/<uuid:document_id>/file/',
+        views.room_document_file,
+        name='room_document_file',
+    ),
+    path(
         'projects/<uuid:project_id>/room/documents/upload/',
         views.room_document_upload,
         name='room_document_upload',

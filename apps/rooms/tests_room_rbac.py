@@ -286,6 +286,15 @@ class RoomMaterialsRbacTests(RoomRbacTestCase):
             [doc for group in response.context['material_groups']
              for doc in group['documents']],
         )
+        file_url = reverse(
+            'rooms:room_document_file',
+            kwargs={'project_id': self.project.id, 'document_id': document.id},
+        )
+        self.assertContains(response, file_url)
+        file_response = self.client.get(file_url)
+        self.assertEqual(file_response.status_code, 200)
+        self.assertIn('charset=utf-8', file_response['Content-Type'])
+        self.assertEqual(file_response.getvalue(), b'deck')
 
     def test_freelancer_cannot_delete_a_foreign_document(self):
         document = self.make_document(self.director, 'Файл директора')
