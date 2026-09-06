@@ -22,11 +22,18 @@ from apps.users.models import User
 
 from .forms import (
     LeadCreateForm,
+    LeadDiscoveryForm,
     LeadQualifyForm,
     ReportReviewForm,
     ReportSubmitForm,
     TaskCreateForm,
     TeamleadPeriodReportForm,
+)
+from .discovery import (
+    DISCOVERY_GROUPS,
+    discovery_hint_key,
+    discovery_hint_text,
+    normalize_discovery_checks,
 )
 from .kanban import lead_columns, task_columns
 from .models import FreelancerAccrual, Lead, Report, Task
@@ -41,6 +48,16 @@ from .services import (
     start_task,
     submit_report,
 )
+
+
+def _can_edit_lead_discovery(user, lead) -> bool:
+    """Чеклист пишет создатель-фрилансер или тимлид проекта."""
+    if user_can_manage_team(user, lead.project):
+        return True
+    return (
+        getattr(user, 'role', None) == User.Roles.FREELANCER
+        and lead.creator_id == user.id
+    )
 
 
 def _get_project(user, project_id):
@@ -330,6 +347,24 @@ def lead_detail(request, project_id, lead_id):
 
     history = lead.status_history.select_related('changed_by').all()
     can_manage = user_can_manage_team(request.user, project)
+    can_edit_discovery = _can_edit_lead_discovery(request.user, lead)
+    checks = normalize_discovery_checks(lead.discovery_checks)
+    discovery_form = LeadDiscoveryForm(initial=checks)
+    discovery_sections = [
+        {
+            'id': group_id,
+            'label': group_label,
+            'fields': [
+                {
+                    'key': key,
+                    'caption': caption,
+                    'checked': checks[key],
+                }
+                for key, caption in fields
+            ],
+        }
+        for group_id, group_label, fields in DISCOVERY_GROUPS
+    ]
     qualify_form = None
     if can_manage:
         qualify_form = LeadQualifyForm(initial={
@@ -342,11 +377,37 @@ def lead_detail(request, project_id, lead_id):
         'lead': lead,
         'history': history,
         'can_manage_team': can_manage,
+        'can_edit_discovery': can_edit_discovery,
+        'discovery_form': discovery_form,
+        'discovery_sections': discovery_sections,
+        'discovery_hint': discovery_hint_key(checks),
+        'discovery_hint_text': discovery_hint_text(checks),
         'qualify_form': qualify_form,
         'hot_criteria': (project.input_data or {}).get('hot_criteria', ''),
         'active_tab': 'leads',
         **room_nav_context(request.user, project),
     })
+
+
+@login_required
+@require_POST
+def lead_discovery(request, project_id, lead_id):
+    """Сохранить чеклист фактов. Не трогает qualification_status / handoff."""
+    project = _get_project(request.user, project_id)
+    require_can_work_in_room(request.user, project)
+    require_non_archived_room_member(request.user, project)
+    lead = get_object_or_404(Lead, id=lead_id, project=project)
+    if not _can_edit_lead_discovery(request.user, lead):
+        raise PermissionDenied('Чеклист может сохранить создатель лида или тимлид.')
+
+    form = LeadDiscoveryForm(request.POST)
+    if form.is_valid():
+        lead.discovery_checks = form.cleaned_checks()
+        lead.save(update_fields=['discovery_checks', 'updated_at'])
+        messages.success(request, 'Чеклист сохранён.')
+    else:
+        messages.error(request, 'Не удалось сохранить чеклист.')
+    return redirect('pipeline:lead_detail', project_id=project.id, lead_id=lead.id)
 
 
 @login_required
