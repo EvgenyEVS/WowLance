@@ -240,6 +240,14 @@ else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
     DEFAULT_FROM_EMAIL = 'WowLance <noreply@wowlance.com>'
 
+# Адрес техподдержки: сюда уходит протест фрилансера против расторжения.
+# Отдельная настройка, а не DEFAULT_FROM_EMAIL: это получатель внутреннего
+# письма, а не подпись отправителя в письмах пользователям.
+SUPPORT_EMAIL = os.environ.get(
+    'SUPPORT_EMAIL',
+    'support@wowlance.com',
+).strip()
+
 
 AUTH_USER_MODEL = 'users.User'
 

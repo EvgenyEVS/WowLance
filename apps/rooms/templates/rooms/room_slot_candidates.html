@@ -21,7 +21,7 @@
 </div>
 
 <div class="slot-cards" style="margin-top: 16px;">
-    {% include 'rooms/_slot_card.html' with card=card can_staff_slots=False compact=True %}
+    {% include 'rooms/_slot_card.html' with card=card can_staff_slots=False can_fill_slots=False compact=True %}
 </div>
 
 {% if page_obj.object_list %}

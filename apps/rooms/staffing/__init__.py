@@ -27,6 +27,7 @@ from .projection import (
 )
 from .selectors import SlotCard, slot_card_for, slot_cards, staffing_summary
 from .services import (
+    SLOT_FILL_STATUSES,
     STAFFING_MUTABLE_STATUSES,
     StaffingError,
     StaffingOutcome,
@@ -42,6 +43,7 @@ __all__ = [
     'CANDIDATE_ORDERING',
     'CHANNEL_REQUIREMENTS',
     'PROJECTED_ROLE_KEYS',
+    'SLOT_FILL_STATUSES',
     'STAFFING_MUTABLE_STATUSES',
     'SlotCard',
     'SlotProjectionError',

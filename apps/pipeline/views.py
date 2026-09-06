@@ -7,7 +7,10 @@ from django.views.decorators.http import require_POST
 from apps.rooms.models import Project, RoomActivity
 from apps.rooms.services import (
     ensure_room_for_project,
+    finalize_expired_termination_for_user,
     log_room_activity,
+    require_can_work_in_room,
+    require_non_archived_room_member,
     room_nav_context,
     user_can_access_project,
     user_can_access_task,
@@ -47,6 +50,9 @@ def _get_project(user, project_id):
     )
     if not user_can_access_project(user, project):
         raise PermissionDenied('Нет доступа к проекту.')
+    # Срок расторжения закрывается до гейтов этого же запроса — см.
+    # `apps.rooms.views._get_accessible_project`.
+    finalize_expired_termination_for_user(user, project)
     ensure_room_for_project(project)
     return project
 
@@ -64,6 +70,7 @@ def _get_accessible_task(user, project_id, task_id):
     )
     if not user_can_access_task(user, task):
         raise PermissionDenied('Нет доступа к задаче.')
+    finalize_expired_termination_for_user(user, project)
     ensure_room_for_project(project)
     return project, task
 
@@ -71,6 +78,7 @@ def _get_accessible_task(user, project_id, task_id):
 @login_required
 def room_tasks(request, project_id):
     project = _get_project(request.user, project_id)
+    require_non_archived_room_member(request.user, project)
     if not user_can_view_tasks_tab(request.user, project):
         messages.info(
             request,
@@ -142,6 +150,9 @@ def task_create(request, project_id):
 @login_required
 def task_detail(request, project_id, task_id):
     project, task = _get_accessible_task(request.user, project_id, task_id)
+    # После получения задачи, а не вместо `user_can_access_task`: там есть
+    # shortcut «я исполнитель», который сам по себе пропустил бы архивного.
+    require_non_archived_room_member(request.user, project)
 
     reports = task.reports.select_related('author', 'reviewed_by').all()
     pending = reports.filter(review_status=Report.ReviewStatus.PENDING).first()
@@ -169,6 +180,9 @@ def task_detail(request, project_id, task_id):
 @require_POST
 def task_start(request, project_id, task_id):
     project, task = _get_accessible_task(request.user, project_id, task_id)
+    # До try: перехваченный ниже PermissionDenied стал бы flash-сообщением и
+    # 302, а отстранённый расторжением исполнитель обязан получить 403.
+    require_can_work_in_room(request.user, project)
     try:
         start_task(task, request.user)
         messages.success(request, 'Задача взята в работу.')
@@ -181,6 +195,7 @@ def task_start(request, project_id, task_id):
 @require_POST
 def task_submit_report(request, project_id, task_id):
     project, task = _get_accessible_task(request.user, project_id, task_id)
+    require_can_work_in_room(request.user, project)
     form = ReportSubmitForm(request.POST, request.FILES)
     if form.is_valid():
         try:
@@ -232,6 +247,11 @@ def task_review_report(request, project_id, task_id, report_id):
 @require_POST
 def task_close(request, project_id, task_id):
     project, task = _get_accessible_task(request.user, project_id, task_id)
+    # До try, как в task_start: `close_task` разрешает закрытие исполнителю,
+    # поэтому отстранённый расторжением фрилансер иначе закрывал бы свою
+    # старую задачу прямым POST, а перехваченный ниже PermissionDenied стал
+    # бы flash-сообщением вместо 403.
+    require_can_work_in_room(request.user, project)
     try:
         close_task(task, request.user)
         messages.success(request, 'Задача закрыта.')
@@ -243,6 +263,7 @@ def task_close(request, project_id, task_id):
 @login_required
 def room_leads(request, project_id):
     project = _get_project(request.user, project_id)
+    require_non_archived_room_member(request.user, project)
     leads = Lead.objects.filter(project=project).select_related(
         'creator', 'assigned_manager',
     )
@@ -272,6 +293,7 @@ def room_leads(request, project_id):
 @require_POST
 def lead_create(request, project_id):
     project = _get_project(request.user, project_id)
+    require_can_work_in_room(request.user, project)
     form = LeadCreateForm(request.POST)
     if form.is_valid():
         try:
@@ -294,6 +316,7 @@ def lead_create(request, project_id):
 @login_required
 def lead_detail(request, project_id, lead_id):
     project = _get_project(request.user, project_id)
+    require_non_archived_room_member(request.user, project)
     lead = get_object_or_404(
         Lead.objects.select_related('creator', 'assigned_manager'),
         id=lead_id,

@@ -1,5 +1,16 @@
 {% extends 'base.html' %}
 
+{% comment %}
+Список проектов/комнат. Основная таблица — оперативная: у фрилансера в неё
+попадают только комнаты с активным членством.
+
+Архив идёт отдельной секцией и только у фрилансера: `archived_projects`
+непуст исключительно у него (у остальных ролей view отдаёт пустой
+queryset, и секция не рендерится). Строка архива ведёт на «Обзор» комнаты
+и ничего больше не предлагает: операционных действий у вышедшего из
+проекта нет, и ссылки на «Задачи»/«Команду» вели бы в 403.
+{% endcomment %}
+
 {% block title %}{% if user.role == 'freelancer' %}Комнаты{% else %}Проекты{% endif %}{% endblock %}
 
 {% block content %}
@@ -43,5 +54,40 @@
     <p>Запустите мастер архитектуры — комната появится за три шага.</p>
     <a href="{{ empty_cta_url }}" class="btn btn-primary">{{ empty_cta_label }}</a>
 </div>
+{% endif %}
+
+{% if archived_projects %}
+<section class="info-block archived-rooms" id="archived-rooms" style="margin-top: 24px;">
+    <h2>Архивные комнаты</h2>
+    <p class="muted">
+        Проекты, из которых вы вышли. Работа в них закрыта, но «Обзор»
+        с вашими цифрами и история начислений остаются доступны.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Статус</th>
+                <th>Тимлид</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for project in archived_projects %}
+            <tr>
+                <td>{{ project.name }}</td>
+                <td>{{ project.get_project_type_display }}</td>
+                <td>{{ project.get_status_display }}</td>
+                <td>{{ project.teamlead.full_name|default:"—" }}</td>
+                <td>
+                    <a href="{% url 'rooms:room_overview' project.id %}"
+                       class="btn btn-secondary btn-sm">Открыть обзор</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
 {% endif %}
 {% endblock %}

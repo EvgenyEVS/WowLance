@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+
+{% comment %}
+Расторжение с фрилансером: форма причины либо карточка открытого кейса.
+
+Один шаблон на оба состояния — их различает наличие `case`. Пока кейса нет,
+показывается форма причины; как только он открыт, форма исчезает, и второй
+кейс завести неоткуда.
+
+Причина выводится обычным автоэкранированием Django, без `|safe`: её пишет
+пользователь, и разметка из неё не должна исполняться. Переносы строк
+сохраняет CSS (`white-space: pre-wrap`), а не фильтр `linebreaks` — фильтру
+пришлось бы отдавать разметку.
+
+«Отозвать увольнение» — обычная POST-форма, видимая только текущему тимлиду
+проекта (`can_revoke_termination` считает view). Она остаётся и когда кейс
+оспорен: тимлид вправе снять уведомление до решения поддержки. После
+завершения и после отзыва открытого кейса нет — нет и кнопки.
+{% endcomment %}
+
+{% block title %}Расторжение — {{ member.user.full_name }}{% endblock %}
+
+{% block content %}
+{% include 'rooms/_room_header.html' %}
+
+<div class="info-block termination-page">
+    <h2>Расторжение с фрилансером</h2>
+    <p class="subtitle">
+        Проект: {{ project.name }} · Фрилансер: {{ member.user.full_name }}
+        ({{ member.user.email }})
+    </p>
+
+    {% if case %}
+    <div class="termination-case">
+        <p><strong>Статус:</strong> {{ case.get_status_display }}</p>
+        <p>
+            <strong>Уведомление отправлено:</strong>
+            {{ case.initiated_at|date:"d.m.Y H:i" }}
+        </p>
+        <p>
+            <strong>Ответ до:</strong> {{ case.deadline_at|date:"d.m.Y H:i" }}
+            <span class="muted">(осталось {{ case.deadline_at|timeuntil }})</span>
+        </p>
+
+        <h3>Причина</h3>
+        <p class="termination-reason">{{ case.reason }}</p>
+
+        <p class="help-text">
+            Пока расторжение не завершено, фрилансер не работает в проекте:
+            он не берёт задачи, не сдаёт отчёты, не создаёт лидов и не пишет
+            в командный чат. Место в команде остаётся за ним, а задачи, лиды,
+            отчёты и начисления сохраняются.
+        </p>
+
+        {% if can_revoke_termination %}
+        <form class="termination-revoke"
+              method="post"
+              action="{% url 'rooms:room_termination_revoke' project.id case.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-secondary">Отозвать увольнение</button>
+            <span class="help-text">
+                Уведомление снимается, человек остаётся в команде на своём
+                месте и снова может работать.
+            </span>
+        </form>
+        {% endif %}
+    </div>
+
+    {% if can_use_termination_chat %}
+    <section class="info-block comms-section" id="termination-chat">
+        <div class="section-head">
+            <h3>Переписка по расторжению</h3>
+        </div>
+        <p class="muted">
+            Отдельный тред: его видите только вы и фрилансер. Это не командный
+            чат комнаты и не канал с директором.
+        </p>
+
+        <div class="chat-log"
+             id="termination-chat-messages"
+             role="log"
+             aria-live="polite"
+             hx-get="{% url 'rooms:room_termination_messages' project.id case.id %}"
+             hx-trigger="every 7s [document.visibilityState === 'visible']"
+             hx-swap="innerHTML">
+            {% include 'rooms/_termination_messages.html' %}
+        </div>
+
+        <form class="chat-form"
+              method="post"
+              action="{% url 'rooms:room_termination_send' project.id case.id %}"
+              hx-post="{% url 'rooms:room_termination_send' project.id case.id %}"
+              hx-target="#termination-chat-messages"
+              hx-swap="innerHTML"
+              hx-on::after-request="this.reset()">
+            {% csrf_token %}
+            <textarea name="text"
+                      class="form-control"
+                      rows="2"
+                      maxlength="{{ termination_text_max_length }}"
+                      required
+                      aria-label="Сообщение по расторжению"
+                      placeholder="Написать фрилансеру…"></textarea>
+            <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
+        </form>
+    </section>
+    {% endif %}
+    {% else %}
+    <form method="post"
+          action="{% url 'rooms:room_remove_member' project.id member.id %}">
+        {% csrf_token %}
+        {% if form.reason.errors %}
+        <p class="chat-error" role="alert">
+            {% for error in form.reason.errors %}{{ error }} {% endfor %}
+        </p>
+        {% endif %}
+        <p>
+            <label for="{{ form.reason.id_for_label }}">{{ form.reason.label }}</label>
+            {{ form.reason }}
+        </p>
+        <p class="help-text">
+            Причина обязательна и уйдёт фрилансеру вместе с уведомлением.
+            У него будет три дня, чтобы покинуть проект или опротестовать
+            решение; всё это время работать в проекте он не сможет.
+        </p>
+        <button type="submit" class="btn btn-primary">Отправить фрилансеру уведомление о расторжении</button>
+    </form>
+    {% endif %}
+
+    <p style="margin-top: 16px;">
+        <a href="{% url 'rooms:room_team' project.id %}">← К составу команды</a>
+    </p>
+</div>
+{% endblock %}

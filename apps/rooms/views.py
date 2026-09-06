@@ -3,7 +3,7 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import Http404
+from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -24,8 +24,10 @@ from .forms import (
     RoomChatMessageForm,
     RoomDocumentForm,
     TeamleadInviteRegisterForm,
+    TerminationNoticeForm,
 )
 from .models import (
+    FreelancerTermination,
     Project,
     RoomActivity,
     RoomChatMessage,
@@ -54,6 +56,11 @@ from .services import (
     launch_project,
     log_room_activity,
     director_teamlead_video_call_url,
+    finalize_expired_termination_for_user,
+    open_termination_for,
+    open_terminations_by_freelancer,
+    require_can_work_in_room,
+    require_non_archived_room_member,
     room_nav_context,
     room_video_call_url,
     user_can_access_director_teamlead_comms,
@@ -69,7 +76,20 @@ from .services import (
     user_can_view_team_tab,
 )
 from .staffing import matching, selectors
+from .termination import (
+    CHAT_MESSAGE_MAX_LENGTH,
+    TerminationAlreadyOpen,
+    TerminationError,
+    appeal_termination,
+    complete_termination,
+    finalize_expired_termination_for,
+    initiate_termination,
+    post_termination_message,
+    recent_termination_messages,
+    revoke_termination,
+)
 from .staffing.services import (
+    SLOT_FILL_STATUSES,
     STAFFING_MUTABLE_STATUSES,
     StaffingError,
     assign_candidate_to_slot,
@@ -90,22 +110,44 @@ def _require_director(user):
 
 
 def _get_accessible_project(user, project_id):
+    """Проект комнаты с проверкой доступа и ленивым истечением расторжения.
+
+    Срок «три дня» закрывается здесь, в общей точке входа всех страниц
+    комнаты, а не в контексте шаблона: гейт архивного участника стоит сразу
+    после этого вызова, и просроченное уведомление обязано превратиться в
+    архив **на том же запросе**, иначе после дедлайна человек успел бы
+    открыть операционную вкладку ещё один раз.
+    """
     project = get_object_or_404(
         Project.objects.select_related('owner', 'teamlead'),
         id=project_id,
     )
     if not user_can_access_project(user, project):
         raise PermissionDenied('Нет доступа к этому проекту.')
+    finalize_expired_termination_for_user(user, project)
     return project
 
 
 def _staffing_is_open(project) -> bool:
-    """Показывать ли кнопки подбора: команда ещё формируется.
+    """Показывать ли кнопки изменения занятого состава («Другой сейлер»).
 
-    Только про UI. Настоящая защита — та же проверка внутри сервисов подбора,
-    поэтому прямой POST в закрытый по статусу проект не пройдёт.
+    Только про UI. Настоящая защита — та же проверка внутри сервисов подбора
+    (`_guard_staffing`), поэтому прямой POST в закрытый по статусу проект не
+    пройдёт.
     """
     return project.status in STAFFING_MUTABLE_STATUSES
+
+
+def _slot_filling_is_open(project) -> bool:
+    """Показывать ли кнопки заполнения **пустого** слота.
+
+    Шире предыдущего ровно на `ACTIVE`: завершённое расторжение освобождает
+    слот запущенного проекта, и место обязано заполняться без возврата
+    всего проекта в подбор. Зеркалит серверный `_guard_slot_assignment`,
+    чтобы интерфейс не показывал кнопку, которая гарантированно вернёт
+    `StaffingError`, и не прятал разрешённую.
+    """
+    return project.status in SLOT_FILL_STATUSES
 
 
 def _get_slot_for_staffing(request, project_id, slot_id):
@@ -123,6 +165,75 @@ def _get_slot_for_staffing(request, project_id, slot_id):
     return project, room, slot
 
 
+def _members_with_termination(room):
+    """Состав комнаты с проставленным открытым кейсом расторжения.
+
+    Признак нужен строке участника на вкладке «Команда», а спрашивать про
+    каждого отдельно означало бы N+1: кейсы комнаты берутся одним запросом
+    и раскладываются по участникам в памяти.
+
+    Список, а не queryset: на объекты проставляется `open_termination`, и
+    ленивый queryset выполнился бы заново уже без этого атрибута.
+
+    Берутся только активные членства. Архивная строка — история человека в
+    комнате, а не участник команды: после завершения расторжения он не
+    должен ни числиться в составе, ни получать кнопки управления. Строка при
+    этом остаётся в БД — фильтр стоит здесь, а не в виде `delete()`.
+
+    Хелпер один на оба пути (вкладка «Команда» и out-of-band обновление
+    таблицы после действий подбора), поэтому фильтр не может разойтись
+    между обычным и HTMX-рендером.
+
+    Директора и тимлида фильтр не задевает: их членство `is_active=True`,
+    а расторжение бывает только с фрилансером.
+    """
+    members = list(
+        room.members.select_related('user').filter(is_active=True)
+    )
+    open_cases = open_terminations_by_freelancer(room)
+    for member in members:
+        member.open_termination = open_cases.get(member.user_id)
+    return members
+
+
+def _termination_form_response(
+    request, project, room, member, *, form=None, case=None, status=200,
+):
+    """Страница расторжения: новая форма причины либо карточка открытого кейса.
+
+    Один шаблон на оба состояния и на оба входа (GET страницы и невалидный
+    POST уведомления) — иначе разметка формы и её ошибки разошлись бы между
+    двумя файлами.
+    """
+    # Чат кейса показывается только его участнику со стороны команды —
+    # инициатору расторжения. Текущий тимлид, если уведомление отправлял не
+    # он, тред не читает: правило треда — участие в кейсе, а не роль.
+    can_use_chat = bool(case and case.initiated_by_id == request.user.id)
+    return render(request, 'rooms/room_termination_form.html', {
+        'project': project,
+        'room': room,
+        'member': member,
+        'case': case,
+        'form': form,
+        'can_use_termination_chat': can_use_chat,
+        # Отзыв — право текущего тимлида проекта, а не инициатора кейса:
+        # уведомление мог отправить прежний тимлид, а отвечает за команду
+        # тот, кто ведёт её сейчас. Флаг считается отдельно от чата именно
+        # поэтому, а не выводится из `can_use_termination_chat`.
+        'can_revoke_termination': bool(
+            case is not None
+            and case.is_open
+            and project.teamlead_id == request.user.id
+        ),
+        'termination_messages': (
+            recent_termination_messages(case) if can_use_chat else []
+        ),
+        'termination_text_max_length': CHAT_MESSAGE_MAX_LENGTH,
+        'active_tab': 'team',
+        **room_nav_context(request.user, project),
+    }, status=status)
+
+
 def _slot_action_response(request, project, slot, message, is_error=False):
     """HTMX → свежая карточка слота **и** таблица участников, обычный POST → redirect.
 
@@ -136,9 +247,10 @@ def _slot_action_response(request, project, slot, message, is_error=False):
     ниже оставалась бы с прошлым составом до перезагрузки страницы — карточка
     показывала бы нового исполнителя, а «Участники» снятого.
 
-    `members` — ленивый queryset: он выполняется уже при рендере шаблона,
-    то есть после записей, которые сделал подбор в этом же запросе. Списка,
-    собранного до операции, здесь не возникает.
+    Состав собирается `_members_with_termination` уже **после** операции
+    подбора — она к этому моменту завершена, — поэтому таблица показывает
+    итоговое состояние. Тем же хелпером состав собирает и вкладка «Команда»,
+    так что признак «идёт расторжение» не теряется после HTMX-обновления.
     """
     if request.headers.get('HX-Request'):
         return render(request, 'rooms/_slot_action.html', {
@@ -147,8 +259,9 @@ def _slot_action_response(request, project, slot, message, is_error=False):
             'can_staff_slots': _staffing_is_open(project),
             'action_note': message,
             'action_note_is_error': is_error,
-            'members': slot.room.members.select_related('user').all(),
+            'members': _members_with_termination(slot.room),
             'can_manage_team': user_can_manage_team(request.user, project),
+            'can_fill_slots': _slot_filling_is_open(project),
         })
     if is_error:
         messages.error(request, message)
@@ -199,16 +312,56 @@ ROOM_ACTIVITY_FEED_LIMIT = 10
 FREELANCER_TASK_PREVIEW_LIMIT = 5
 
 
+def _freelancer_room_projects(user, *, is_active):
+    """Комнаты фрилансера, разделённые по активности его членства.
+
+    Три условия стоят в одном `filter()` намеренно: они должны выполниться
+    на **одной и той же** строке членства. Цепочка `.filter().filter()`
+    по обратной связи `room__members` разрешила бы им сойтись на разных
+    строках, и чужое активное членство вернуло бы проект в оперативный
+    список.
+
+    `role_in_room` проверяется явно, хотя пользователь с ролью фрилансера
+    иначе в комнату и не попадает: архив — свойство строки членства, и
+    правило «архивная комната» должно читаться из самого запроса.
+
+    `distinct()` сохраняется от прежней реализации: join по обратной
+    связи остаётся, и защита от дублей не должна зависеть от того,
+    сколько комнат у проекта сегодня.
+    """
+    return Project.objects.filter(
+        room__members__user=user,
+        room__members__role_in_room=RoomMember.RoleInRoom.FREELANCER,
+        room__members__is_active=is_active,
+    ).distinct()
+
+
 @login_required
 def project_list(request):
-    """Список проектов, доступных пользователю."""
+    """Список проектов, доступных пользователю.
+
+    У фрилансера список раздваивается: оперативные комнаты и архивные —
+    те, откуда он вышел по расторжению. Архив не удаляется и не прячется
+    совсем: своя история, свои цифры и начисления остаются доступны через
+    «Обзор» архивной комнаты.
+
+    Для директора, тимлида, менеджера и платформенного admin запрос и
+    семантика списка не меняются: архив — состояние членства фрилансера,
+    а не проекта.
+    """
     user = request.user
+    archived_projects = Project.objects.none()
     if user.role == User.Roles.DIRECTOR:
         projects = Project.objects.filter(owner=user)
     elif user.role == User.Roles.TEAMLEAD:
         projects = Project.objects.filter(teamlead=user)
     elif user.role == User.Roles.FREELANCER:
-        projects = Project.objects.filter(room__members__user=user).distinct()
+        projects = _freelancer_room_projects(user, is_active=True)
+        archived_projects = (
+            _freelancer_room_projects(user, is_active=False)
+            .select_related('owner', 'teamlead')
+            .order_by('-created_at')
+        )
     elif user.role == User.Roles.ADMIN:
         projects = Project.objects.all()
     else:
@@ -217,6 +370,7 @@ def project_list(request):
     projects = projects.select_related('owner', 'teamlead').order_by('-created_at')
     return render(request, 'rooms/project_list.html', {
         'projects': projects,
+        'archived_projects': archived_projects,
         'empty_cta_url': (
             reverse('rooms:setup_wizard')
             if user.role == User.Roles.DIRECTOR
@@ -696,6 +850,7 @@ def room_documents(request, project_id):
     сломало бы reverse и существующие ссылки, ничего не дав пользователю.
     """
     project = _get_accessible_project(request.user, project_id)
+    require_non_archived_room_member(request.user, project)
     room = ensure_room_for_project(project)
     documents = room.documents.select_related('uploaded_by').all()
     form = RoomDocumentForm()
@@ -769,6 +924,7 @@ def room_comms(request, project_id):
     (`show_director_teamlead_comms` из `room_nav_context`).
     """
     project = _get_accessible_project(request.user, project_id)
+    require_non_archived_room_member(request.user, project)
     room = getattr(project, 'room', None)
     if room is None:
         # Комнаты ещё нет (проект в черновике). Вкладка коммуникаций ничего
@@ -885,6 +1041,9 @@ def room_chat_messages(request, project_id):
     здесь нет, комната по пути тоже не создаётся.
     """
     project, room = _get_chat_room(request, project_id)
+    # Только архивный гейт: при открытом кейсе ленту читать можно — человек
+    # ещё в команде и заходит в комнату. Запись закрыта отдельно, в send.
+    require_non_archived_room_member(request.user, project)
     return _chat_partial(
         request, project, room, channel=RoomChatMessage.Channel.TEAM
     )
@@ -904,6 +1063,10 @@ def room_chat_send(request, project_id):
     JavaScript чат остаётся рабочим.
     """
     project, room = _get_chat_room(request, project_id)
+    # Запись в командный чат — работа в проекте. Чтение при открытом кейсе
+    # остаётся: человек заходит в комнату и видит уведомление о расторжении,
+    # поэтому гейт стоит здесь, а не в общем `_get_chat_room`.
+    require_can_work_in_room(request.user, project)
     form = RoomChatMessageForm(request.POST)
     error = None
     if form.is_valid():
@@ -996,6 +1159,7 @@ def room_team(request, project_id):
     смотрит состав на «Обзоре»; прямой GET уводим туда же, а не в 403.
     """
     project = _get_accessible_project(request.user, project_id)
+    require_non_archived_room_member(request.user, project)
     if not user_can_view_team_tab(request.user, project):
         # Владелец уходит на «Обзор»; остальные роли получают отказ —
         # иначе скрытая вкладка превратилась бы в тихий редирект.
@@ -1007,9 +1171,13 @@ def room_team(request, project_id):
             return redirect('rooms:room_overview', project_id=project.id)
         raise PermissionDenied('Вкладка «Команда» доступна только тимлиду проекта.')
     room = ensure_room_for_project(project)
-    members = room.members.select_related('user').all()
+    members = _members_with_termination(room)
     can_manage = user_can_manage_team(request.user, project)
-    my_membership = members.filter(user=request.user).first()
+    # `members` — уже готовый список, поэтому своя строка ищется в памяти:
+    # второй запрос за тем, что только что выбрано, не нужен.
+    my_membership = next(
+        (item for item in members if item.user_id == request.user.id), None,
+    )
     invite = (
         TeamleadInvite.objects.filter(project=project, is_active=True)
         .order_by('-created_at')
@@ -1032,6 +1200,7 @@ def room_team(request, project_id):
         'staffing_summary': selectors.staffing_summary(cards),
         **configurator.build_planned_team_context(project, room),
         'can_staff_slots': can_manage and _staffing_is_open(project),
+        'can_fill_slots': can_manage and _slot_filling_is_open(project),
         'can_manage_team': can_manage,
         'can_view_composition_staffing': user_can_view_composition_staffing(
             request.user
@@ -1148,9 +1317,411 @@ def catalog_add_to_room(request, user_id):
     return redirect('rooms:room_team', project_id=project.id)
 
 
+def _get_termination_thread(request, project_id, case_id):
+    """Кейс расторжения для обоих endpoint'ов его чата.
+
+    Правило доступа — **участие в кейсе**, а не роль в комнате: тред читают
+    и пишут только фрилансер и тимлид, отправивший уведомление. Директор,
+    другой фрилансер, менеджер, платформенный admin и даже текущий тимлид,
+    если инициатором был не он, сюда не попадают. Поэтому здесь нет ни
+    `user_can_manage_team`, ни правил командного чата.
+
+    `room__project_id` в запросе обязателен: подменив `project_id` в адресе,
+    чужой кейс достать нельзя.
+
+    `room.chat_enabled` не проверяется намеренно — это настройка командного
+    чата комнаты, а переписка о расторжении обязательна и выключаться ею не
+    может.
+
+    Закрытый кейс — `Http404`: треда как пользовательской сущности больше
+    нет, хотя сообщения остаются в БД. Посторонний — `PermissionDenied`.
+    """
+    case = get_object_or_404(
+        FreelancerTermination.objects.select_related(
+            'room__project', 'freelancer', 'initiated_by',
+        ),
+        id=case_id,
+        room__project_id=project_id,
+    )
+    # Лента опрашивается каждые 7 секунд, поэтому именно она закрывает срок
+    # у человека, который держит вкладку открытой до дедлайна. Хелпер сам
+    # отбирает только просроченный `notice_sent`, поэтому вызов безусловный
+    # и `appeal_pending` не задевает.
+    if finalize_expired_termination_for(case.room, case.freelancer):
+        case.refresh_from_db()
+    if not case.is_open:
+        raise Http404('Расторжение завершено: переписка по нему закрыта.')
+
+    participants = {case.freelancer_id}
+    if case.initiated_by_id:
+        participants.add(case.initiated_by_id)
+    if request.user.id not in participants:
+        raise PermissionDenied(
+            'Чат расторжения доступен только фрилансеру и тимлиду, '
+            'отправившему уведомление.'
+        )
+    return case
+
+
+def _termination_messages_partial(request, case, *, error=None, status=200):
+    """Свежая лента треда — общий ответ для опроса и для отправки.
+
+    Тот же partial отдаётся и форме тимлида, и будущей модалке фрилансера:
+    ни имя шаблона, ни контекст к странице тимлида не привязаны.
+    """
+    return render(request, 'rooms/_termination_messages.html', {
+        'termination_case': case,
+        'termination_messages': recent_termination_messages(case),
+        'termination_chat_error': error,
+    }, status=status)
+
+
+@login_required
+@require_safe
+def room_termination_messages(request, project_id, case_id):
+    """Лента чата расторжения для HTMX-опроса.
+
+    `require_safe` — не украшение: адрес опрашивается каждые несколько
+    секунд и обязан оставаться строго read-only.
+    """
+    case = _get_termination_thread(request, project_id, case_id)
+    return _termination_messages_partial(request, case)
+
+
+@login_required
+@require_POST
+def room_termination_send(request, project_id, case_id):
+    """Отправка сообщения в чат расторжения.
+
+    Проверки участия, статуса кейса и текста живут в домене
+    (`post_termination_message`) и здесь не дублируются. `TerminationError`
+    (пустой текст, перебор длины, закрытый кейс) — это 400 с той же лентой и
+    текстом ошибки; `PermissionDenied` намеренно не перехватывается и
+    остаётся 403.
+    """
+    case = _get_termination_thread(request, project_id, case_id)
+    try:
+        post_termination_message(
+            case, author=request.user, text=request.POST.get('text', ''),
+        )
+    except TerminationError as exc:
+        return _termination_messages_partial(
+            request, case, error=str(exc), status=400,
+        )
+    return _termination_messages_partial(request, case)
+
+
+def _get_termination_case(request, project_id, case_id):
+    """Кейс расторжения по адресу проекта — общий вход трёх действий.
+
+    Тред-хелпер (`_get_termination_thread`) здесь не годится: у отзыва другой
+    круг прав (текущий тимлид проекта, а не участник переписки), и правило
+    «закрытый кейс — `Http404`» для действий неверно. Кейс существует и виден
+    вызывающему; недопустим именно переход, а это 400, а не «страницы нет».
+
+    `room__project_id` в фильтре обязателен: подменив проект в адресе, чужой
+    кейс достать нельзя.
+
+    Состояние здесь **не** проверяется намеренно: у каждого действия свой
+    набор допустимых статусов, и, спрятав их в общий запрос, мы отвечали бы
+    «нет такого кейса» там, где на самом деле «нельзя в этом статусе».
+    """
+    return get_object_or_404(
+        FreelancerTermination.objects.select_related(
+            'room__project', 'freelancer', 'member',
+        ),
+        id=case_id,
+        room__project_id=project_id,
+    )
+
+
+def _termination_action_conflict(message):
+    """Общий ответ «действие не подходит текущему статусу» для трёх действий.
+
+    400 у всех трёх и у всех промахов автомата — и у `appeal_pending`, и у
+    терминальных статусов. Разные коды на разные статусы заставляли бы
+    клиента угадывать состояние кейса по коду ответа, а состояние он и так
+    видит на странице.
+    """
+    return HttpResponseBadRequest(message)
+
+
+def _close_expired_termination(case):
+    """Закрывает просроченный `notice_sent` перед самим действием.
+
+    Тот же ленивый срок, что на страницах комнаты и в опросе чата. Без него
+    прямой POST мимо интерфейса открывал бы протест и отзыв уже после
+    дедлайна — тогда как во всём остальном приложении кейс к этому моменту
+    считается завершённым, а человек — вне проекта.
+
+    Вызывается **после** проверки прав: посторонний POST не должен менять
+    состояние, даже детерминированно.
+
+    `appeal_pending` хелпер не трогает: там таймер остановлен статусом.
+    """
+    if finalize_expired_termination_for(case.room, case.freelancer):
+        case.refresh_from_db()
+    return case
+
+
+def _require_case_freelancer(request, case):
+    """Действия модалки выполняет только сам фрилансер этого кейса.
+
+    Ни тимлид, ни директор, ни платформенный admin: «Покинуть проект» и
+    «Опротестовать решение» — ответ на уведомление, и ответить за человека
+    не может никто.
+    """
+    if request.user.id != case.freelancer_id:
+        raise PermissionDenied(
+            'Ответить на уведомление о расторжении может только фрилансер, '
+            'которого оно касается.'
+        )
+
+
+@login_required
+@require_POST
+def room_termination_leave(request, project_id, case_id):
+    """«Покинуть проект»: фрилансер соглашается с расторжением.
+
+    Разрешено только из `notice_sent`. Из `appeal_pending` — сознательно
+    нет: протест уже ушёл в поддержку письмом, исход определяет она, и
+    добровольный выход закрыл бы кейс, по которому идёт разбирательство.
+    Отказ здесь — 400, а не тихое завершение: домен переход
+    `appeal_pending → completed` разрешает (им поддержка оставит расторжение
+    в силе), поэтому статус проверяется до вызова, а не вместо него.
+
+    Членство архивируется, а не удаляется — этим занимается
+    `complete_termination`, и здесь его работа не дублируется.
+
+    Редирект в список проектов: комната для ушедшего осталась read-only
+    «Обзором», и возвращать его туда сразу после выхода незачем.
+    """
+    case = _get_termination_case(request, project_id, case_id)
+    _require_case_freelancer(request, case)
+    _close_expired_termination(case)
+
+    if case.status != FreelancerTermination.Status.NOTICE_SENT:
+        return _termination_action_conflict(
+            'Покинуть проект можно только по действующему уведомлению '
+            'о расторжении.'
+        )
+
+    try:
+        complete_termination(case, actor=request.user)
+    except TerminationError as exc:
+        return _termination_action_conflict(str(exc))
+
+    messages.success(
+        request,
+        f'Вы покинули проект «{case.room.project.name}». '
+        'История работы по проекту сохранена.',
+    )
+    return redirect('rooms:project_list')
+
+
+@login_required
+@require_POST
+def room_termination_appeal(request, project_id, case_id):
+    """«Опротестовать решение»: письмо в поддержку и остановка срока.
+
+    Ссылка на кейс в админке собирается здесь, а не в домене: у домена нет
+    `request`, а поддержке нужен абсолютный адрес. `absolute_uri` — тот же
+    хелпер, что у приглашения тимлида и активации: на демо и проде хост
+    берётся из `PUBLIC_HOST`, а не из заголовка запроса.
+
+    Текст письма, порядок «письмо → статус» и откат при сбое отправки живут
+    в `appeal_termination` и здесь не повторяются. Исключение отправки
+    намеренно не проглатывается: тихий `except` превратил бы неушедшее
+    письмо в статус «ждём ответа поддержки», о котором поддержка не узнает.
+
+    Редирект на «Обзор» комнаты: там же, где фрилансер нажал кнопку, он
+    сразу видит модалку с новым статусом. Внешний `next` не принимается —
+    открытый редирект на POST-действии не нужен.
+    """
+    case = _get_termination_case(request, project_id, case_id)
+    _require_case_freelancer(request, case)
+    _close_expired_termination(case)
+
+    if case.status != FreelancerTermination.Status.NOTICE_SENT:
+        return _termination_action_conflict(
+            'Опротестовать можно только действующее уведомление '
+            'о расторжении.'
+        )
+
+    admin_url = absolute_uri(
+        request,
+        reverse('admin:rooms_freelancertermination_change', args=[case.pk]),
+    )
+    try:
+        appeal_termination(case, admin_url=admin_url)
+    except TerminationError as exc:
+        return _termination_action_conflict(str(exc))
+
+    messages.success(
+        request,
+        'Решение оспорено: поддержка получила обращение. '
+        'Работать в проекте нельзя, пока решение не принято.',
+    )
+    return redirect('rooms:room_overview', project_id=case.room.project_id)
+
+
+@login_required
+@require_POST
+def room_termination_revoke(request, project_id, case_id):
+    """«Отозвать увольнение»: тимлид снимает уведомление о расторжении.
+
+    Право уже, чем `user_can_manage_team`: только **текущий** тимлид
+    проекта. Ни директор, ни платформенный admin, ни прежний тимлид,
+    отправивший уведомление, но уже снятый с проекта: за состав команды
+    отвечает тот, кто ведёт её сейчас.
+
+    Разрешены оба открытых статуса, `appeal_pending` в том числе: тимлид
+    вправе передумать и до решения поддержки — это снимает вопрос, а не
+    решает его в свою пользу.
+
+    После `completed` отзыв запрещён: членство уже архивировано, и «отозвать»
+    означало бы вернуть человека в команду. Повторный найм — отдельный
+    сценарий, а не побочный эффект этой кнопки.
+
+    Редирект в состав команды, а не обратно на страницу расторжения:
+    открытого кейса больше нет, и та страница снова предложила бы форму
+    нового уведомления — ровно то, чего тимлид только что не захотел.
+    """
+    case = _get_termination_case(request, project_id, case_id)
+    project = case.room.project
+    if project.teamlead_id != request.user.id:
+        raise PermissionDenied(
+            'Отозвать расторжение может только текущий тимлид проекта.'
+        )
+    _close_expired_termination(case)
+
+    if not case.is_open:
+        return _termination_action_conflict(
+            'Расторжение уже закрыто: отзывать нечего.'
+        )
+
+    try:
+        revoke_termination(case)
+    except TerminationError as exc:
+        return _termination_action_conflict(str(exc))
+
+    messages.success(
+        request,
+        f'Расторжение с {case.freelancer.full_name} отозвано: '
+        'человек остаётся в команде и снова может работать.',
+    )
+    return redirect('rooms:room_team', project_id=project.id)
+
+
+def _get_freelancer_member_for_termination(request, project_id, member_id):
+    """Общий вход страницы расторжения: права, комната, участник.
+
+    Право здесь **уже**, чем `user_can_manage_team`: страницу открывает
+    именно текущий тимлид проекта. Общий хелпер пускает и платформенного
+    `ADMIN`, а расторжение оформляет тот, кто отвечает за команду, — то же
+    правило проверяет домен в `initiate_termination`, и интерфейс не должен
+    показывать форму тому, кому сервис откажет.
+
+    Правило сужено только для этой страницы: удаление тимлида и запрет на
+    удаление директора в `room_remove_member` работают как раньше.
+
+    Не-фрилансер здесь `Http404`, а не 403: страницы расторжения для тимлида
+    и директора не существует в принципе, и сообщать о её отсутствии
+    отдельным кодом не за чем.
+
+    Архивный участник — тоже `Http404`: человек уже вышел из проекта, и
+    расторгать с ним больше нечего. Без этой проверки прямая ссылка на
+    страницу снова предлагала бы форму новой причины по тому, кого нет в
+    команде. История его кейсов при этом сохраняется — 404 закрывает вход
+    в UI нового расторжения, а не удаляет данные.
+    """
+    project = _get_accessible_project(request.user, project_id)
+    if project.teamlead_id != request.user.id:
+        raise PermissionDenied(
+            'Расторжение с фрилансером оформляет тимлид проекта.'
+        )
+    room = ensure_room_for_project(project)
+    member = get_object_or_404(
+        RoomMember.objects.select_related('user'), id=member_id, room=room,
+    )
+    if member.role_in_room != RoomMember.RoleInRoom.FREELANCER:
+        raise Http404('Расторжение оформляется только с фрилансером.')
+    if not member.is_active:
+        raise Http404('Участник уже вышел из проекта: расторгать нечего.')
+    return project, room, member
+
+
+@login_required
+@require_safe
+def room_termination_form(request, project_id, member_id):
+    """Форма причины расторжения либо карточка уже открытого кейса.
+
+    Второй кейс отсюда не создаётся: если по паре комната+фрилансер уже есть
+    незакрытое расторжение, страница показывает его — причину, сроки и
+    статус, — а формы новой причины не выводит.
+    """
+    project, room, member = _get_freelancer_member_for_termination(
+        request, project_id, member_id,
+    )
+    case = open_termination_for(room, member.user)
+    return _termination_form_response(
+        request,
+        project,
+        room,
+        member,
+        form=None if case else TerminationNoticeForm(),
+        case=case,
+    )
+
+
+def _start_freelancer_termination(request, project, room, member):
+    """POST «Удалить» для фрилансера: уведомление о расторжении, не delete.
+
+    Пустая или слишком короткая причина — 400 с той же формой и её ошибками,
+    а не молчаливое удаление участника: именно этот путь и заменяет прежний
+    `confirm()` + `member.delete()`.
+    """
+    form = TerminationNoticeForm(request.POST)
+    if not form.is_valid():
+        return _termination_form_response(
+            request, project, room, member, form=form, status=400,
+        )
+
+    try:
+        initiate_termination(
+            room=room,
+            member=member,
+            initiated_by=request.user,
+            reason=form.cleaned_data['reason'],
+        )
+    except TerminationAlreadyOpen:
+        # Не ошибка интерфейса: тимлид просто открыл форму дважды.
+        # Второй кейс не создаётся, показываем существующий.
+        messages.info(request, 'По этому фрилансеру уже идёт расторжение.')
+    except TerminationError as exc:
+        messages.error(request, str(exc))
+        return redirect('rooms:room_team', project_id=project.id)
+    else:
+        messages.success(
+            request, 'Уведомление о расторжении отправлено фрилансеру.',
+        )
+
+    return redirect(
+        'rooms:room_termination_form',
+        project_id=project.id,
+        member_id=member.id,
+    )
+
+
 @login_required
 @require_POST
 def room_remove_member(request, project_id, member_id):
+    """Удаление участника из команды.
+
+    Для фрилансера это больше не удаление: путь ведёт в расторжение с
+    письменной причиной, а строка членства и вся его история сохраняются
+    (см. `apps.rooms.termination`). Для тимлида поведение прежнее.
+    """
     project = get_object_or_404(Project, id=project_id)
     if not user_can_manage_team(request.user, project):
         raise PermissionDenied
@@ -1159,6 +1730,9 @@ def room_remove_member(request, project_id, member_id):
     if member.role_in_room == RoomMember.RoleInRoom.DIRECTOR:
         messages.error(request, 'Нельзя удалить директора из комнаты.')
         return redirect('rooms:room_team', project_id=project.id)
+
+    if member.role_in_room == RoomMember.RoleInRoom.FREELANCER:
+        return _start_freelancer_termination(request, project, room, member)
 
     name = member.user.full_name
     if member.role_in_room == RoomMember.RoleInRoom.TEAMLEAD:

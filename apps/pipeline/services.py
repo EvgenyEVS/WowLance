@@ -9,6 +9,7 @@ from django.utils import timezone
 from apps.rooms.models import RoomActivity
 from apps.rooms.services import (
     log_room_activity,
+    require_can_work_in_room,
     user_can_access_project,
     user_can_create_task,
     user_can_manage_team,
@@ -178,6 +179,10 @@ def create_task(*, project, assignee, created_by, title, description='', deadlin
 def start_task(task: Task, user: User) -> Task:
     if task.assignee_id != user.id:
         raise PermissionDenied('Только исполнитель может взять задачу.')
+    # Гейт расторжения/архива поверх обычных прав: отстранённый исполнитель
+    # задачу не берёт. Дублирует проверку во view сознательно — сервис
+    # нельзя вызвать в обход HTTP-слоя.
+    require_can_work_in_room(user, task.project)
     if task.status not in {Task.Status.NEW, Task.Status.REJECTED}:
         raise ValidationError('Задачу нельзя взять в работу из текущего статуса.')
     task.status = Task.Status.IN_PROGRESS
@@ -189,6 +194,7 @@ def start_task(task: Task, user: User) -> Task:
 def submit_report(*, task: Task, author: User, content_text: str, attachment) -> Report:
     if task.assignee_id != author.id:
         raise PermissionDenied('Отчёт может сдать только исполнитель.')
+    require_can_work_in_room(author, task.project)
     if task.status == Task.Status.CLOSED:
         raise ValidationError('Задача уже закрыта.')
 
@@ -248,6 +254,10 @@ def review_report(*, report: Report, reviewer: User, approve: bool, comment: str
 def close_task(task: Task, user: User) -> Task:
     if not (user_can_manage_team(user, task.project) or task.assignee_id == user.id):
         raise PermissionDenied('Нет прав закрыть задачу.')
+    # Гейт расторжения/архива поверх прав: ветка «я исполнитель» выше иначе
+    # оставляла бы отстранённому фрилансеру рабочее действие. Тимлида и
+    # менеджера гейт не касается — задачи ушедшего закрывает тимлид.
+    require_can_work_in_room(user, task.project)
 
     if task.report_required:
         report = task.latest_report
@@ -286,6 +296,7 @@ def create_lead(*, project, creator: User, contact_info: dict, source: str,
         raise PermissionDenied('Нет доступа к проекту.')
     if creator.role not in {User.Roles.FREELANCER, User.Roles.TEAMLEAD, User.Roles.ADMIN}:
         raise PermissionDenied('Лид создаёт фрилансер (или тимлид).')
+    require_can_work_in_room(creator, project)
 
     # Фрилансер не может сразу поставить Hot
     if (

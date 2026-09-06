@@ -109,9 +109,17 @@ def director_metrics(user) -> dict:
 
 
 def freelancer_metrics(user) -> dict:
+    """Плитки дашборда фрилансера.
+
+    «Мои комнаты» считает только действующие членства: комната, из которой
+    человек вышел по расторжению, остаётся доступной для просмотра, но
+    текущей работой не является и счётчик не увеличивает. Строка членства
+    при этом сохраняется — здесь она просто не попадает в метрику.
+    """
     rooms = RoomMember.objects.filter(
         user=user,
         role_in_room=RoomMember.RoleInRoom.FREELANCER,
+        is_active=True,
     ).count()
     open_tasks = Task.objects.filter(
         assignee=user,

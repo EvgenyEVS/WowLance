@@ -302,6 +302,21 @@ class RoomMember(models.Model):
         help_text=_('Единственный источник истины «кто занимает слот»'),
     )
     joined_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Добавлен'))
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_('Участие активно'),
+        help_text=_(
+            'False — членство в архиве: человек вышел из проекта, но строка '
+            'сохраняется вместе со своей историей. Удалять участника ради '
+            '«чистого слота» нельзя.'
+        ),
+    )
+    left_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_('Вышел из проекта'),
+        help_text=_('Момент архивации членства; у активного участника пусто.'),
+    )
 
     class Meta:
         verbose_name = _('Участник комнаты')
@@ -747,6 +762,172 @@ class RoomChatMessage(models.Model):
                 name='room_chat_chan_created_idx',
             ),
         ]
+
+    def __str__(self):
+        author = self.author.full_name if self.author else 'Удалённый участник'
+        return f'{author}: {self.text[:40]}'
+
+
+#: Статусы незакрытого кейса расторжения. Держатся строками рядом с моделью,
+#: потому что то же значение попадает в условие partial-констрейнта: enum с
+#: ленивым переводом в миграции сериализовался бы иначе, чем в коде.
+OPEN_TERMINATION_STATUSES = ('notice_sent', 'appeal_pending')
+
+
+class FreelancerTermination(models.Model):
+    """Кейс расторжения с фрилансером: причина, срок ответа, исход.
+
+    Расторжение — процесс, а не одно нажатие «Удалить»: у него есть
+    письменная причина, срок на ответ и три возможных исхода. Поэтому
+    состояние живёт отдельной строкой, а не флагом на `RoomMember`.
+
+    Членство при завершении кейса **не удаляется**: задачи, лиды, отчёты и
+    начисления остаются на месте, а `RoomMember` уходит в архив
+    (`is_active=False`). Поэтому `member` — `SET_NULL`: замена исполнителя на
+    слоте по-прежнему вправе удалить свою строку членства, и это не должно
+    ни каскадно стирать историю расторжений, ни падать на `PROTECT`.
+    Кого и где касался кейс, остаётся известно из `room` и `freelancer`.
+    """
+
+    class Status(models.TextChoices):
+        NOTICE_SENT = 'notice_sent', _('Уведомление отправлено')
+        APPEAL_PENDING = 'appeal_pending', _('Оспаривается')
+        COMPLETED = 'completed', _('Расторгнуто')
+        REVOKED = 'revoked', _('Отозвано')
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    room = models.ForeignKey(
+        Room,
+        on_delete=models.CASCADE,
+        related_name='terminations',
+        verbose_name=_('Комната'),
+    )
+    freelancer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='terminations_as_freelancer',
+        verbose_name=_('Фрилансер'),
+    )
+    member = models.ForeignKey(
+        'rooms.RoomMember',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='terminations',
+        verbose_name=_('Членство'),
+        help_text=_(
+            'Ссылка на строку членства. SET_NULL: удаление участника при '
+            'замене на слоте не должно уносить историю расторжения.'
+        ),
+    )
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='terminations_initiated',
+        verbose_name=_('Инициатор'),
+    )
+    reason = models.TextField(verbose_name=_('Причина'))
+    status = models.CharField(
+        max_length=32,
+        choices=Status.choices,
+        default=Status.NOTICE_SENT,
+        verbose_name=_('Статус'),
+    )
+    initiated_at = models.DateTimeField(
+        default=timezone.now,
+        verbose_name=_('Уведомление отправлено'),
+        help_text=_(
+            'Не auto_now_add: от этого момента отсчитывается срок ответа, '
+            'и он должен оставаться воспроизводимым значением.'
+        ),
+    )
+    deadline_at = models.DateTimeField(
+        verbose_name=_('Ответ до'),
+        help_text=_('Момент, после которого молчание считается уходом.'),
+    )
+    appealed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_('Оспорено'),
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_('Расторгнуто'),
+    )
+    revoked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_('Отозвано'),
+    )
+
+    class Meta:
+        verbose_name = _('Расторжение с фрилансером')
+        verbose_name_plural = _('Расторжения с фрилансерами')
+        ordering = ['-initiated_at']
+        constraints = [
+            # Частичный уникальный индекс, а не unique(room, freelancer):
+            # незакрытый кейс на пару может быть только один, но завершённых
+            # и отозванных за историю комнаты накапливается сколько угодно —
+            # человека можно взять снова и снова расстаться.
+            models.UniqueConstraint(
+                fields=['room', 'freelancer'],
+                condition=models.Q(status__in=OPEN_TERMINATION_STATUSES),
+                name='unique_open_freelancer_termination',
+            ),
+        ]
+        indexes = [
+            # Под выборку «кому вышел срок»: фильтр по статусу + дедлайну.
+            models.Index(
+                fields=['status', 'deadline_at'],
+                name='room_termination_due_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f'Расторжение: {self.freelancer} @ {self.room.project.name}'
+
+    @property
+    def is_open(self) -> bool:
+        """Кейс ещё не завершён и не отозван — работа в проекте заблокирована."""
+        return self.status in OPEN_TERMINATION_STATUSES
+
+
+class TerminationMessage(models.Model):
+    """Сообщение в чате расторжения.
+
+    Отдельная модель, а не `RoomChatMessage` с третьим каналом: у этой
+    переписки другой круг участников (тимлид-инициатор и фрилансер), другое
+    время жизни (тред закрывается вместе с кейсом) и она не должна попадать
+    ни в командный чат, ни в приватный контур директор↔тимлид.
+
+    Автор — `SET_NULL`, как и у чата комнаты: переписка переживает уход
+    участника и показывается как «Удалённый участник».
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    case = models.ForeignKey(
+        FreelancerTermination,
+        on_delete=models.CASCADE,
+        related_name='messages',
+        verbose_name=_('Кейс расторжения'),
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='termination_messages',
+        verbose_name=_('Автор'),
+    )
+    text = models.TextField(verbose_name=_('Сообщение'))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_('Отправлено'))
+
+    class Meta:
+        verbose_name = _('Сообщение расторжения')
+        verbose_name_plural = _('Сообщения расторжения')
+        ordering = ['created_at']
 
     def __str__(self):
         author = self.author.full_name if self.author else 'Удалённый участник'
