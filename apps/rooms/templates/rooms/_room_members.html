@@ -34,19 +34,42 @@ HTMX-действий подбора («Подобрать лучшего», «�
                 <td>
                     {% if member.role_in_room == 'freelancer' %}
                     {{ member.get_ready_status_display }}
+                    {% if member.open_termination %}
+                    <span class="badge">Идёт расторжение</span>
+                    {% endif %}
                     {% else %}
                     —
                     {% endif %}
                 </td>
                 <td>
+                    {% comment %}
+                    Фрилансер и тимлид уходят из команды по-разному, поэтому и
+                    элементы управления разные.
+
+                    Фрилансер — ссылка на форму расторжения: причина
+                    обязательна, членство и его история сохраняются, а
+                    `window.confirm` здесь недопустим (см. задание §3).
+                    Если кейс уже открыт, та же ссылка показывает его, а не
+                    заводит второй.
+
+                    Тимлид — прежняя форма удаления с confirm: этот путь
+                    задачей расторжения не меняется. Директор не удаляется.
+                    {% endcomment %}
                     {% if can_manage_team and member.role_in_room != 'director' %}
-                    <form method="post"
-                          action="{% url 'rooms:room_remove_member' project.id member.id %}"
-                          class="inline-delete-form"
-                          onsubmit="return confirm('Удалить участника?');">
-                        {% csrf_token %}
-                        <button type="submit" class="btn-delete">Удалить</button>
-                    </form>
+                        {% if member.role_in_room == 'freelancer' %}
+                        <a class="btn-delete"
+                           href="{% url 'rooms:room_termination_form' project.id member.id %}">
+                            {% if member.open_termination %}Расторжение{% else %}Удалить{% endif %}
+                        </a>
+                        {% else %}
+                        <form method="post"
+                              action="{% url 'rooms:room_remove_member' project.id member.id %}"
+                              class="inline-delete-form"
+                              onsubmit="return confirm('Удалить участника?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-delete">Удалить</button>
+                        </form>
+                        {% endif %}
                     {% endif %}
                 </td>
             </tr>

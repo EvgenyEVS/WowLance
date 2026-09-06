@@ -7,8 +7,20 @@
 * ответ на HTMX-POST «Подобрать лучшего» / «Другой сейлер» — тогда шаблон
   рендерится отдельно и заменяет свой же корневой div по id.
 
-Действия показываются только при `can_staff_slots` (директор/тимлид и проект
-ещё набирает команду). Фрилансер видит те же данные без кнопок.
+Флагов действий два, и они зеркалят два серверных гарда подбора:
+
+* `can_staff_slots` — изменение **занятого** слота («Другой сейлер»);
+  только DRAFT/STAFFING (`services._guard_staffing`);
+* `can_fill_slots` — заполнение **пустого** слота («Подобрать лучшего»,
+  «Выбрать из пула»); плюс ACTIVE (`services._guard_slot_assignment`):
+  завершённое расторжение освобождает слот запущенного проекта, и закрыть
+  его надо, не возвращая весь проект в подбор.
+
+Третье условие живёт в самой карточке: `card.can_replace_member` ложно,
+пока по исполнителю идёт расторжение. Кнопки замены тогда нет — у ухода
+уже есть свой процесс, а прямой POST сервис всё равно отклонит.
+
+Фрилансер видит те же данные без кнопок.
 
 Машинный `role_key` пользователю не показывается: заголовок берёт
 `card.role_label` из структурного каталога функций. Исторический ключ,
@@ -69,29 +81,41 @@
     <p class="slot-note {% if action_note_is_error %}slot-note-error{% endif %}">{{ action_note }}</p>
     {% endif %}
 
-    {% if can_staff_slots and not compact %}
-    <div class="slot-actions">
+    {% if card.member and card.has_open_termination and not compact %}
+    <p class="slot-note slot-note-termination">Идёт расторжение</p>
+    {% endif %}
+
+    {% if not compact %}
         {% if card.member %}
-        <form method="post"
-              action="{% url 'rooms:room_slot_replace' project.id card.slot.id %}"
-              hx-post="{% url 'rooms:room_slot_replace' project.id card.slot.id %}"
-              hx-target="#slot-card-{{ card.slot.id }}"
-              hx-swap="outerHTML">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-secondary btn-sm">Другой сейлер</button>
-        </form>
+            {% if can_staff_slots and card.can_replace_member %}
+            <div class="slot-actions">
+                <form method="post"
+                      action="{% url 'rooms:room_slot_replace' project.id card.slot.id %}"
+                      hx-post="{% url 'rooms:room_slot_replace' project.id card.slot.id %}"
+                      hx-target="#slot-card-{{ card.slot.id }}"
+                      hx-swap="outerHTML">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-secondary btn-sm">Другой сейлер</button>
+                </form>
+                <a href="{% url 'rooms:room_slot_candidates' project.id card.slot.id %}"
+                   class="btn btn-ghost btn-sm">Выбрать из пула</a>
+            </div>
+            {% endif %}
         {% else %}
-        <form method="post"
-              action="{% url 'rooms:room_slot_auto_assign' project.id card.slot.id %}"
-              hx-post="{% url 'rooms:room_slot_auto_assign' project.id card.slot.id %}"
-              hx-target="#slot-card-{{ card.slot.id }}"
-              hx-swap="outerHTML">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-primary btn-sm">Подобрать лучшего</button>
-        </form>
+            {% if can_fill_slots %}
+            <div class="slot-actions">
+                <form method="post"
+                      action="{% url 'rooms:room_slot_auto_assign' project.id card.slot.id %}"
+                      hx-post="{% url 'rooms:room_slot_auto_assign' project.id card.slot.id %}"
+                      hx-target="#slot-card-{{ card.slot.id }}"
+                      hx-swap="outerHTML">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary btn-sm">Подобрать лучшего</button>
+                </form>
+                <a href="{% url 'rooms:room_slot_candidates' project.id card.slot.id %}"
+                   class="btn btn-ghost btn-sm">Выбрать из пула</a>
+            </div>
+            {% endif %}
         {% endif %}
-        <a href="{% url 'rooms:room_slot_candidates' project.id card.slot.id %}"
-           class="btn btn-ghost btn-sm">Выбрать из пула</a>
-    </div>
     {% endif %}
 </div>
