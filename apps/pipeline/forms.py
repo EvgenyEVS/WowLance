@@ -261,3 +261,22 @@ class LeadQualifyForm(forms.Form):
     def cleaned_criteria_list(self):
         raw = self.cleaned_data.get('matched_hot_criteria', '')
         return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+class LeadDiscoveryForm(forms.Form):
+    """Галочки фактов разговора; не меняют `qualification_status`."""
+
+    def __init__(self, *args, **kwargs):
+        from .discovery import DISCOVERY_KEYS, DISCOVERY_LABELS
+
+        super().__init__(*args, **kwargs)
+        for key in DISCOVERY_KEYS:
+            self.fields[key] = forms.BooleanField(
+                label=DISCOVERY_LABELS[key],
+                required=False,
+            )
+
+    def cleaned_checks(self) -> dict[str, bool]:
+        from .discovery import DISCOVERY_KEYS
+
+        return {key: bool(self.cleaned_data.get(key)) for key in DISCOVERY_KEYS}

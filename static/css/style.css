@@ -650,6 +650,50 @@ textarea::placeholder {
     margin-top: 20px;
 }
 
+.lead-detail-grid {
+    display: grid;
+    grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.4fr);
+    gap: 16px;
+    align-items: start;
+    margin-top: 12px;
+}
+
+@media (max-width: 800px) {
+    .lead-detail-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.lead-discovery-fieldset {
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 8px;
+    padding: 10px 12px 6px;
+    margin: 0 0 12px;
+}
+
+.lead-discovery-fieldset legend {
+    padding: 0 6px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.lead-discovery-check {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+
+.lead-discovery-check input {
+    margin-top: 3px;
+}
+
+.lead-discovery-hint {
+    margin: 8px 0 14px;
+}
+
 .feature-card,
 .catalog-card,
 .info-block,

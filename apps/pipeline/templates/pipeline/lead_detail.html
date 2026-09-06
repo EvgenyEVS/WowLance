@@ -7,29 +7,62 @@
 
 <p><a href="{% url 'pipeline:room_leads' project.id %}">← К лидам</a></p>
 
-<div class="info-block">
-    <h2>{{ lead }}</h2>
-    <p><strong>Квалификация:</strong> {{ lead.get_qualification_status_display }}</p>
-    <p><strong>Источник:</strong> {{ lead.get_source_display }}</p>
-    <p><strong>Имя:</strong> {{ lead.contact_name|default:"—" }}</p>
-    <p><strong>Телефон:</strong> {{ lead.contact_phone|default:"—" }}</p>
-    <p><strong>Email:</strong> {{ lead.contact_email|default:"—" }}</p>
-    <p><strong>LinkedIn:</strong>
-        {% if lead.contact_linkedin %}
-        <a href="{{ lead.contact_linkedin }}" target="_blank" rel="noopener">{{ lead.contact_linkedin }}</a>
-        {% else %}—{% endif %}
-    </p>
-    <p><strong>Создал:</strong> {{ lead.creator.full_name }}</p>
-    {% if lead.notes %}<p><strong>Заметки:</strong> {{ lead.notes|linebreaksbr }}</p>{% endif %}
-    {% if lead.matched_hot_criteria %}
-    <p><strong>Совпавшие критерии Hot:</strong></p>
-    <ul>{% for c in lead.matched_hot_criteria %}<li>{{ c }}</li>{% endfor %}</ul>
-    {% endif %}
-    {% if lead.hot_handoff_at %}
-    <p><strong>Передан менеджеру:</strong> {{ lead.hot_handoff_at|date:"d.m.Y H:i" }}
-        · {{ lead.assigned_manager.full_name|default:"—" }}</p>
-    {% endif %}
+<div class="lead-detail-grid">
+    <div class="info-block">
+        <h2>{{ lead }}</h2>
+        <p><strong>Квалификация:</strong> {{ lead.get_qualification_status_display }}</p>
+        <p><strong>Источник:</strong> {{ lead.get_source_display }}</p>
+        <p><strong>Имя:</strong> {{ lead.contact_name|default:"—" }}</p>
+        <p><strong>Телефон:</strong> {{ lead.contact_phone|default:"—" }}</p>
+        <p><strong>Email:</strong> {{ lead.contact_email|default:"—" }}</p>
+        <p><strong>LinkedIn:</strong>
+            {% if lead.contact_linkedin %}
+            <a href="{{ lead.contact_linkedin }}" target="_blank" rel="noopener">{{ lead.contact_linkedin }}</a>
+            {% else %}—{% endif %}
+        </p>
+        <p><strong>Создал:</strong> {{ lead.creator.full_name }}</p>
+        {% if lead.hot_handoff_at %}
+        <p><strong>Передан менеджеру:</strong> {{ lead.hot_handoff_at|date:"d.m.Y H:i" }}
+            · {{ lead.assigned_manager.full_name|default:"—" }}</p>
+        {% endif %}
+        {% if lead.matched_hot_criteria %}
+        <p><strong>Совпавшие критерии Hot:</strong></p>
+        <ul>{% for c in lead.matched_hot_criteria %}<li>{{ c }}</li>{% endfor %}</ul>
+        {% endif %}
+    </div>
+
+    <div class="upload-form lead-discovery-block">
+        <h4>Чеклист квалификации</h4>
+        <p class="help-text">Факты разговора (BANT и следующий шаг). Не меняют колонку Cold/Warm/Hot — Hot ставит только тимлид.</p>
+        <form method="post" action="{% url 'pipeline:lead_discovery' project.id lead.id %}">
+            {% csrf_token %}
+            {% for section in discovery_sections %}
+            <fieldset class="lead-discovery-fieldset">
+                <legend>{{ section.label }}</legend>
+                {% for row in section.fields %}
+                <label class="lead-discovery-check">
+                    <input type="checkbox" name="{{ row.key }}" value="on"
+                           {% if row.checked %}checked{% endif %}
+                           {% if not can_edit_discovery %}disabled{% endif %}>
+                    {{ row.caption }}
+                </label>
+                {% endfor %}
+            </fieldset>
+            {% endfor %}
+            <p class="help-text lead-discovery-hint" data-hint="{{ discovery_hint }}">{{ discovery_hint_text }}</p>
+            {% if can_edit_discovery %}
+            <button type="submit" class="btn btn-primary">Сохранить чеклист</button>
+            {% endif %}
+        </form>
+    </div>
 </div>
+
+{% if lead.notes %}
+<div class="info-block">
+    <h3>Заметки</h3>
+    <p>{{ lead.notes|linebreaksbr }}</p>
+</div>
+{% endif %}
 
 {% if hot_criteria %}
 <div class="sla-banner">Критерии проекта: {{ hot_criteria }}</div>
