@@ -9,9 +9,11 @@ from apps.pipeline.discovery import (
     HINT_WARM,
     discovery_hint_key,
 )
-from apps.pipeline.models import Lead
+from apps.pipeline.models import Lead, Task
 from apps.pipeline.services import create_lead, set_lead_qualification
-from apps.pipeline.tests import PipelineProjectMixin
+from apps.pipeline.tests import PASSWORD, PipelineProjectMixin
+from apps.test_helpers import make_user
+from apps.users.models import User
 from django.core.exceptions import PermissionDenied
 
 
@@ -181,3 +183,134 @@ class LeadDiscoveryDoesNotBypassHotGuardTests(PipelineProjectMixin, TestCase):
             )
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.qualification_status, Lead.Qualification.WARM)
+
+
+class LeadDiscoveryManagerHandoffTests(PipelineProjectMixin, TestCase):
+    """Менеджер после Hot handoff: карточка лида и чеклист — только чтение.
+
+    Права даёт сам лид (`assigned_manager`), а не членство в комнате:
+    менеджер платформы `RoomMember` не является, поэтому доска лидов и
+    «Обзор» для него закрыты и после handoff.
+    """
+
+    def setUp(self):
+        self._build_project('handoff')
+        self.lead = create_lead(
+            project=self.project,
+            creator=self.freelancer,
+            contact_info={'name': 'Пётр Горячий', 'phone': '+79005556677'},
+            source=Lead.Source.LINKEDIN,
+            qualification_status=Lead.Qualification.WARM,
+        )
+        # Handoff — существующей логикой, а не присваиванием assigned_manager:
+        # тест обязан ломаться вместе с продуктовым сценарием.
+        set_lead_qualification(
+            lead=self.lead,
+            new_status=Lead.Qualification.HOT,
+            changed_by=self.teamlead,
+            matched_hot_criteria=['Запросил демо'],
+        )
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.assigned_manager_id, self.manager.id)
+        self.handoff_task = Task.objects.get(
+            lead=self.lead,
+            task_type=Task.TaskType.MANAGER_HANDOFF,
+        )
+        # Второй менеджер создаётся после handoff: `pick_manager_for_lead`
+        # берёт первого по `date_joined`, и выбор остаётся однозначным.
+        self.other_manager = make_user(
+            email='m2handoff@pipe.test',
+            role=User.Roles.MANAGER,
+            password=PASSWORD,
+        )
+        self.detail_url = reverse(
+            'pipeline:lead_detail',
+            kwargs={'project_id': self.project.id, 'lead_id': self.lead.id},
+        )
+        self.discovery_url = reverse(
+            'pipeline:lead_discovery',
+            kwargs={'project_id': self.project.id, 'lead_id': self.lead.id},
+        )
+
+    def test_assigned_manager_reads_card_and_checklist_without_save(self):
+        self.client.force_login(self.manager)
+
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Пётр Горячий')
+        self.assertContains(response, 'Чеклист квалификации')
+        self.assertContains(response, 'Следующий шаг')
+        self.assertFalse(response.context['can_edit_discovery'])
+        self.assertNotContains(response, 'Сохранить чеклист')
+
+    def test_assigned_manager_cannot_post_discovery(self):
+        self.lead.discovery_checks = {'need_task': True}
+        self.lead.save(update_fields=['discovery_checks', 'updated_at'])
+        self.client.force_login(self.manager)
+
+        response = self.client.post(
+            self.discovery_url,
+            {'need_task': 'on', 'next_demo': 'on'},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.lead.refresh_from_db()
+        self.assertEqual(self.lead.discovery_checks, {'need_task': True})
+
+    def test_other_manager_cannot_open_the_lead(self):
+        self.client.force_login(self.other_manager)
+
+        self.assertEqual(self.client.get(self.detail_url).status_code, 403)
+        self.assertEqual(
+            self.client.post(self.discovery_url, {'need_task': 'on'}).status_code,
+            403,
+        )
+
+    def test_assigned_manager_does_not_get_the_room(self):
+        """Чтение одного лида не открывает доску лидов и «Обзор»."""
+        self.client.force_login(self.manager)
+
+        leads_board = self.client.get(
+            reverse('pipeline:room_leads', kwargs={'project_id': self.project.id})
+        )
+        overview = self.client.get(
+            reverse('rooms:room_overview', kwargs={'project_id': self.project.id})
+        )
+
+        self.assertEqual(leads_board.status_code, 403)
+        self.assertEqual(overview.status_code, 403)
+
+    def test_assigned_manager_field_alone_does_not_open_the_lead(self):
+        """Исключение — только для роли MANAGER, а не для любого в поле.
+
+        `Lead.assigned_manager` — обычный FK и ролью не ограничен, поэтому
+        чужой тимлид, технически проставленный в это поле, обязан получить
+        403: доступ мимо комнаты задуман для менеджера платформы с handoff.
+        """
+        outsider_teamlead = make_user(
+            email='t2handoff@pipe.test',
+            role=User.Roles.TEAMLEAD,
+            password=PASSWORD,
+        )
+        self.lead.assigned_manager = outsider_teamlead
+        self.lead.save(update_fields=['assigned_manager', 'updated_at'])
+        self.client.force_login(outsider_teamlead)
+
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_handoff_task_detail_links_to_the_lead(self):
+        self.client.force_login(self.manager)
+
+        response = self.client.get(
+            reverse(
+                'pipeline:task_detail',
+                kwargs={'project_id': self.project.id, 'task_id': self.handoff_task.id},
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['can_open_lead'])
+        self.assertContains(response, f'href="{self.detail_url}"')

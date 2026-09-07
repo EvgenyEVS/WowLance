@@ -712,6 +712,34 @@ def user_can_access_task(user, task) -> bool:
     return True
 
 
+def user_can_access_lead(user, lead) -> bool:
+    """Доступ к карточке лида: участник проекта или менеджер этого лида.
+
+    Зеркало `user_can_access_task` для Hot handoff. Менеджер платформы
+    получает горячий лид без членства в комнате, поэтому по обычному
+    `user_can_access_project` его карточка была бы закрыта. Открывается
+    ровно один лид — тот, который ему передали: доска лидов, «Обзор» и
+    остальная комната для него по-прежнему 403.
+
+    Право *писать* чеклист отсюда не следует: его считает
+    `apps.pipeline.views._can_edit_lead_discovery` (создатель или тимлид).
+    Ограничение «фрилансер видит только свой лид» остаётся отдельным
+    гейтом карточки.
+
+    Роль в исключении проверяется явно: `Lead.assigned_manager` — обычный
+    FK без ограничения по роли, а специальный доступ мимо комнаты
+    задуман ровно для менеджера платформы с handoff.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if (
+        getattr(user, 'role', None) == User.Roles.MANAGER
+        and lead.assigned_manager_id == user.id
+    ):
+        return True
+    return user_can_access_project(user, lead.project)
+
+
 def user_can_manage_team(user, project: Project) -> bool:
     """Операционка комнаты: подбор, review, квалификация лидов.
 
