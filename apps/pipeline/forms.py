@@ -50,7 +50,7 @@ class TeamleadPeriodReportForm(forms.Form):
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, initial_project=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         default_from, default_to = default_report_period()
@@ -64,6 +64,16 @@ class TeamleadPeriodReportForm(forms.Form):
             self.fields['project'].queryset = (
                 Project.objects.filter(teamlead=user).order_by('created_at')
             )
+            # Несвязанная форма комнаты: текущий проект выбран, «Все проекты»
+            # остаётся первой опцией. Связанный GET отчёта не перетираем.
+            if (
+                initial_project is not None
+                and not self.is_bound
+                and self.fields['project'].queryset.filter(
+                    pk=initial_project.pk
+                ).exists()
+            ):
+                self.fields['project'].initial = initial_project
 
     def clean(self):
         cleaned = super().clean()

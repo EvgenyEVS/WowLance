@@ -115,6 +115,12 @@ def room_tasks(request, project_id):
     can_manage = user_can_manage_team(request.user, project)
     nav = room_nav_context(request.user, project)
     task_list = list(tasks)
+    period_report_form = None
+    if project.teamlead_id == request.user.id:
+        period_report_form = TeamleadPeriodReportForm(
+            user=request.user,
+            initial_project=project,
+        )
     return render(request, 'pipeline/room_tasks.html', {
         'project': project,
         'tasks': task_list,
@@ -123,6 +129,7 @@ def room_tasks(request, project_id):
         'create_form': (
             TaskCreateForm(project=project) if nav['can_create_task'] else None
         ),
+        'period_report_form': period_report_form,
         'active_tab': 'tasks',
         **nav,
     })

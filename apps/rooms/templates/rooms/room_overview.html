@@ -248,6 +248,9 @@ SLA-блок стартовой задачи. Формулировки гово�
             </div>
             {% endfor %}
         </div>
+        {% if period_report_form %}
+        {% include 'pipeline/_teamlead_period_report_form.html' with form=period_report_form %}
+        {% endif %}
         {% endif %}
     </div>
 
