@@ -28,7 +28,7 @@
             {% for doc in group.documents %}
             <article class="dropbox-card">
                 <div class="dropbox-icon">📄</div>
-                <h4><a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.title }}</a></h4>
+                <h4><a href="{% url 'rooms:room_document_file' project.id doc.id %}" target="_blank" rel="noopener">{{ doc.title }}</a></h4>
                 <p class="muted">{{ doc.uploaded_by.full_name|default:"—" }} · {{ doc.created_at|date:"d.m.Y H:i" }}</p>
                 {% if can_manage_team or doc.uploaded_by_id == user.id %}
                 <form method="post"

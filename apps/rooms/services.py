@@ -16,6 +16,14 @@ from .models import (
     RoomMember,
     TeamleadInvite,
 )
+from .termination import (  # noqa: F401  (публичный фасад модуля ROOM)
+    CHAT_MESSAGE_MAX_LENGTH,
+    finalize_expired_termination_for,
+    has_open_freelancer_termination,
+    open_termination_for,
+    open_terminations_by_freelancer,
+    recent_termination_messages,
+)
 from .unit_economics import (  # noqa: F401  (публичный фасад модуля ROOM)
     apply_package_to_project,
     get_unit_economics_summary,
@@ -367,10 +375,18 @@ def assign_teamlead(project: Project, teamlead: User, actor=None) -> RoomMember:
         role_in_room=RoomMember.RoleInRoom.TEAMLEAD,
     ).exclude(user=teamlead).update(role_in_room=RoomMember.RoleInRoom.FREELANCER)
 
+    # `is_active` / `left_at` в `defaults` — защита lifecycle-инварианта, а
+    # не отдельный сценарий повторного найма: без них назначение тимлидом
+    # человека, чьё членство архивировано, вернуло бы ему роль, но оставило
+    # строку в архиве — тимлид, которого нет в команде.
     member, _ = RoomMember.objects.update_or_create(
         room=room,
         user=teamlead,
-        defaults={'role_in_room': RoomMember.RoleInRoom.TEAMLEAD},
+        defaults={
+            'role_in_room': RoomMember.RoleInRoom.TEAMLEAD,
+            'is_active': True,
+            'left_at': None,
+        },
     )
     log_room_activity(
         room,
@@ -378,6 +394,87 @@ def assign_teamlead(project: Project, teamlead: User, actor=None) -> RoomMember:
         RoomActivity.EventType.TEAMLEAD_ASSIGNED,
         actor=actor or project.owner,
     )
+    return member
+
+
+@transaction.atomic
+def reactivate_room_member(
+    member: RoomMember,
+    *,
+    actor=None,
+    role_in_room=None,
+    slot=None,
+    log_event=True,
+) -> RoomMember:
+    """Возвращает архивное членство в строй, не заводя вторую строку.
+
+    Единственная точка реактивации в проекте: ни `add_freelancer_to_room`,
+    ни подбор не переписывают `is_active` / `left_at` / `ready_status` у
+    себя. Иначе повторный найм с формы и повторный найм с подбора рано или
+    поздно разошлись бы в том, что именно сбрасывается.
+
+    Почему та же строка, а не новая: `unique(room, user)` запрещает вторую,
+    и это правильно — вместе со строкой членства живёт вся история человека
+    в комнате (задачи, лиды, отчёты, начисления, кейсы расторжения). Новая
+    строка означала бы либо удаление истории, либо её раздвоение.
+
+    Что сбрасывается: `is_active`, `left_at` и `ready_status`. Готовность
+    именно сбрасывается в `pending` — человек вернулся в проект и должен
+    подтвердить готовность заново, старое «готов» относилось к прошлому
+    заходу.
+
+    Что **не** трогается: `joined_at` (историческая дата первого вступления;
+    отдельного `rejoined_at` намеренно нет — второй датой пришлось бы
+    объяснять, какая из них «настоящая»), а также задачи, лиды, отчёты,
+    начисления и завершённые кейсы расторжения.
+
+    Активное членство возвращается как есть: операция идемпотентна, и
+    повторный вызов не сбрасывает готовность работающему человеку. Роль и
+    слот при этом всё равно применяются — вызывающий workflow вправе
+    уточнить и то и другое, — но lifecycle-поля не переписываются.
+
+    Событие ленты `MEMBER_ADDED` пишется только при настоящей реактивации:
+    для комнаты это и есть «человек снова в команде». Отдельного
+    `EventType` под возврат не заводится — лента говорит о факте, а не о
+    том, какой строкой он реализован.
+
+    `log_event=False` нужен вызывающему, который пишет собственное, более
+    точное `MEMBER_ADDED` сразу следом (подбор говорит, на какую функцию
+    человек сел). Две записи об одном возвращении лента получать не
+    должна; событие при этом всё равно пишется — просто вызывающим.
+
+    Зависимости от `staffing` здесь нет: слот приходит параметром, а
+    `role_key` приводит к слоту сам `RoomMember.save()`.
+    """
+    was_archived = not member.is_active
+
+    updates = []
+    if was_archived:
+        member.is_active = True
+        member.left_at = None
+        member.ready_status = RoomMember.ReadyStatus.PENDING
+        updates += ['is_active', 'left_at', 'ready_status']
+
+    if role_in_room is not None and member.role_in_room != role_in_room:
+        member.role_in_room = role_in_room
+        updates.append('role_in_room')
+
+    if slot is not None and member.function_slot_id != slot.pk:
+        member.function_slot = slot
+        updates.append('function_slot')
+
+    if updates:
+        # `update_fields` точечный: `joined_at` не переписывается, а
+        # `role_key` при смене слота досыпает сам `save()`.
+        member.save(update_fields=updates)
+
+    if was_archived and log_event:
+        log_room_activity(
+            member.room,
+            f'{member.user.full_name} снова в команде.',
+            RoomActivity.EventType.MEMBER_ADDED,
+            actor=actor,
+        )
     return member
 
 
@@ -390,22 +487,44 @@ def add_freelancer_to_room(room: Room, freelancer: User, actor=None) -> RoomMemb
     подтверждённой готовности всей функциональной команды
     (`apps.rooms.staffing.services.sync_project_activation`), а не факта
     появления одного участника.
+
+    Три случая вместо прежнего `get_or_create`:
+
+    * человек уже в команде — прежняя семантика: возвращается его строка,
+      второй участник не заводится и лента молчит;
+    * человек в архиве комнаты (вышел по расторжению) — это **повторный
+      найм**: та же строка возвращается в строй через
+      `reactivate_room_member`, и лента получает `MEMBER_ADDED`, потому что
+      для комнаты это настоящее повторное вступление. Прежний
+      `get_or_create` возвращал такую строку как «уже участник» и оставлял
+      её архивной: человек «добавлен», но не работает;
+    * строки нет — обычное создание, как раньше.
+
+    Слот здесь не назначается: добавление в комнату не про функцию. Место
+    на слоте выдаёт подбор (`staffing.services.assign_candidate_to_slot`).
     """
-    member, created = RoomMember.objects.get_or_create(
+    member = RoomMember.objects.filter(room=room, user=freelancer).first()
+    if member is not None:
+        if member.is_active:
+            return member
+        return reactivate_room_member(
+            member,
+            actor=actor,
+            role_in_room=RoomMember.RoleInRoom.FREELANCER,
+        )
+
+    member = RoomMember.objects.create(
         room=room,
         user=freelancer,
-        defaults={
-            'role_in_room': RoomMember.RoleInRoom.FREELANCER,
-            'ready_status': RoomMember.ReadyStatus.PENDING,
-        },
+        role_in_room=RoomMember.RoleInRoom.FREELANCER,
+        ready_status=RoomMember.ReadyStatus.PENDING,
     )
-    if created:
-        log_room_activity(
-            room,
-            f'Фрилансер {freelancer.full_name} добавлен в команду.',
-            RoomActivity.EventType.MEMBER_ADDED,
-            actor=actor,
-        )
+    log_room_activity(
+        room,
+        f'Фрилансер {freelancer.full_name} добавлен в команду.',
+        RoomActivity.EventType.MEMBER_ADDED,
+        actor=actor,
+    )
     return member
 
 
@@ -450,6 +569,131 @@ def user_can_access_project(user, project: Project) -> bool:
     return RoomMember.objects.filter(room__project=project, user=user).exists()
 
 
+# ---------------------------------------------------------------------------
+# Расторжение и архив: право *работать* в комнате
+# ---------------------------------------------------------------------------
+#
+# Публичный фасад ROOM для правил расторжения. `apps.pipeline` обязан
+# импортировать их отсюда, а не из `apps.rooms.termination` напрямую
+# (ADR-001: единые правила доступа ROOM живут в одном месте).
+
+
+def _freelancer_membership(user, project: Project):
+    """Строка членства пользователя-фрилансера в этом проекте или `None`.
+
+    Роль фильтруется намеренно: директор и тимлид тоже имеют `RoomMember`,
+    но расторжение к ним не применяется, и попадать под этот гейт они не
+    должны.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return None
+    return (
+        RoomMember.objects
+        .filter(
+            room__project=project,
+            user=user,
+            role_in_room=RoomMember.RoleInRoom.FREELANCER,
+        )
+        .select_related('room')
+        .first()
+    )
+
+
+def user_is_archived_member(user, project: Project) -> bool:
+    """Фрилансер уже вышел из проекта, но его строка членства сохранена."""
+    member = _freelancer_membership(user, project)
+    return member is not None and not member.is_active
+
+
+def user_can_work_in_room(user, project: Project) -> bool:
+    """Можно ли этому человеку **выполнять работу** в проекте прямо сейчас.
+
+    Это не замена RBAC, а отдельный узкий гейт расторжения и архива:
+    существующие проверки прав остаются на местах и решают, кому вообще
+    доступна операция. Здесь отвечают только на вопрос «не отстранён ли
+    исполнитель».
+
+    Правила:
+
+    * нет строки фрилансера в этом проекте → `True`. Тимлид, директор,
+      менеджер с handoff-задачей и вообще любой не-участник под гейт не
+      попадают, иначе он молча сломал бы чужие сценарии;
+    * членство в архиве (`is_active=False`) → `False`;
+    * открытый кейс (`notice_sent` / `appeal_pending`) → `False`;
+    * кейс отозван (`revoked`) и членство активно → `True`, как до
+      уведомления.
+    """
+    member = _freelancer_membership(user, project)
+    if member is None:
+        return True
+    if not member.is_active:
+        return False
+    return not has_open_freelancer_termination(member.room, user)
+
+
+def require_can_work_in_room(user, project: Project) -> None:
+    """`user_can_work_in_room` в виде гейта: отказ поднимает `PermissionDenied`.
+
+    Отдельный хелпер нужен, чтобы во views гейт стоял **до** их
+    `try/except (PermissionDenied, ValidationError)`: перехваченный отказ
+    превратился бы в flash-сообщение и 302, а отстранённый исполнитель
+    обязан получать 403.
+    """
+    if not user_can_work_in_room(user, project):
+        raise PermissionDenied(
+            'Во время расторжения работать в проекте нельзя.'
+        )
+
+
+def finalize_expired_termination_for_user(user, project: Project, *, now=None):
+    """Лениво закрывает просроченное уведомление этого пользователя.
+
+    Вызывается из общих точек входа в комнату (`_get_accessible_project` в
+    ROOM, `_get_project` / `_get_accessible_task` в PIPELINE), поэтому срок
+    «три дня» срабатывает на первом же заходе, **до** проверок доступа того
+    же запроса: страница после дедлайна уже видит архивное членство.
+
+    Роль проверяется первой и без запроса: расторжение бывает только у
+    фрилансера, и остальным ролям этот путь не должен стоить ни одного
+    обращения к БД.
+
+    `appeal_pending` не трогается — за это отвечает сам доменный хелпер.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return None
+    if getattr(user, 'role', None) != User.Roles.FREELANCER:
+        return None
+    member = _freelancer_membership(user, project)
+    if member is None or not member.is_active:
+        return None
+    return finalize_expired_termination_for(member.room, user, now=now)
+
+
+def require_non_archived_room_member(user, project: Project) -> None:
+    """Гейт операционных поверхностей комнаты для архивного участника.
+
+    Ушедшему из проекта фрилансеру остаётся только «Обзор» с его прошлыми
+    цифрами и история начислений; «Команда», «Материалы», «Коммуникации»,
+    «Задачи» и «Лиды» закрываются — в том числе по прямой ссылке, а не
+    только скрытием вкладок.
+
+    Отличие от `require_can_work_in_room` принципиально: тот запрещает
+    **работать** и срабатывает уже при открытом кейсе, а этот запрещает
+    **открывать** операционные страницы и срабатывает только после архива.
+    Пока кейс идёт (`notice_sent` / `appeal_pending`), человек ещё в команде
+    и должен видеть комнату — поверх неё ему будет показано уведомление о
+    расторжении.
+
+    Никого, кроме архивного фрилансера, гейт не касается: тимлид, директор,
+    менеджер и не-участник проходят его насквозь, а их собственный RBAC
+    остаётся на месте.
+    """
+    if user_is_archived_member(user, project):
+        raise PermissionDenied(
+            'Архивная комната доступна только в режиме просмотра.'
+        )
+
+
 def user_can_access_task(user, task) -> bool:
     """Доступ к карточке задачи: участник проекта или назначенный исполнитель.
 
@@ -466,6 +710,34 @@ def user_can_access_task(user, task) -> bool:
     if getattr(user, 'role', None) == User.Roles.FREELANCER:
         return False
     return True
+
+
+def user_can_access_lead(user, lead) -> bool:
+    """Доступ к карточке лида: участник проекта или менеджер этого лида.
+
+    Зеркало `user_can_access_task` для Hot handoff. Менеджер платформы
+    получает горячий лид без членства в комнате, поэтому по обычному
+    `user_can_access_project` его карточка была бы закрыта. Открывается
+    ровно один лид — тот, который ему передали: доска лидов, «Обзор» и
+    остальная комната для него по-прежнему 403.
+
+    Право *писать* чеклист отсюда не следует: его считает
+    `apps.pipeline.views._can_edit_lead_discovery` (создатель или тимлид).
+    Ограничение «фрилансер видит только свой лид» остаётся отдельным
+    гейтом карточки.
+
+    Роль в исключении проверяется явно: `Lead.assigned_manager` — обычный
+    FK без ограничения по роли, а специальный доступ мимо комнаты
+    задуман ровно для менеджера платформы с handoff.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if (
+        getattr(user, 'role', None) == User.Roles.MANAGER
+        and lead.assigned_manager_id == user.id
+    ):
+        return True
+    return user_can_access_project(user, lead.project)
 
 
 def user_can_manage_team(user, project: Project) -> bool:
@@ -576,10 +848,21 @@ def room_nav_context(user, project: Project) -> dict:
         and getattr(user, 'role', None) == User.Roles.FREELANCER
     )
     freelancer_project_earned = None
+    termination_case = None
+    is_archived_member_flag = False
     if is_freelancer:
         from apps.pipeline.accruals import earned_on_project
 
         freelancer_project_earned = earned_on_project(user, project)
+        # Модалка расторжения и архивная навигация — состояние одного
+        # человека в одной комнате, поэтому считаются здесь, вместе с
+        # остальными ролевыми флагами шапки, и только для фрилансера:
+        # директору и тимлиду это не стоит ни одного запроса.
+        member = _freelancer_membership(user, project)
+        if member is not None:
+            is_archived_member_flag = not member.is_active
+            if member.is_active:
+                termination_case = open_termination_for(member.room, user)
     return {
         'show_team_tab': user_can_view_team_tab(user, project),
         'show_tasks_tab': user_can_view_tasks_tab(user, project),
@@ -597,6 +880,20 @@ def room_nav_context(user, project: Project) -> dict:
         'dt_comms_labels_as_owner': bool(is_owner),
         # Кнопка заработка фрилансера у названия проекта; у остальных ролей None.
         'freelancer_project_earned': freelancer_project_earned,
+        # Блокирующая модалка расторжения на всех вкладках комнаты.
+        # `show_termination_modal` истинно только у фрилансера с незакрытым
+        # кейсом: после `completed` и `revoked` модалки нет.
+        'termination_case': termination_case,
+        'show_termination_modal': termination_case is not None,
+        'is_archived_member': is_archived_member_flag,
+        # Отдельное имя, чтобы не перебить `termination_messages` страницы
+        # тимлида, которая подмешивает этот же контекст.
+        'termination_modal_messages': (
+            recent_termination_messages(termination_case)
+            if termination_case is not None
+            else []
+        ),
+        'termination_text_max_length': CHAT_MESSAGE_MAX_LENGTH,
     }
 
 

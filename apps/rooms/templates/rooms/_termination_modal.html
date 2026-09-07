@@ -1,0 +1,114 @@
+{% comment %}
+Блокирующее уведомление о расторжении для фрилансера.
+
+Подключается один раз из `rooms/_room_header.html`, поэтому появляется на
+всех вкладках комнаты и только внутри комнаты: на дашборде и в списке
+комнат шапки нет, и модалки там не будет.
+
+Флаги приходят только из `services.room_nav_context` — как и остальная
+ролевая часть шапки. `show_termination_modal` истинно исключительно у
+фрилансера с незакрытым кейсом: после завершения и после отзыва модалки нет.
+
+Закрыть её нельзя: ни крестика, ни кнопки, ни закрытия по клику на фон, ни
+JS-скрытия. Это не всплывающая подсказка, а состояние проекта — пока кейс
+открыт, работать в нём нельзя, и интерфейс не должен предлагать «закрыть и
+работать дальше».
+
+Кнопки «Покинуть проект» и «Опротестовать решение» — две обычные POST-формы
+с csrf_token и без JavaScript: обе меняют состояние кейса, и GET-ссылкой
+такое действие быть не может. Показываются только при `notice_sent`: пока
+идёт разбирательство по протесту (`appeal_pending`), отвечать больше не на
+что — исход определяет поддержка, и обеих кнопок в модалке нет.
+
+Текст причины и сообщений выводится обычным автоэкранированием, без `|safe`.
+{% endcomment %}
+{% if show_termination_modal %}
+<div class="termination-modal-backdrop">
+    <div class="termination-modal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="termination-modal-title">
+        <h2 class="termination-modal__title" id="termination-modal-title">
+            Расторжение по проекту «{{ project.name }}»
+        </h2>
+
+        <p class="termination-modal__status">
+            Статус: {{ termination_case.get_status_display }}
+        </p>
+
+        {% if termination_case.status == 'appeal_pending' %}
+        <p class="termination-modal__note">
+            Решение оспорено. Ожидайте ответа поддержки. Работать в проекте
+            нельзя, пока решение не принято.
+        </p>
+        <p class="muted">
+            Срок в уведомлении был до
+            {{ termination_case.deadline_at|date:"d.m.Y H:i" }}; пока идёт
+            рассмотрение, он остановлен.
+        </p>
+        {% else %}
+        <p class="termination-modal__note">
+            Тимлид отправил уведомление о расторжении. До ответа работать в
+            проекте нельзя: задачи, отчёты, лиды и командный чат недоступны.
+        </p>
+        <p class="muted">
+            Ответить нужно до
+            {{ termination_case.deadline_at|date:"d.m.Y H:i" }}
+            (осталось {{ termination_case.deadline_at|timeuntil }}).
+            Если ответа не будет, проект закроется автоматически.
+        </p>
+        {% endif %}
+
+        <h3>Причина</h3>
+        <p class="termination-reason">{{ termination_case.reason }}</p>
+
+        {% if termination_case.status == 'notice_sent' %}
+        <div class="termination-modal__actions">
+            <form method="post"
+                  action="{% url 'rooms:room_termination_leave' project.id termination_case.id %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-secondary">Покинуть проект</button>
+            </form>
+            <form method="post"
+                  action="{% url 'rooms:room_termination_appeal' project.id termination_case.id %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary">Опротестовать решение</button>
+            </form>
+        </div>
+        {% endif %}
+
+        <h3>Переписка с тимлидом</h3>
+        <p class="muted">
+            Отдельный тред по этому расторжению: его видите только вы и тимлид.
+        </p>
+
+        <div class="chat-log"
+             id="termination-modal-messages"
+             role="log"
+             aria-live="polite"
+             hx-get="{% url 'rooms:room_termination_messages' project.id termination_case.id %}"
+             hx-trigger="every 7s [document.visibilityState === 'visible']"
+             hx-swap="innerHTML">
+            {% include 'rooms/_termination_messages.html' with termination_messages=termination_modal_messages %}
+        </div>
+
+        <form class="chat-form"
+              method="post"
+              action="{% url 'rooms:room_termination_send' project.id termination_case.id %}"
+              hx-post="{% url 'rooms:room_termination_send' project.id termination_case.id %}"
+              hx-target="#termination-modal-messages"
+              hx-swap="innerHTML"
+              hx-on::after-request="this.reset()">
+            {% csrf_token %}
+            <textarea name="text"
+                      class="form-control"
+                      rows="2"
+                      maxlength="{{ termination_text_max_length }}"
+                      required
+                      aria-label="Сообщение тимлиду по расторжению"
+                      placeholder="Написать тимлиду…"></textarea>
+            <button type="submit" class="btn btn-primary btn-sm">Отправить</button>
+        </form>
+    </div>
+</div>
+{% endif %}

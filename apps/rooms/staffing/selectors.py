@@ -28,6 +28,7 @@ from django.utils import timezone
 
 from .. import functional_roles
 from ..models import RoomFunctionSlot, RoomMember
+from ..services import open_terminations_by_freelancer
 
 __all__ = [
     'SEARCH_SLA',
@@ -84,6 +85,9 @@ class SlotCard:
     member: RoomMember | None
     profile: object | None
     status: str
+    #: Идёт ли расторжение по человеку, занимающему слот. Считается один раз
+    #: на комнату (см. `_open_case_user_ids`), а не запросом на карточку.
+    has_open_termination: bool = False
 
     @property
     def status_label(self) -> str:
@@ -94,12 +98,28 @@ class SlotCard:
         return self.member is not None
 
     @property
+    def can_replace_member(self) -> bool:
+        """Можно ли предлагать «Другой сейлер» по этому слоту.
+
+        Только про исполнителя: статус проекта и права актора карточке не
+        известны и приходят в шаблон отдельными флагами вида
+        `can_staff_slots`. Здесь закрывается ровно один случай — по человеку
+        идёт расторжение, у которого свой процесс ухода, и замена мимо него
+        запрещена сервисом (`services.replace_slot_member`).
+        """
+        return self.member is not None and not self.has_open_termination
+
+    @property
     def assigned_at(self):
         """Момент назначения текущего исполнителя.
 
         Отдельной колонки под SLA-таймер не заводим: `RoomMember.joined_at`
-        уже фиксирует, когда человек занял слот, и обнуляется при замене,
-        потому что «Другой сейлер» создаёт нового участника.
+        фиксирует, когда человек впервые вошёл в комнату.
+
+        Это историческая дата первого членства, и она сохраняется при
+        повторном найме: вернувшийся в проект человек получает ту же строку
+        `RoomMember` (`services.reactivate_room_member`), а не новую, —
+        поэтому у него здесь останется дата первого захода, а не второго.
         """
         return self.member.joined_at if self.member else None
 
@@ -205,14 +225,34 @@ def _card_queryset():
     )
 
 
-def _build_card(slot: RoomFunctionSlot) -> SlotCard:
+def _open_case_user_ids(room) -> frozenset:
+    """Кто в этой комнате находится в открытом расторжении — один запрос.
+
+    Тем же bulk-селектором пользуется вкладка «Команда»
+    (`views._members_with_termination`), поэтому признак «идёт расторжение»
+    в строке состава и на карточке слота считается одинаково и не может
+    разойтись. Запрос делается один раз на комнату: сколько бы слотов ни
+    было, N+1 не появляется.
+    """
+    return frozenset(open_terminations_by_freelancer(room))
+
+
+def _build_card(slot: RoomFunctionSlot, open_case_user_ids=frozenset()) -> SlotCard:
     member = slot.assigned_member
     profile = None
     if member is not None:
         # Reverse OneToOne уже в select_related: обращение не делает запрос,
         # а у участника без профиля атрибут просто отсутствует.
         profile = getattr(member.user, 'freelancer_profile', None)
-    return SlotCard(slot=slot, member=member, profile=profile, status=_status_for(member))
+    return SlotCard(
+        slot=slot,
+        member=member,
+        profile=profile,
+        status=_status_for(member),
+        has_open_termination=(
+            member is not None and member.user_id in open_case_user_ids
+        ),
+    )
 
 
 def slot_cards(room) -> list[SlotCard]:
@@ -228,12 +268,19 @@ def slot_cards(room) -> list[SlotCard]:
         .filter(room=room, is_active=True)
         .order_by('role_key', 'slot_index')
     )
-    return [_build_card(slot) for slot in slots]
+    open_case_user_ids = _open_case_user_ids(room)
+    return [_build_card(slot, open_case_user_ids) for slot in slots]
 
 
 def slot_card_for(slot: RoomFunctionSlot) -> SlotCard:
-    """Свежая карточка одного слота — для HTMX-ответа после операции подбора."""
-    return _build_card(_card_queryset().get(pk=slot.pk))
+    """Свежая карточка одного слота — для HTMX-ответа после операции подбора.
+
+    Признак расторжения считается тем же хелпером, что и для списка: ответ
+    на HTMX-действие обязан показывать ту же карточку, что и перезагрузка
+    страницы, иначе кнопка «Другой сейлер» вернулась бы после swap.
+    """
+    record = _card_queryset().select_related('room').get(pk=slot.pk)
+    return _build_card(record, _open_case_user_ids(record.room))
 
 
 def staffing_summary(cards: list[SlotCard]) -> dict:

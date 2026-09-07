@@ -229,6 +229,12 @@ class Lead(models.Model):
         verbose_name=_('Квалификация'),
     )
     notes = models.TextField(blank=True, verbose_name=_('Комментарий'))
+    discovery_checks = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_('Чеклист квалификации'),
+        help_text=_('Факты разговора (BANT + next step); не двигает колонку Cold/Warm/Hot.'),
+    )
     matched_hot_criteria = models.JSONField(
         default=list,
         blank=True,

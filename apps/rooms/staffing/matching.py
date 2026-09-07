@@ -64,7 +64,8 @@ def get_ranked_candidates(
     * непустой `video_url`;
     * `level == slot.required_level`;
     * канал соответствует `slot.required_channel`;
-    * пользователь ещё не `RoomMember` этой комнаты.
+    * пользователь ещё не **активный** `RoomMember` этой комнаты
+      (архивное членство повторному найму не мешает).
 
     При `exclude_seen=True` дополнительно исключаются кандидаты, по которым
     в **этом** слоте уже есть запись `RoomSlotCandidate` (любой outcome:
@@ -95,9 +96,15 @@ def get_ranked_candidates(
     )
     queryset = _apply_channel_requirement(queryset, slot)
 
+    # Из пула выпадает тот, кто в команде **сейчас**. Архивное членство
+    # (человек вышел по расторжению) кандидата не исключает: повторный найм
+    # разрешён, и подбор обязан снова его показывать. Открытый кейс
+    # расторжения при этом фильтр не пропускает — до завершения кейса
+    # членство остаётся активным.
     already_in_room = RoomMember.objects.filter(
         room_id=slot.room_id,
         user_id=OuterRef('user_id'),
+        is_active=True,
     )
     queryset = queryset.filter(~Exists(already_in_room))
 

@@ -56,6 +56,11 @@ urlpatterns = [
         name='lead_detail',
     ),
     path(
+        'projects/<uuid:project_id>/room/leads/<uuid:lead_id>/discovery/',
+        views.lead_discovery,
+        name='lead_discovery',
+    ),
+    path(
         'projects/<uuid:project_id>/room/leads/<uuid:lead_id>/qualify/',
         views.lead_qualify,
         name='lead_qualify',

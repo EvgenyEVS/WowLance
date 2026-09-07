@@ -30,6 +30,11 @@ urlpatterns = [
     ),
     path('projects/<uuid:project_id>/room/documents/', views.room_documents, name='room_documents'),
     path(
+        'projects/<uuid:project_id>/room/documents/<uuid:document_id>/file/',
+        views.room_document_file,
+        name='room_document_file',
+    ),
+    path(
         'projects/<uuid:project_id>/room/documents/upload/',
         views.room_document_upload,
         name='room_document_upload',
@@ -85,6 +90,39 @@ urlpatterns = [
         'projects/<uuid:project_id>/room/team/<uuid:member_id>/remove/',
         views.room_remove_member,
         name='room_remove_member',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/team/<uuid:member_id>/termination/',
+        views.room_termination_form,
+        name='room_termination_form',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/termination/<uuid:case_id>/messages/',
+        views.room_termination_messages,
+        name='room_termination_messages',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/termination/<uuid:case_id>/send/',
+        views.room_termination_send,
+        name='room_termination_send',
+    ),
+    # Действия по открытому кейсу: две кнопки фрилансера в модалке и отзыв
+    # тимлида на странице расторжения. Все три — только POST: каждая меняет
+    # состояние кейса, и GET-ссылка на такую операцию недопустима.
+    path(
+        'projects/<uuid:project_id>/room/termination/<uuid:case_id>/leave/',
+        views.room_termination_leave,
+        name='room_termination_leave',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/termination/<uuid:case_id>/appeal/',
+        views.room_termination_appeal,
+        name='room_termination_appeal',
+    ),
+    path(
+        'projects/<uuid:project_id>/room/termination/<uuid:case_id>/revoke/',
+        views.room_termination_revoke,
+        name='room_termination_revoke',
     ),
     path(
         'projects/<uuid:project_id>/room/team/slots/<uuid:slot_id>/auto-assign/',

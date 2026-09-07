@@ -50,7 +50,7 @@ class TeamleadPeriodReportForm(forms.Form):
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
 
-    def __init__(self, *args, user=None, **kwargs):
+    def __init__(self, *args, user=None, initial_project=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         default_from, default_to = default_report_period()
@@ -64,6 +64,16 @@ class TeamleadPeriodReportForm(forms.Form):
             self.fields['project'].queryset = (
                 Project.objects.filter(teamlead=user).order_by('created_at')
             )
+            # Несвязанная форма комнаты: текущий проект выбран, «Все проекты»
+            # остаётся первой опцией. Связанный GET отчёта не перетираем.
+            if (
+                initial_project is not None
+                and not self.is_bound
+                and self.fields['project'].queryset.filter(
+                    pk=initial_project.pk
+                ).exists()
+            ):
+                self.fields['project'].initial = initial_project
 
     def clean(self):
         cleaned = super().clean()
@@ -261,3 +271,22 @@ class LeadQualifyForm(forms.Form):
     def cleaned_criteria_list(self):
         raw = self.cleaned_data.get('matched_hot_criteria', '')
         return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+class LeadDiscoveryForm(forms.Form):
+    """Галочки фактов разговора; не меняют `qualification_status`."""
+
+    def __init__(self, *args, **kwargs):
+        from .discovery import DISCOVERY_KEYS, DISCOVERY_LABELS
+
+        super().__init__(*args, **kwargs)
+        for key in DISCOVERY_KEYS:
+            self.fields[key] = forms.BooleanField(
+                label=DISCOVERY_LABELS[key],
+                required=False,
+            )
+
+    def cleaned_checks(self) -> dict[str, bool]:
+        from .discovery import DISCOVERY_KEYS
+
+        return {key: bool(self.cleaned_data.get(key)) for key in DISCOVERY_KEYS}

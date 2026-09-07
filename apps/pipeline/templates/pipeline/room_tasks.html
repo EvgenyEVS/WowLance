@@ -67,4 +67,8 @@
     {% endif %}
 </div>
 {% endif %}
+
+{% if period_report_form %}
+{% include 'pipeline/_teamlead_period_report_form.html' with form=period_report_form %}
+{% endif %}
 {% endblock %}

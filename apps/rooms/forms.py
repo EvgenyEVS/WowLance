@@ -7,6 +7,7 @@ from apps.users.models import User
 from .chat import CHAT_MESSAGE_MAX_LENGTH
 from .models import Project, RoomDocument
 from .services import VISION_INPUT_KEYS
+from .termination import TERMINATION_REASON_MIN_LENGTH
 
 
 class ProjectCreateForm(forms.ModelForm):
@@ -190,10 +191,21 @@ class AddFreelancerForm(forms.Form):
     )
 
     def __init__(self, *args, room=None, **kwargs):
+        """Кандидаты — те, кого в команде сейчас нет.
+
+        Исключаются только **активные** членства. Архивная строка человека,
+        вышедшего по расторжению, из списка его не убирает: повторный найм
+        разрешён, и `add_freelancer_to_room` вернёт в строй ту же строку,
+        а не заведёт вторую.
+        """
         super().__init__(*args, **kwargs)
         existing_ids = []
         if room is not None:
-            existing_ids = list(room.members.values_list('user_id', flat=True))
+            existing_ids = list(
+                room.members.filter(is_active=True).values_list(
+                    'user_id', flat=True,
+                )
+            )
         self.fields['freelancer'].queryset = User.objects.filter(
             role=User.Roles.FREELANCER,
             status=User.Status.ACTIVE,
@@ -304,5 +316,39 @@ class RoomChatMessageForm(forms.Form):
             'max_length': _(
                 'Сообщение длиннее %(limit)d символов.'
             ) % {'limit': CHAT_MESSAGE_MAX_LENGTH},
+        },
+    )
+
+
+class TerminationNoticeForm(forms.Form):
+    """Причина расторжения с фрилансером.
+
+    Обычная форма, а не ModelForm: из полей кейса тимлид задаёт только текст
+    причины, а комнату, участника, сроки и статус проставляет доменный
+    сервис. ModelForm сделал бы редактируемым ровно то, что пользователю
+    трогать нельзя.
+
+    Нижняя граница длины берётся из `apps.rooms.termination`, а не пишется
+    здесь числом: тот же предел проверяет доменный сервис, и разойтись эти
+    два значения не должны. `strip=True` вместе с `min_length` отсекает
+    причину из одних пробелов — после strip она просто не набирает длину.
+    """
+
+    reason = forms.CharField(
+        label=_('Причина расторжения'),
+        required=True,
+        strip=True,
+        min_length=TERMINATION_REASON_MIN_LENGTH,
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 4,
+            'placeholder': _('Опишите причину расторжения…'),
+            'aria-label': _('Причина расторжения'),
+        }),
+        error_messages={
+            'required': _('Причина расторжения обязательна.'),
+            'min_length': _(
+                'Причина расторжения — минимум %(limit)d символов.'
+            ) % {'limit': TERMINATION_REASON_MIN_LENGTH},
         },
     )

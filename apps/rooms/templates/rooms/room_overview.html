@@ -5,8 +5,37 @@
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
+{% comment %}
+Архивный участник: комната открыта только на чтение. Отдельной страницы
+архива нет намеренно — это тот же «Обзор» с теми же своими цифрами,
+вводными и ссылкой на начисления в шапке; меняется лишь то, что работать
+в нём больше нельзя, и об этом надо сказать прямо, а не оставить человека
+гадать, почему исчезли вкладки.
+
+`is_archived_member` приходит из `services.room_nav_context` и бывает
+истинным только у фрилансера с архивным членством.
+{% endcomment %}
+{% if is_archived_member %}
+<div class="info-block room-archive-notice" id="room-archive-notice">
+    <h3>Комната в архиве</h3>
+    <p>
+        Вы больше не работаете в этом проекте: задачи, лиды, отчёты и
+        командный чат закрыты. Доступен только просмотр.
+    </p>
+    <p class="muted">
+        Ваши цифры по проекту и история начислений сохранены — начисления
+        открываются кнопкой заработка в шапке комнаты.
+    </p>
+</div>
+{% endif %}
+
 {% if is_freelancer_task_preview %}
-{% if my_membership and my_membership.role_in_room == 'freelancer' and my_membership.ready_status != 'ready' %}
+{% comment %}
+«Готов к работе» не показывается ни во время расторжения, ни в архиве:
+сервер на этот POST уже отвечает 403 (гейт в `confirm_freelancer_readiness`),
+и кнопка, ведущая в отказ, вводила бы в заблуждение.
+{% endcomment %}
+{% if my_membership and my_membership.role_in_room == 'freelancer' and my_membership.ready_status != 'ready' and not show_termination_modal and not is_archived_member %}
 <form method="post" action="{% url 'rooms:room_confirm_ready' project.id %}" style="margin-bottom: 16px;">
     {% csrf_token %}
     <button type="submit" class="btn btn-primary">Готов к работе</button>
@@ -173,18 +202,32 @@ SLA-блок стартовой задачи. Формулировки гово�
 
     <div class="info-block" style="margin-top: 16px;">
         {% if is_freelancer_task_preview %}
+        {% comment %}
+        В архиве превью остаётся, а ссылки из него уходят: и «Все задачи», и
+        карточки ведут на страницы, которые архивному участнику отвечают 403
+        (`require_non_archived_room_member`). Список его прошлых задач — часть
+        тех же «своих цифр», что и полоса метрик выше, поэтому он не
+        скрывается целиком, а перестаёт быть навигацией.
+        {% endcomment %}
         <div class="section-head">
             <h3>Мои задачи</h3>
-            {% if show_tasks_tab %}
+            {% if show_tasks_tab and not is_archived_member %}
             <a href="{% url 'pipeline:room_tasks' project.id %}" class="btn btn-ghost btn-sm">Все задачи</a>
             {% endif %}
         </div>
         <div class="kanban-col my-tasks-preview">
             {% for task in my_tasks_preview %}
+            {% if is_archived_member %}
+            <div class="kanban-card">
+                <strong>{{ task.title }}</strong>
+                <span>{{ task.get_status_display }}</span>
+            </div>
+            {% else %}
             <a class="kanban-card" href="{% url 'pipeline:task_detail' project.id task.id %}">
                 <strong>{{ task.title }}</strong>
                 <span>{{ task.get_status_display }}</span>
             </a>
+            {% endif %}
             {% empty %}
             <p class="empty compact">Задач пока нет</p>
             {% endfor %}
@@ -211,6 +254,9 @@ SLA-блок стартовой задачи. Формулировки гово�
             </div>
             {% endfor %}
         </div>
+        {% if period_report_form %}
+        {% include 'pipeline/_teamlead_period_report_form.html' with form=period_report_form %}
+        {% endif %}
         {% endif %}
     </div>
 
@@ -278,7 +324,7 @@ SLA-блок стартовой задачи. Формулировки гово�
         </ul>
         <div class="slot-cards">
             {% for card in slot_cards %}
-            {% include 'rooms/_slot_card.html' with card=card can_staff_slots=False compact=True %}
+            {% include 'rooms/_slot_card.html' with card=card can_staff_slots=False can_fill_slots=False compact=True %}
             {% endfor %}
         </div>
     </div>

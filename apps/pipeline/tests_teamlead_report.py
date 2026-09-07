@@ -315,6 +315,8 @@ class TeamleadReportHttpTests(TeamleadReportTestCase):
             {project.name for project in choices},
             {'Первый проект', 'Второй проект'},
         )
+        # Дашборд не подставляет текущую комнату — «Все проекты».
+        self.assertFalse(dashboard.context['report_form'].fields['project'].initial)
 
         page = self.client.get(self.report_url)
         self.assertEqual(page.status_code, 200)
@@ -323,3 +325,94 @@ class TeamleadReportHttpTests(TeamleadReportTestCase):
         self.assertEqual(set(report), REPORT_SECTIONS)
         self.assertEqual(report['tasks']['created'], 1)
         self.assertEqual(report['team']['ready'], 1)
+
+    def test_room_tasks_form_preselects_this_project(self):
+        self.client.force_login(self.teamlead)
+        url = reverse(
+            'pipeline:room_tasks', kwargs={'project_id': self.project.id}
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        form = response.context['period_report_form']
+        self.assertIsNotNone(form)
+        self.assertEqual(form.fields['project'].initial, self.project)
+        self.assertContains(response, self.report_url)
+        self.assertContains(response, 'Отчёт за период')
+        self.assertContains(response, 'Все проекты')
+        self.assertContains(
+            response,
+            f'value="{self.project.id}" selected',
+            html=False,
+        )
+        names = {p.name for p in form.fields['project'].queryset}
+        self.assertEqual(names, {'Первый проект', 'Второй проект'})
+
+    def test_room_overview_form_preselects_this_project(self):
+        self.client.force_login(self.teamlead)
+        url = reverse(
+            'rooms:room_overview', kwargs={'project_id': self.project.id}
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        form = response.context['period_report_form']
+        self.assertIsNotNone(form)
+        self.assertEqual(form.fields['project'].initial, self.project)
+        self.assertContains(
+            response,
+            f'value="{self.project.id}" selected',
+            html=False,
+        )
+
+    def test_director_and_freelancer_do_not_see_room_period_form(self):
+        RoomMember.objects.get_or_create(
+            room=self.project.room,
+            user=self.freelancer,
+            defaults={
+                'role_in_room': RoomMember.RoleInRoom.FREELANCER,
+                'ready_status': RoomMember.ReadyStatus.READY,
+            },
+        )
+        overview = reverse(
+            'rooms:room_overview', kwargs={'project_id': self.project.id}
+        )
+        tasks = reverse(
+            'pipeline:room_tasks', kwargs={'project_id': self.project.id}
+        )
+
+        with self.subTest(role='director'):
+            self.client.force_login(self.director)
+            ov = self.client.get(overview)
+            self.assertEqual(ov.status_code, 200)
+            self.assertIsNone(ov.context.get('period_report_form'))
+            self.assertNotContains(ov, 'Отчёт за период')
+            # Вкладка «Задачи» у директора уходит на Обзор.
+            tasks_resp = self.client.get(tasks)
+            self.assertEqual(tasks_resp.status_code, 302)
+
+        with self.subTest(role='freelancer'):
+            self.client.force_login(self.freelancer)
+            ov = self.client.get(overview)
+            self.assertEqual(ov.status_code, 200)
+            self.assertIsNone(ov.context.get('period_report_form'))
+            self.assertNotContains(ov, 'Отчёт за период')
+            tasks_resp = self.client.get(tasks)
+            self.assertEqual(tasks_resp.status_code, 200)
+            self.assertIsNone(tasks_resp.context.get('period_report_form'))
+            self.assertNotContains(tasks_resp, 'Отчёт за период')
+
+    def test_submit_from_room_project_still_renders_report(self):
+        self.client.force_login(self.teamlead)
+        response = self.client.get(
+            self.report_url,
+            {
+                'project': str(self.project.id),
+                'date_from': '',
+                'date_to': '',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('report', response.context)
+        self.assertEqual(response.context['report']['scope']['project'], self.project)
+        self.assertFalse(response.context['report']['scope']['is_all_projects'])

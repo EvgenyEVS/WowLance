@@ -27,10 +27,17 @@ from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 
 from ..models import Project, RoomActivity, RoomFunctionSlot, RoomMember, RoomSlotCandidate
-from ..services import log_room_activity, user_can_manage_team
+from ..services import (
+    has_open_freelancer_termination,
+    log_room_activity,
+    reactivate_room_member,
+    require_can_work_in_room,
+    user_can_manage_team,
+)
 from . import matching
 
 __all__ = [
+    'SLOT_FILL_STATUSES',
     'STAFFING_MUTABLE_STATUSES',
     'StaffingError',
     'StaffingOutcome',
@@ -43,12 +50,26 @@ __all__ = [
     'sync_project_activation',
 ]
 
-#: Статусы проекта, в которых команда ещё формируется и staffing разрешён.
-#: Всё остальное (ACTIVE / ON_HOLD / COMPLETED / ARCHIVED) закрыто в том числе
-#: для прямого POST: проверка живёт в сервисе, а не только в шаблоне.
+#: Статусы проекта, в которых можно менять **уже собранный** состав: снимать
+#: исполнителя со слота и сажать вместо него другого. Всё остальное
+#: (ACTIVE / ON_HOLD / COMPLETED / ARCHIVED) закрыто в том числе для прямого
+#: POST: проверка живёт в сервисе, а не только в шаблоне.
 STAFFING_MUTABLE_STATUSES = frozenset({
     Project.Status.DRAFT,
     Project.Status.STAFFING,
+})
+
+#: Статусы, в которых можно закрыть **пустой** слот. Шире ровно на один
+#: `ACTIVE`, и это не смягчение правил подбора, а следствие расторжения:
+#: завершённый кейс освобождает слот запущенного проекта, и место обязано
+#: снова заполняться. Возвращать проект в `STAFFING` ради этого нельзя —
+#: остальная команда продолжает работать, а статус описывает проект целиком.
+#:
+#: Набор используется только `_guard_slot_assignment`, который вдобавок
+#: требует, чтобы слот был действительно пуст: замена исполнителя на
+#: запущенном проекте остаётся запрещённой.
+SLOT_FILL_STATUSES = STAFFING_MUTABLE_STATUSES | frozenset({
+    Project.Status.ACTIVE,
 })
 
 
@@ -98,8 +119,10 @@ def _current_member(slot: RoomFunctionSlot) -> RoomMember | None:
     )
 
 
-def _guard_staffing(slot: RoomFunctionSlot, actor, *, for_composition_autofill=False) -> Project:
-    """Общие проверки любой мутации слота: права, статус проекта, слот активен.
+def _require_staffing_rights(
+    slot: RoomFunctionSlot, actor, *, for_composition_autofill=False,
+) -> Project:
+    """Права на операцию подбора — общая часть обоих гардов.
 
     `for_composition_autofill=True` — побочный эффект сохранения состава
     директором: UI-подбором он больше не управляет, но покупка функции
@@ -116,9 +139,56 @@ def _guard_staffing(slot: RoomFunctionSlot, actor, *, for_composition_autofill=F
             )
     elif not user_can_manage_team(actor, project):
         raise PermissionDenied('Управлять составом команды может тимлид проекта.')
+    return project
+
+
+def _guard_staffing(slot: RoomFunctionSlot, actor, *, for_composition_autofill=False) -> Project:
+    """Проверки операции, меняющей **уже занятый** слот: замена исполнителя.
+
+    Статусы прежние (`STAFFING_MUTABLE_STATUSES`) и намеренно не расширены:
+    снимать работающего человека с запущенного проекта эта кнопка не должна.
+    """
+    project = _require_staffing_rights(
+        slot, actor, for_composition_autofill=for_composition_autofill,
+    )
     if project.status not in STAFFING_MUTABLE_STATUSES:
         raise StaffingError(
             'Изменить состав команды можно только пока проект набирает команду.'
+        )
+    if not slot.is_active:
+        raise StaffingError('Слот закрыт и в подборе не участвует.')
+    return project
+
+
+def _guard_slot_assignment(
+    slot: RoomFunctionSlot, actor, *, for_composition_autofill=False,
+) -> Project:
+    """Проверки заполнения **пустого** слота: те же права, статусы шире на ACTIVE.
+
+    Отдельная функция, а не флаг у `_guard_staffing`: «заполнить пустое» и
+    «заменить занятое» — разные операции с разными правилами, и случайно
+    разрешить замену на запущенном проекте одним лишним аргументом здесь
+    нельзя. `replace_slot_member` этот гард не вызывает и вызывать не должен.
+
+    На `ACTIVE` пустота слота — обязательное условие, а не следствие
+    проверок вызывающего: гард сам спрашивает БД, кто занимает слот. Иначе
+    новая ветка статусов открыла бы дорогу назначению поверх работающего
+    человека при прямом POST.
+    """
+    project = _require_staffing_rights(
+        slot, actor, for_composition_autofill=for_composition_autofill,
+    )
+    if project.status not in SLOT_FILL_STATUSES:
+        raise StaffingError(
+            'Изменить состав команды можно только пока проект набирает команду.'
+        )
+    if (
+        project.status not in STAFFING_MUTABLE_STATUSES
+        and _current_member(slot) is not None
+    ):
+        raise StaffingError(
+            'Проект уже запущен: на нём можно закрыть освободившийся слот, '
+            'но не заменить работающего исполнителя.'
         )
     if not slot.is_active:
         raise StaffingError('Слот закрыт и в подборе не участвует.')
@@ -141,13 +211,28 @@ def assign_candidate_to_slot(
 
     Назначение **не** активирует проект: статус меняет только подтверждение
     готовности всей команды (`sync_project_activation`).
+
+    Повторный найм: если человек уже был в этой комнате и вышел по
+    расторжению, его архивное членство возвращается в строй
+    (`services.reactivate_room_member`) — та же строка `RoomMember`, тот же
+    `pk`, вся история на месте. Создание второй строки запрещено
+    `unique(room, user)`, и обходить это ограничение нечем: именно оно
+    держит историю человека в комнате единой.
+
+    Действующий участник комнаты по-прежнему получает отказ — и текст, и
+    смысл прежние.
     """
-    _guard_staffing(slot, actor, for_composition_autofill=for_composition_autofill)
+    _guard_slot_assignment(
+        slot, actor, for_composition_autofill=for_composition_autofill,
+    )
 
     if _current_member(slot) is not None:
         raise StaffingError('Слот уже занят. Используйте замену кандидата.')
 
-    if RoomMember.objects.filter(room_id=slot.room_id, user=candidate).exists():
+    existing = RoomMember.objects.filter(
+        room_id=slot.room_id, user=candidate,
+    ).first()
+    if existing is not None and existing.is_active:
         raise StaffingError('Кандидат уже участвует в этой комнате.')
 
     # Право кандидата занять слот перепроверяется здесь всегда — в том числе
@@ -160,14 +245,31 @@ def assign_candidate_to_slot(
         # Вложенная точка сохранения: гонка двух быстрых POST упирается в
         # уникальные constraint базы (`function_slot` OneToOne и `room+user`),
         # и второй запрос получает понятную ошибку, а не дубль участника.
+        #
+        # Реактивация стоит внутри той же точки сохранения и после тех же
+        # проверок слота, что и создание: «слот заняли параллельным
+        # запросом» обязано остаться ошибкой гонки, а не превратиться в
+        # возврат человека поверх чужого назначения — `function_slot`
+        # OneToOne ловит это тем же `IntegrityError`.
         with transaction.atomic():
-            member = RoomMember.objects.create(
-                room=slot.room,
-                user=candidate,
-                role_in_room=RoomMember.RoleInRoom.FREELANCER,
-                ready_status=RoomMember.ReadyStatus.PENDING,
-                function_slot=slot,
-            )
+            if existing is not None:
+                member = reactivate_room_member(
+                    existing,
+                    actor=actor,
+                    role_in_room=RoomMember.RoleInRoom.FREELANCER,
+                    slot=slot,
+                    # Своё `MEMBER_ADDED` подбор пишет ниже и называет
+                    # функцию; общего «снова в команде» здесь не нужно.
+                    log_event=False,
+                )
+            else:
+                member = RoomMember.objects.create(
+                    room=slot.room,
+                    user=candidate,
+                    role_in_room=RoomMember.RoleInRoom.FREELANCER,
+                    ready_status=RoomMember.ReadyStatus.PENDING,
+                    function_slot=slot,
+                )
     except IntegrityError as exc:
         raise StaffingError('Слот уже занят другим запросом. Обновите страницу.') from exc
 
@@ -204,7 +306,9 @@ def auto_assign_best_candidate(
     сохранения состава (`for_composition_autofill=True`). Ни signal, ни
     `post_save` за это не отвечают.
     """
-    _guard_staffing(slot, actor, for_composition_autofill=for_composition_autofill)
+    _guard_slot_assignment(
+        slot, actor, for_composition_autofill=for_composition_autofill,
+    )
     if _current_member(slot) is not None:
         raise StaffingError('Слот уже занят. Используйте замену кандидата.')
 
@@ -242,12 +346,25 @@ def replace_slot_member(slot: RoomFunctionSlot, actor) -> StaffingOutcome:
     Порядок принципиален: следующий кандидат ищется **до** снятия текущего.
     Если пул исчерпан, текущий участник остаётся в комнате со своим
     `ready_status` — операция ничего не меняет и сообщает об этом.
+
+    Пока по текущему исполнителю идёт расторжение, замена запрещена. У его
+    ухода уже есть свой процесс с письменной причиной, сроком ответа и
+    правом опротестовать решение; «Другой сейлер» снял бы человека со слота
+    мимо этого процесса — и удалил бы строку членства, на которой держится
+    его история. Проверка стоит в сервисе, а не только в шаблоне: кнопка
+    скрыта, но прямой POST обязан получить отказ.
     """
     _guard_staffing(slot, actor)
 
     current = _current_member(slot)
     if current is None:
         raise StaffingError('Слот пуст — заменять некого.')
+
+    if has_open_freelancer_termination(slot.room, current.user):
+        raise StaffingError(
+            'По этому исполнителю идёт расторжение: дождитесь его завершения '
+            'или отзовите уведомление.'
+        )
 
     # Сначала следующий кандидат, только потом любые удаления.
     profile = matching.get_next_candidate(slot)
@@ -377,6 +494,11 @@ def confirm_freelancer_readiness(member: RoomMember, actor) -> bool:
         raise StaffingError('Подтверждение готовности — для фрилансеров.')
     if actor.id != member.user_id and not actor.is_superuser:
         raise PermissionDenied('Подтвердить готовность может только сам участник.')
+    # Готовность подтверждает тот, кто может работать. Проверяется сам
+    # участник, а не актор: суперпользователь не должен «подтвердить» за
+    # отстранённого. `PermissionDenied`, а не `StaffingError`, — это граница
+    # прав, и view обязана отдать 403, а не flash-сообщение.
+    require_can_work_in_room(member.user, member.room.project)
 
     changed = member.ready_status != RoomMember.ReadyStatus.READY
     if changed:
