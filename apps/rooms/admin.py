@@ -11,6 +11,7 @@ from .models import (
     RoomMember,
     RoomSlotCandidate,
     TeamleadInvite,
+    ChatReadCursor,
 )
 
 
@@ -211,3 +212,15 @@ class RoomChatMessageAdmin(admin.ModelAdmin):
     @admin.display(description='Текст')
     def short_text(self, obj):
         return obj.text[:80] + ('…' if len(obj.text) > 80 else '')
+
+
+@admin.register(ChatReadCursor)
+class ChatReadCursorAdmin(admin.ModelAdmin):
+    list_display = ['id', 'user', 'room', 'channel', 'last_read_at']
+    list_filter = ['channel']  # Убираем created_at
+    search_fields = ['user__email', 'room__project__name']
+    readonly_fields = ['last_read_at']  # Убираем created_at и updated_at
+    ordering = ['-last_read_at']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'room__project')

@@ -122,4 +122,5 @@ urlpatterns = [
         views.teamlead_invite_accept,
         name='teamlead_invite_accept',
     ),
+    path('chat-alerts/', views.chat_alerts, name='chat_alerts'),
 ]

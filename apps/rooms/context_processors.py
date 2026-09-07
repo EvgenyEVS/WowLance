@@ -1,57 +1,33 @@
-"""Context processors модуля ROOM.
+# apps/rooms/context_processors.py
 
-BIZ-шаблоны (каталог и карточка фрилансера в ``apps.profiles``) показывают
-кнопку «В комнату». Правила ROOM — какие проекты доступны для staffing и как
-выглядит форма выбора проекта — остаются здесь, чтобы ``apps.profiles``
-не импортировал ``apps.rooms`` (см. docs/ADR-001-monolith-modules.md).
-"""
-
-from django.utils.functional import SimpleLazyObject
-
-from apps.users.models import User
-
-from .forms import AddToRoomForm
-from .onboarding import staffing_projects_for_user
-
-#: Роли, которые в принципе могут добавлять фрилансеров в комнату.
-STAFFING_ROLES = frozenset({
-    User.Roles.DIRECTOR,
-    User.Roles.TEAMLEAD,
-    User.Roles.ADMIN,
-})
+from django.utils import timezone
+from .chat_notifications import get_unread_conversations
 
 
-def _resolve(request, cache):
-    """Считает флаг и форму один раз на запрос (лениво)."""
-    if 'can' in cache:
-        return cache
-
-    user = getattr(request, 'user', None)
-    if (
-        user is None
-        or not user.is_authenticated
-        or getattr(user, 'role', None) not in STAFFING_ROLES
-    ):
-        cache['can'] = False
-        cache['form'] = None
-        return cache
-
-    projects = staffing_projects_for_user(user)
-    can_staff = projects.exists()
-    cache['can'] = can_staff
-    cache['form'] = AddToRoomForm(projects=projects) if can_staff else None
-    return cache
+def chat_context(request):
+    context = {}
+    if request.user.is_authenticated:
+        conversations = get_unread_conversations(request.user)
+        context['chat_conversations'] = conversations
+        context['chat_new_messages'] = []
+    return context
 
 
 def add_to_room(request):
-    """Отдаёт шаблонам ``can_add_to_room`` и ``add_to_room_form``.
-
-    Значения ленивые: ROOM-запросы выполняются только если шаблон реально
-    обращается к этим переменным, поэтому остальные страницы сайта
-    не получают лишних запросов.
     """
-    cache = {}
-    return {
-        'can_add_to_room': SimpleLazyObject(lambda: _resolve(request, cache)['can']),
-        'add_to_room_form': SimpleLazyObject(lambda: _resolve(request, cache)['form']),
-    }
+    Контекстный процессор для добавления данных в шаблоны комнат.
+    """
+    context = {}
+
+    if request.user.is_authenticated and hasattr(request, 'resolver_match'):
+        # Получаем project_id из URL если есть
+        project_id = request.resolver_match.kwargs.get('project_id')
+        if project_id:
+            from .models import Project
+            try:
+                project = Project.objects.get(id=project_id)
+                context['current_project'] = project
+            except Project.DoesNotExist:
+                pass
+
+    return context

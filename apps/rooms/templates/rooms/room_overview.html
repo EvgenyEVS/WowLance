@@ -68,8 +68,14 @@ SLA-блок стартовой задачи. Формулировки гово�
             <strong class="metric-value">{{ project_metrics.tasks_in_review }}</strong>
         </div>
         <div class="metric-card">
-            <span class="metric-label">Слоты</span>
-            <strong class="metric-value">{{ project_metrics.slots_filled }}/{{ project_metrics.slots_total }}</strong>
+            <span class="metric-label">Team seats</span>
+            <strong class="metric-value">
+                {% if project_metrics.slots_total == 0 %}
+                    none yet
+                {% else %}
+                    {{ project_metrics.slots_filled }} of {{ project_metrics.slots_total }} filled
+                {% endif %}
+            </strong>
         </div>
     </div>
     {% endif %}
