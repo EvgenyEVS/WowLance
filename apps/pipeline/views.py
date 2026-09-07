@@ -12,6 +12,7 @@ from apps.rooms.services import (
     require_can_work_in_room,
     require_non_archived_room_member,
     room_nav_context,
+    user_can_access_lead,
     user_can_access_project,
     user_can_access_task,
     user_can_create_task,
@@ -90,6 +91,30 @@ def _get_accessible_task(user, project_id, task_id):
     finalize_expired_termination_for_user(user, project)
     ensure_room_for_project(project)
     return project, task
+
+
+def _get_accessible_lead(user, project_id, lead_id):
+    """Карточка лида: доступ к проекту или назначенный менеджер (Hot handoff).
+
+    Узкий аналог `_get_accessible_task`: лид достаётся до проверки прав,
+    потому что право открыть карточку зависит от самого лида
+    (`assigned_manager`), а не только от проекта. Доступ ко всей комнате
+    менеджеру это не даёт — см. `user_can_access_lead`.
+    """
+    project = get_object_or_404(
+        Project.objects.select_related('owner', 'teamlead'),
+        id=project_id,
+    )
+    lead = get_object_or_404(
+        Lead.objects.select_related('creator', 'assigned_manager'),
+        id=lead_id,
+        project=project,
+    )
+    if not user_can_access_lead(user, lead):
+        raise PermissionDenied('Нет доступа к лиду.')
+    finalize_expired_termination_for_user(user, project)
+    ensure_room_for_project(project)
+    return project, lead
 
 
 @login_required
@@ -182,7 +207,11 @@ def task_detail(request, project_id, task_id):
     pending = reports.filter(review_status=Report.ReviewStatus.PENDING).first()
     can_manage = user_can_manage_team(request.user, project)
     is_assignee = task.assignee_id == request.user.id
-    can_open_lead = user_can_access_project(request.user, project)
+    # Ссылка на лид — по праву на сам лид, а не на комнату: менеджеру
+    # handoff-задачи связанная карточка открыта, доска лидов — нет.
+    can_open_lead = task.lead_id is not None and user_can_access_lead(
+        request.user, task.lead
+    )
 
     return render(request, 'pipeline/task_detail.html', {
         'project': project,
@@ -339,13 +368,10 @@ def lead_create(request, project_id):
 
 @login_required
 def lead_detail(request, project_id, lead_id):
-    project = _get_project(request.user, project_id)
+    project, lead = _get_accessible_lead(request.user, project_id, lead_id)
+    # После получения лида, а не вместо него: у `_get_accessible_lead` есть
+    # ветка «я назначенный менеджер», архивного участника она не касается.
     require_non_archived_room_member(request.user, project)
-    lead = get_object_or_404(
-        Lead.objects.select_related('creator', 'assigned_manager'),
-        id=lead_id,
-        project=project,
-    )
     if (
         request.user.role == User.Roles.FREELANCER
         and lead.creator_id != request.user.id
@@ -389,6 +415,9 @@ def lead_detail(request, project_id, lead_id):
         'discovery_sections': discovery_sections,
         'discovery_hint': discovery_hint_key(checks),
         'discovery_hint_text': discovery_hint_text(checks),
+        # Менеджер handoff видит одну карточку, но не доску лидов: ссылка
+        # «К лидам» ему привела бы на 403.
+        'can_open_leads_board': user_can_access_project(request.user, project),
         'qualify_form': qualify_form,
         'hot_criteria': (project.input_data or {}).get('hot_criteria', ''),
         'active_tab': 'leads',

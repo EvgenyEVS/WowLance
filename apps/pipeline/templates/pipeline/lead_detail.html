@@ -5,7 +5,9 @@
 {% block content %}
 {% include 'rooms/_room_header.html' %}
 
+{% if can_open_leads_board %}
 <p><a href="{% url 'pipeline:room_leads' project.id %}">← К лидам</a></p>
+{% endif %}
 
 <div class="lead-detail-grid">
     <div class="info-block">
