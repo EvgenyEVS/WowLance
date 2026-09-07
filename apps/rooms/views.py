@@ -13,6 +13,7 @@ from django.views.decorators.http import require_POST, require_safe
 
 from apps.core.absolute_uri import absolute_uri
 from apps.pipeline.kanban import task_columns
+from apps.pipeline.forms import TeamleadPeriodReportForm
 from apps.pipeline.models import Task
 from apps.pipeline.services import get_start_calls_task
 from apps.users.models import User
@@ -660,6 +661,12 @@ def room_overview(request, project_id):
 
     can_edit_vision = user_can_edit_project_vision(request.user, project)
     can_appoint = user_can_appoint_teamlead(request.user, project)
+    period_report_form = None
+    if project.teamlead_id == request.user.id:
+        period_report_form = TeamleadPeriodReportForm(
+            user=request.user,
+            initial_project=project,
+        )
     invite = None
     invite_url = None
     if can_appoint and not project.teamlead_id:
@@ -691,6 +698,7 @@ def room_overview(request, project_id):
         'kanban_preview': kanban_preview,
         'is_freelancer_task_preview': is_freelancer_task_preview,
         'my_tasks_preview': my_tasks_preview,
+        'period_report_form': period_report_form,
         'can_manage_team': user_can_manage_team(request.user, project),
         'can_appoint_teamlead': can_appoint,
         'teamlead_form': AssignTeamleadForm() if can_appoint and not project.teamlead_id else None,
