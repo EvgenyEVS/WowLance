@@ -421,6 +421,33 @@ class LeadHandoffTests(PipelineProjectMixin, TestCase):
         lead.refresh_from_db()
         self.assertEqual(lead.qualification_status, Lead.Qualification.COLD)
 
+    def test_freelancer_post_qualification_returns_403(self):
+        """Фрилансер POST квалификации → 403; тимлид по-прежнему меняет статус."""
+        lead = self.make_lead(Lead.Qualification.COLD)
+        qualify_url = reverse(
+            'pipeline:lead_qualify',
+            kwargs={'project_id': self.project.id, 'lead_id': lead.id},
+        )
+        payload = {
+            'qualification_status': Lead.Qualification.HOT,
+            'matched_hot_criteria': 'Запросил демо',
+            'comment': 'Попытка фрилансера',
+        }
+
+        with self.subTest(actor='freelancer'):
+            self.client.force_login(self.freelancer)
+            response = self.client.post(qualify_url, payload)
+            self.assertEqual(response.status_code, 403)
+            lead.refresh_from_db()
+            self.assertEqual(lead.qualification_status, Lead.Qualification.COLD)
+
+        with self.subTest(actor='teamlead'):
+            self.client.force_login(self.teamlead)
+            response = self.client.post(qualify_url, payload)
+            self.assertEqual(response.status_code, 302)
+            lead.refresh_from_db()
+            self.assertEqual(lead.qualification_status, Lead.Qualification.HOT)
+
     def test_hot_lead_creates_manager_handoff_task(self):
         lead = self.make_lead(
             contact_info={'name': 'Игорь', 'email': 'igor@ex.com'},
@@ -522,7 +549,11 @@ class ManagerInboxTests(PipelineProjectMixin, TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_manager_opens_own_handoff_but_not_room_overview(self):
-        """Assignee открывает handoff; Обзор комнаты и чужой фрилансер — 403."""
+        """Assignee открывает handoff; Обзор комнаты и чужой фрилансер — 403.
+
+        Менеджер не видит навигацию комнаты и «← К задачам», но видит
+        переход в inbox. Тимлид и директор навигацию комнаты видят.
+        """
         lead = create_lead(
             project=self.project,
             creator=self.freelancer,
@@ -544,15 +575,35 @@ class ManagerInboxTests(PipelineProjectMixin, TestCase):
         overview_url = reverse(
             'rooms:room_overview', kwargs={'project_id': self.project.id}
         )
+        inbox_url = reverse('pipeline:manager_inbox')
 
         with self.subTest(actor='manager'):
             self.client.force_login(self.manager)
-            self.assertEqual(self.client.get(task_url).status_code, 200)
+            response = self.client.get(task_url)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotContains(response, 'room-tabs')
+            self.assertNotContains(response, '← К задачам')
+            self.assertContains(response, '← Горячие лиды')
+            self.assertContains(response, inbox_url)
             self.assertEqual(self.client.get(overview_url).status_code, 403)
 
         with self.subTest(actor='room_freelancer'):
             self.client.force_login(self.freelancer)
             self.assertEqual(self.client.get(task_url).status_code, 403)
+
+        with self.subTest(actor='teamlead'):
+            self.client.force_login(self.teamlead)
+            response = self.client.get(task_url)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'room-tabs')
+            self.assertContains(response, '← К задачам')
+
+        with self.subTest(actor='director'):
+            self.client.force_login(self.director)
+            response = self.client.get(task_url)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'room-tabs')
+            self.assertContains(response, '← К задачам')
 
 
 # ---------------------------------------------------------------------------

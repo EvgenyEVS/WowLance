@@ -212,8 +212,10 @@ def task_detail(request, project_id, task_id):
     can_open_lead = task.lead_id is not None and user_can_access_lead(
         request.user, task.lead
     )
-
-    return render(request, 'pipeline/task_detail.html', {
+    # Вкладки комнаты и «← К задачам» — только у тех, кто уже в проекте.
+    # Менеджер handoff задачу открывает, комнату — нет.
+    show_room_chrome = user_can_access_project(request.user, project)
+    context = {
         'project': project,
         'task': task,
         'reports': reports,
@@ -224,9 +226,12 @@ def task_detail(request, project_id, task_id):
         'report_form': ReportSubmitForm() if is_assignee else None,
         'review_form': ReportReviewForm() if can_manage and pending else None,
         'can_close': task.can_be_closed(),
+        'show_room_chrome': show_room_chrome,
         'active_tab': 'tasks',
-        **room_nav_context(request.user, project),
-    })
+    }
+    if show_room_chrome:
+        context.update(room_nav_context(request.user, project))
+    return render(request, 'pipeline/task_detail.html', context)
 
 
 @login_required
@@ -467,7 +472,7 @@ def lead_qualify(request, project_id, lead_id):
                     request,
                     'Создана задача менеджеру: связаться в течение 24 часов.',
                 )
-        except (PermissionDenied, ValidationError) as exc:
+        except ValidationError as exc:
             messages.error(request, str(exc))
     else:
         messages.error(request, 'Некорректные данные квалификации.')
