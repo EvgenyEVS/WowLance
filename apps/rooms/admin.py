@@ -1,6 +1,12 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 
+from .termination import (
+    TerminationError,
+    complete_termination,
+    revoke_termination,
+)
 from .models import (
+    FreelancerTermination,
     FunctionalRoleConfig,
     Project,
     Room,
@@ -11,6 +17,8 @@ from .models import (
     RoomMember,
     RoomSlotCandidate,
     TeamleadInvite,
+    TerminationMessage,
+    ChatReadCursor,
 )
 
 
@@ -211,3 +219,150 @@ class RoomChatMessageAdmin(admin.ModelAdmin):
     @admin.display(description='Текст')
     def short_text(self, obj):
         return obj.text[:80] + ('…' if len(obj.text) > 80 else '')
+
+
+@admin.register(FreelancerTermination)
+class FreelancerTerminationAdmin(admin.ModelAdmin):
+    """Кейсы расторжения: карточка, на которую ведёт письмо о протесте.
+
+    Регистрация нужна самому продукту, а не удобству: письмо поддержке
+    содержит ссылку `admin:rooms_freelancertermination_change`, и без
+    зарегистрированной модели этот адрес не существует — протест некуда
+    было бы адресовать.
+
+    Решение поддержки по протесту принимается здесь, двумя действиями списка,
+    и **только** ими: отдельного support-интерфейса, публичных адресов и
+    кнопок в комнате у этого сценария нет. Оба действия — обёртки над
+    доменными операциями (`complete_termination` / `revoke_termination`);
+    ни статус, ни членство админка руками не правит, иначе архивация
+    участника и автомат кейса разъехались бы.
+
+    `queryset.update()` в действиях не используется принципиально: он
+    поменял бы статус мимо автомата, мимо блокировки строки и мимо
+    архивации `RoomMember`.
+    """
+
+    list_display = [
+        'freelancer', 'project', 'status', 'initiated_by',
+        'initiated_at', 'deadline_at', 'appealed_at',
+    ]
+    list_filter = ['status']
+    search_fields = ['freelancer__email', 'room__project__name']
+    raw_id_fields = ['room', 'freelancer', 'member', 'initiated_by']
+    readonly_fields = [
+        'initiated_at', 'deadline_at', 'appealed_at', 'completed_at',
+        'revoked_at',
+    ]
+    actions = ['uphold_termination', 'reject_termination']
+
+    @admin.display(description='Проект', ordering='room__project__name')
+    def project(self, obj):
+        return obj.room.project.name
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'room__project', 'freelancer', 'initiated_by',
+        )
+
+    @admin.action(description='Оставить расторжение в силе (протест отклонён)')
+    def uphold_termination(self, request, queryset):
+        """Поддержка подтверждает расторжение после протеста.
+
+        Обрабатываются только `appeal_pending`: у `notice_sent` срок ответа
+        ещё идёт и решает его сам фрилансер, а терминальные статусы решены
+        окончательно. Поддержка отвечает на протест, а не завершает
+        расторжения вместо участников процесса.
+        """
+        self._decide(
+            request,
+            queryset,
+            operation=lambda case: complete_termination(case, actor=request.user),
+            done_label='Расторжение оставлено в силе',
+        )
+
+    @admin.action(description='Отклонить расторжение (протест удовлетворён)')
+    def reject_termination(self, request, queryset):
+        """Поддержка удовлетворяет протест: уведомление снимается.
+
+        Кейс уходит в `revoked`, членство и слот не трогаются — до
+        завершения они не архивировались, и человек просто продолжает
+        работать. Завершённое расторжение этим действием не отменяется:
+        реактивация архивного участника — отдельный сценарий повторного
+        найма, а не решение по протесту.
+        """
+        self._decide(
+            request,
+            queryset,
+            operation=revoke_termination,
+            done_label='Расторжение отклонено',
+        )
+
+    def _decide(self, request, queryset, *, operation, done_label):
+        """Общий прогон решения поддержки по выбранным кейсам.
+
+        Строки обрабатываются по одной, а не пакетным `update()`: каждая
+        проходит через доменную операцию, которая перечитывает кейс под
+        блокировкой и проверяет автомат. Между отрисовкой списка и нажатием
+        кнопки статус мог измениться — фрилансер ушёл сам, тимлид отозвал
+        уведомление, — и такая строка обязана быть пропущена, а не уронить
+        весь batch.
+
+        `TerminationError` (в том числе `InvalidTerminationTransition`) —
+        ожидаемый исход гонки и считается пропуском. Всё остальное не
+        перехватывается: ошибка программы или базы должна быть видна, а не
+        превращаться в «пропущено».
+        """
+        decided = 0
+        skipped = 0
+        for case in queryset:
+            if case.status != FreelancerTermination.Status.APPEAL_PENDING:
+                skipped += 1
+                continue
+            try:
+                operation(case)
+            except TerminationError:
+                skipped += 1
+                continue
+            decided += 1
+
+        if decided:
+            self.message_user(
+                request,
+                f'{done_label}: {decided}.',
+                messages.SUCCESS,
+            )
+        if skipped:
+            self.message_user(
+                request,
+                f'Пропущено кейсов без действующего протеста: {skipped}. '
+                'Решение поддержки применяется только к оспоренным '
+                'расторжениям.',
+                messages.WARNING,
+            )
+
+
+@admin.register(TerminationMessage)
+class TerminationMessageAdmin(admin.ModelAdmin):
+    """Сообщения в чате расторжения."""
+    list_display = ['id', 'case', 'author', 'text_preview', 'created_at']
+    list_filter = ['created_at']
+    search_fields = ['case__freelancer__email', 'text']
+    raw_id_fields = ['case', 'author']
+
+    def text_preview(self, obj):
+        return obj.text[:50] + '...' if len(obj.text) > 50 else obj.text
+
+    text_preview.short_description = 'Текст'
+
+
+@admin.register(ChatReadCursor)
+class ChatReadCursorAdmin(admin.ModelAdmin):
+    """Курсоры прочтения чата."""
+    list_display = ['id', 'user', 'room', 'channel', 'last_read_at']
+    list_filter = ['channel']
+    search_fields = ['user__email', 'room__project__name']
+    readonly_fields = ['last_read_at']
+    ordering = ['-last_read_at']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'room__project')
