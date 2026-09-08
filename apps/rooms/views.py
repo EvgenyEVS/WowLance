@@ -5,7 +5,7 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.http import FileResponse, Http404, HttpResponseBadRequest
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -18,6 +18,11 @@ from apps.pipeline.models import Task
 from apps.pipeline.services import get_start_calls_task
 from apps.users.models import User
 from . import chat, configurator
+from .chat_notifications import (
+    build_bell_context,
+    mark_channel_read,
+    mark_comms_page_read,
+)
 from .forms import (
     AddFreelancerForm,
     AddToRoomForm,
@@ -1047,7 +1052,25 @@ def room_comms(request, project_id):
                 else []
             ),
         })
+    mark_comms_page_read(request.user, room, show_dt=show_dt)
     return render(request, 'rooms/room_comms.html', context)
+
+
+@login_required
+@require_safe
+def chat_alerts(request):
+    """HTMX-опрос колокольчика: бейдж разговоров + тосты новых сообщений."""
+    viewing_project_id = (request.GET.get('viewing_project') or '').strip() or None
+    viewing_comms = request.GET.get('viewing_comms') == '1'
+    context = build_bell_context(
+        request,
+        emit_toasts=True,
+        viewing_project_id=viewing_project_id,
+        viewing_comms=viewing_comms,
+    )
+    if not context['show_chat_bell']:
+        return HttpResponse('')
+    return render(request, 'rooms/_header_chat_bell.html', context)
 
 
 @login_required
@@ -1068,6 +1091,11 @@ def room_comms_teamlead(request, project_id):
         return redirect('rooms:project_detail', project_id=project.id)
 
     chat_enabled = room.chat_enabled
+    mark_channel_read(
+        request.user,
+        room,
+        RoomChatMessage.Channel.DIRECTOR_TEAMLEAD,
+    )
     return render(request, 'rooms/room_comms_teamlead.html', {
         'project': project,
         'room': room,

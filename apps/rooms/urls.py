@@ -9,6 +9,7 @@ urlpatterns = [
     path('projects/create/', views.project_create, name='project_create'),
     path('setup/', views.setup_wizard, name='setup_wizard'),
     path('apply-architecture/', views.apply_architecture, name='apply_architecture'),
+    path('chat-alerts/', views.chat_alerts, name='chat_alerts'),
     path('projects/<uuid:project_id>/', views.project_detail, name='project_detail'),
     path('projects/<uuid:project_id>/launch/', views.project_launch, name='project_launch'),
     path('projects/<uuid:project_id>/pay/', views.project_pay, name='project_pay'),

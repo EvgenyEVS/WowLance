@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WowLance — {% block title %}Платформа продаж{% endblock %}</title>
     {% load static %}
+    {% load chat_bell %}
     <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
     <script src="{% static 'js/htmx.min.js' %}" defer></script>
@@ -27,6 +28,7 @@
                 {% if user.is_authenticated and user.role == 'director' %}
                 <a href="{% url 'rooms:setup_wizard' %}" class="header-chip">Мастер запуска</a>
                 {% endif %}
+                {% header_chat_bell %}
             </div>
             <nav class="nav-menu">
                 {% if user.is_authenticated %}
