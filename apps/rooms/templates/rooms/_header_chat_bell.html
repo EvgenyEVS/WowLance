@@ -1,0 +1,62 @@
+{% comment %}
+Колокольчик непрочитанных разговоров чата. Корень с id=header-chat-bell
+свапается HTMX outerHTML; poll_query сохраняет viewing_* с текущей страницы.
+{% endcomment %}
+{% if show_chat_bell %}
+<div id="header-chat-bell"
+     class="header-chat-bell"
+     hx-get="{% url 'rooms:chat_alerts' %}{% if poll_query %}?{{ poll_query }}{% endif %}"
+     hx-trigger="every 7s [document.visibilityState === 'visible']"
+     hx-swap="outerHTML">
+    {% if conversation_count == 0 %}
+        {% if fallback_href %}
+        <a href="{{ fallback_href }}" class="header-bell" title="Чат комнаты" aria-label="Чат комнаты">
+            <span class="header-bell-icon" aria-hidden="true">🔔</span>
+        </a>
+        {% endif %}
+    {% elif conversation_count == 1 %}
+        {% with conv=conversations.0 %}
+        <a href="{{ conv.href }}" class="header-bell has-unread" title="Непрочитанный чат" aria-label="Непрочитанный чат">
+            <span class="header-bell-icon" aria-hidden="true">🔔</span>
+            <span class="bell-badge">1</span>
+        </a>
+        {% endwith %}
+    {% else %}
+        <details class="header-bell-dropdown">
+            <summary class="header-bell has-unread" title="Непрочитанные чаты" aria-label="Непрочитанные чаты">
+                <span class="header-bell-icon" aria-hidden="true">🔔</span>
+                <span class="bell-badge">{{ conversation_count }}</span>
+            </summary>
+            <div class="bell-dropdown-menu" role="menu">
+                {% for conv in conversations %}
+                <a href="{{ conv.href }}" class="bell-dropdown-item" role="menuitem">
+                    <strong>{{ conv.project_name }}</strong>
+                    <span class="muted">{{ conv.channel_label }}</span>
+                </a>
+                {% endfor %}
+            </div>
+        </details>
+    {% endif %}
+
+    {% if toasts %}
+    <div class="header-chat-toasts" aria-live="polite">
+        {% for toast in toasts %}
+        <div class="chat-toast chat-toast-auto-hide">
+            <button type="button"
+                    class="chat-toast-close"
+                    aria-label="Закрыть"
+                    onclick="this.closest('.chat-toast').remove()">×</button>
+            <a href="{{ toast.href }}" class="chat-toast-link">
+                <div class="chat-toast-header">
+                    <strong>{{ toast.latest_message.author.full_name|default:"Участник" }}</strong>
+                    <span class="muted">{{ toast.project_name }}</span>
+                </div>
+                <p class="chat-toast-channel">{{ toast.channel_label }}</p>
+                <p class="chat-toast-body">{{ toast.latest_message.text|truncatechars:80 }}</p>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}

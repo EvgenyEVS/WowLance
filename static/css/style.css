@@ -2589,3 +2589,210 @@ textarea::placeholder {
 body:has(.termination-modal-backdrop) {
     overflow: hidden;
 }
+
+/* --- Header chat bell (HTMX poll, no sockets) --- */
+.header-chat-bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.header-bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--soft-fill, #f3f4f6);
+    color: var(--text-muted);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    list-style: none;
+}
+
+.header-bell::-webkit-details-marker {
+    display: none;
+}
+
+.header-bell:hover {
+    background: var(--soft-fill-strong, #e5e7eb);
+    color: var(--text);
+}
+
+.header-bell.has-unread {
+    color: var(--info, #1a6bb5);
+    background: rgba(26, 107, 181, 0.1);
+}
+
+.header-bell-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.bell-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    background: var(--danger, #c0392b);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.header-bell-dropdown {
+    position: relative;
+}
+
+.header-bell-dropdown summary {
+    list-style: none;
+}
+
+.bell-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 50;
+    min-width: 220px;
+    max-width: 320px;
+    padding: 6px;
+    background: var(--bg-elevated, #fff);
+    border: 1px solid var(--border-strong, var(--border));
+    border-radius: var(--radius-sm, 8px);
+    box-shadow: var(--shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
+}
+
+.bell-dropdown-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text);
+}
+
+.bell-dropdown-item:hover {
+    background: var(--soft-fill, #f3f4f6);
+}
+
+.bell-dropdown-item .muted {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.header-chat-toasts {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 280px;
+    max-width: 360px;
+}
+
+.chat-toast {
+    position: relative;
+    background: var(--bg-elevated, #fff);
+    border: 1px solid var(--border-strong, var(--border));
+    border-radius: var(--radius-sm, 8px);
+    box-shadow: var(--shadow, 0 8px 24px rgba(0, 0, 0, 0.12));
+    padding: 12px 36px 12px 14px;
+}
+
+.chat-toast-auto-hide {
+    animation: chatToastIn 0.25s ease-out, chatToastOut 0.3s ease-in 4.7s forwards;
+}
+
+.chat-toast-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    color: var(--text-dim, #9ca3af);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.chat-toast-close:hover {
+    color: var(--text);
+}
+
+.chat-toast-link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+}
+
+.chat-toast-header {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.chat-toast-header strong {
+    flex-shrink: 0;
+}
+
+.chat-toast-header .muted {
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-toast-channel {
+    margin: 0 0 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.chat-toast-body {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+@keyframes chatToastIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes chatToastOut {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-6px); }
+}
+
+@media (max-width: 640px) {
+    .header-chat-toasts {
+        left: auto;
+        right: 0;
+        min-width: 240px;
+        max-width: min(360px, calc(100vw - 32px));
+    }
+
+    .bell-dropdown-menu {
+        left: auto;
+        right: 0;
+    }
+}

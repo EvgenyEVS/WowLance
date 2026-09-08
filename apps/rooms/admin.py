@@ -6,6 +6,7 @@ from .termination import (
     revoke_termination,
 )
 from .models import (
+    ChatReadCursor,
     FreelancerTermination,
     FunctionalRoleConfig,
     Project,
@@ -217,6 +218,15 @@ class RoomChatMessageAdmin(admin.ModelAdmin):
     @admin.display(description='Текст')
     def short_text(self, obj):
         return obj.text[:80] + ('…' if len(obj.text) > 80 else '')
+
+
+@admin.register(ChatReadCursor)
+class ChatReadCursorAdmin(admin.ModelAdmin):
+    list_display = ['user', 'room', 'channel', 'last_read_at']
+    list_filter = ['channel']
+    search_fields = ['user__email', 'room__project__name']
+    autocomplete_fields = ['user', 'room']
+    readonly_fields = ['last_read_at']
 
 
 @admin.register(FreelancerTermination)

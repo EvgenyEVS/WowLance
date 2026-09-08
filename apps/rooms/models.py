@@ -706,9 +706,13 @@ class RoomChatMessage(models.Model):
     """Сообщение в чате комнаты.
 
     Минимальная переписка команды проекта: автор, текст, время. Правки,
-    удаление, вложения, реакции и счётчики непрочитанного сознательно не
-    заводятся — чат MVP по ADR-001 обновляется HTMX-опросом, без сокетов,
-    и не должен обрастать полями раньше подтверждённого спроса.
+    удаление, вложения и реакции сознательно не заводятся — чат MVP по
+    ADR-001 обновляется HTMX-опросом, без сокетов, и не должен обрастать
+    полями раньше подтверждённого спроса.
+
+    Непрочитанное для колокольчика в шапке живёт не здесь, а в
+    `ChatReadCursor` (пара user/room/channel): бейдж считает разговоры,
+    а не `COUNT` сообщений.
 
     Отправка сообщения **не** пишет `RoomActivity`: лента комнаты остаётся
     лентой значимых событий, а не копией переписки.
@@ -766,6 +770,52 @@ class RoomChatMessage(models.Model):
     def __str__(self):
         author = self.author.full_name if self.author else 'Удалённый участник'
         return f'{author}: {self.text[:40]}'
+
+
+class ChatReadCursor(models.Model):
+    """Курсор прочтения канала чата для колокольчика в шапке.
+
+    Сообщение непрочитанно, если `created_at > last_read_at` и автор не
+    текущий пользователь. Unique `(user, room, channel)` — один курсор на
+    разговор. Первый `get_or_create` ставит `last_read_at=now()`, чтобы
+    история до внедрения колокольчика не вспыхивала тостами.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='chat_read_cursors',
+        verbose_name=_('Пользователь'),
+    )
+    room = models.ForeignKey(
+        Room,
+        on_delete=models.CASCADE,
+        related_name='chat_read_cursors',
+        verbose_name=_('Комната'),
+    )
+    channel = models.CharField(
+        max_length=32,
+        choices=RoomChatMessage.Channel.choices,
+        verbose_name=_('Канал'),
+    )
+    last_read_at = models.DateTimeField(
+        default=timezone.now,
+        verbose_name=_('Прочитано до'),
+    )
+
+    class Meta:
+        verbose_name = _('Курсор прочтения чата')
+        verbose_name_plural = _('Курсоры прочтения чата')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'room', 'channel'],
+                name='unique_chat_read_cursor',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.user_id} / {self.room_id} / {self.channel} @ {self.last_read_at}'
 
 
 #: Статусы незакрытого кейса расторжения. Держатся строками рядом с моделью,
