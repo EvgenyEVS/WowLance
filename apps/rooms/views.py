@@ -33,8 +33,10 @@ from .forms import (
 from .models import (
     FreelancerTermination,
     Project,
+    Room,
     RoomActivity,
     RoomChatMessage,
+    ChatReadCursor,
     RoomDocument,
     RoomFunctionSlot,
     RoomMember,
@@ -104,6 +106,13 @@ from .staffing.services import (
     replace_slot_member,
 )
 from .unit_economics import FunctionalRolesError
+from .chat_notifications import (
+    get_unread_conversations,
+    mark_channel_read,
+    get_accessible_rooms,
+    can_access_dt_chat,
+    get_last_accessible_room,
+)
 
 SESSION_ARCH_KEY = 'architecture_preset'
 
@@ -1047,6 +1056,23 @@ def room_comms(request, project_id):
                 else []
             ),
         })
+
+    # После получения room и перед return render
+    if request.user.is_authenticated:
+        try:
+            # передаем 3 аргумента (user, room, channel)
+            mark_channel_read(request.user, room, 'team')
+            if can_access_dt_chat(request.user, room):
+                mark_channel_read(request.user, room, 'director_teamlead')
+
+            # очищаем историю показанных тостов при входе в чат
+            if 'shown_chat_toasts' in request.session:
+                del request.session['shown_chat_toasts']
+
+            request.session.save()
+        except Exception as e:
+            pass
+
     return render(request, 'rooms/room_comms.html', context)
 
 
@@ -1135,6 +1161,14 @@ def room_chat_messages(request, project_id):
         request, project, room, channel=RoomChatMessage.Channel.TEAM
     )
 
+    if request.user.is_authenticated:
+        try:
+            mark_channel_read(request.user, room, 'team') # Без request!
+            request.session.save()
+        except Exception as e:
+            pass
+    return _chat_partial(request, project, room, channel=RoomChatMessage.Channel.TEAM)
+
 
 @login_required
 @require_POST
@@ -1197,6 +1231,13 @@ def _get_dt_chat_room(request, project_id):
 def room_dt_chat_messages(request, project_id):
     """Лента приватного чата директор↔тимлид для HTMX-опроса."""
     project, room = _get_dt_chat_room(request, project_id)
+    # Отмечаем DT чат как прочитанный
+    if request.user.is_authenticated:
+        try:
+            mark_channel_read(request.user, room, 'director_teamlead') # Без request!
+            request.session.save()
+        except Exception as e:
+            pass
     return _chat_partial(
         request,
         project,
@@ -2022,3 +2063,56 @@ def room_slot_assign_candidate(request, project_id, slot_id, candidate_id):
 
     messages.success(request, f'{member.user.full_name} назначен на слот.')
     return redirect('rooms:room_team', project_id=project.id)
+
+
+@login_required
+def chat_alerts(request):
+    user = request.user
+
+    conversations = get_unread_conversations(user)
+
+    last_poll_str = request.session.get('last_chat_poll', None)
+    last_poll_time = None
+    if last_poll_str:
+        try:
+            last_poll_time = timezone.datetime.fromisoformat(last_poll_str)
+        except (ValueError, TypeError):
+            pass
+
+    new_messages = []
+
+    if last_poll_time:
+        for conv in conversations:
+            latest = conv['latest_message']
+            if latest.created_at > last_poll_time:
+                new_messages.append({
+                    'room': conv['room'],
+                    'channel': conv['channel'],
+                    'message': latest,
+                    'project_name': conv['project_name'],
+                })
+    else:
+        five_min_ago = timezone.now() - timezone.timedelta(minutes=5)
+        for conv in conversations:
+            latest = conv['latest_message']
+            if latest.created_at > five_min_ago:
+                new_messages.append({
+                    'room': conv['room'],
+                    'channel': conv['channel'],
+                    'message': latest,
+                    'project_name': conv['project_name'],
+                })
+
+    request.session['last_chat_poll'] = timezone.now().isoformat()
+    request.session.save()
+
+    current_room_id = request.GET.get('room_id', '')
+
+    context = {
+        'conversations': conversations,
+        'new_messages': new_messages,
+        'current_room_id': current_room_id,
+        'total_unread': len(conversations),
+    }
+
+    return render(request, 'rooms/_header_chat_bell.html', context)

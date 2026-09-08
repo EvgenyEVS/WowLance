@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WowLance — {% block title %}Платформа продаж{% endblock %}</title>
     {% load static %}
+    {% load room_extras %}
     <link rel="stylesheet" href="{% static 'css/fonts.css' %}">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
     <script src="{% static 'js/htmx.min.js' %}" defer></script>
@@ -27,7 +28,16 @@
                 {% if user.is_authenticated and user.role == 'director' %}
                 <a href="{% url 'rooms:setup_wizard' %}" class="header-chip">Мастер запуска</a>
                 {% endif %}
+
+                {# Колокольчик ТОЛЬКО для авторизованных #}
+                {% if user.is_authenticated and user.role != 'manager' %}
+                    {% get_current_room_id as current_room_id %}
+                    <div id="chat-bell-wrapper">
+                        {% include 'rooms/_header_chat_bell.html' with conversations=chat_conversations new_messages=chat_new_messages current_room_id=request.resolver_match.kwargs.project_id|default:'' %}
+                    </div>
+                {% endif %}
             </div>
+
             <nav class="nav-menu">
                 {% if user.is_authenticated %}
                     {% if user.role == 'director' %}
@@ -82,6 +92,55 @@
         </div>
     </footer>
 </div>
-{% block extra_js %}{% endblock %}
+
+
+    {# Контейнер для тостов чата (вне шапки, в конце body) #}
+    <div id="chat-toasts-container"
+         style="position:fixed;bottom:24px;right:24px;z-index:10000;display:flex;flex-direction:column-reverse;gap:12px;max-width:380px;width:auto;pointer-events:none;">
+    </div>
+
+    <script src="{% static 'js/chat-toasts.js' %}"></script>
+
+    <script>
+    // Глобальный обработчик: авто-закрытие тостов через 5 секунд
+    document.addEventListener('htmx:oobAfterSwap', function(event) {
+        const detail = event.detail;
+        if (detail.target && detail.target.classList && detail.target.classList.contains('chat-toast')) {
+            const toast = detail.target;
+            if (!toast.dataset.timerSet) {
+                toast.dataset.timerSet = 'true';
+                setTimeout(function() {
+                    toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateX(20px)';
+                    setTimeout(function() {
+                        if (toast.parentNode) {
+                            toast.parentNode.removeChild(toast);
+                        }
+                    }, 300);
+                }, 5000);
+            }
+        }
+    });
+
+    // Глобальный обработчик: закрытие тоста по клику на крестик
+    document.addEventListener('click', function(event) {
+        if (event.target.classList.contains('chat-toast-close')) {
+            const toast = event.target.closest('.chat-toast');
+            if (toast) {
+                toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(20px)';
+                setTimeout(function() {
+                    if (toast.parentNode) {
+                        toast.parentNode.removeChild(toast);
+                    }
+                }, 300);
+            }
+        }
+    });
+    </script>
+
+    {% block extra_js %}{% endblock %}
 </body>
 </html>

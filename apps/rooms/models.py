@@ -949,3 +949,39 @@ class TerminationMessage(models.Model):
     def __str__(self):
         author = self.author.full_name if self.author else 'Система'
         return f'{author}: {self.text[:40]}'
+
+class ChatReadCursor(models.Model):
+    """Курсор прочтения чата для колокольчика уведомлений.
+    Уникален для пары (user, room, channel).
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='chat_read_cursors',
+    )
+    room = models.ForeignKey(
+        'rooms.Room',
+        on_delete=models.CASCADE,
+        related_name='chat_read_cursors',
+    )
+    channel = models.CharField(
+        max_length=32,
+        choices=RoomChatMessage.Channel.choices,
+    )
+    last_read_at = models.DateTimeField(
+        default=timezone.now,
+        verbose_name=_('Последнее прочтение'),
+    )
+
+    class Meta:
+        verbose_name = _('Курсор прочтения чата')
+        verbose_name_plural = _('Курсоры прочтения чата')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'room', 'channel'],
+                name='unique_chat_read_cursor',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user} - {self.room} ({self.channel}) @ {self.last_read_at}"

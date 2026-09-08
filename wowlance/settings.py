@@ -151,10 +151,13 @@ TEMPLATES = [
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'apps.rooms.context_processors.chat_context',
                 'apps.rooms.context_processors.add_to_room',
+                'apps.rooms.chat_notifications.chat_context_processor',
                 'apps.pipeline.context_processors.freelancer_earnings',
             ],
         },

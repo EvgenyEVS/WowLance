@@ -17,6 +17,8 @@ from .models import (
     RoomMember,
     RoomSlotCandidate,
     TeamleadInvite,
+    TerminationMessage,
+    ChatReadCursor,
 )
 
 
@@ -343,3 +345,30 @@ class FreelancerTerminationAdmin(admin.ModelAdmin):
                 'расторжениям.',
                 messages.WARNING,
             )
+
+
+@admin.register(TerminationMessage)
+class TerminationMessageAdmin(admin.ModelAdmin):
+    """Сообщения в чате расторжения."""
+    list_display = ['id', 'case', 'author', 'text_preview', 'created_at']
+    list_filter = ['created_at']
+    search_fields = ['case__freelancer__email', 'text']
+    raw_id_fields = ['case', 'author']
+
+    def text_preview(self, obj):
+        return obj.text[:50] + '...' if len(obj.text) > 50 else obj.text
+
+    text_preview.short_description = 'Текст'
+
+
+@admin.register(ChatReadCursor)
+class ChatReadCursorAdmin(admin.ModelAdmin):
+    """Курсоры прочтения чата."""
+    list_display = ['id', 'user', 'room', 'channel', 'last_read_at']
+    list_filter = ['channel']
+    search_fields = ['user__email', 'room__project__name']
+    readonly_fields = ['last_read_at']
+    ordering = ['-last_read_at']
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'room__project')

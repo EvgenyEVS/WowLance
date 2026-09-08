@@ -1,0 +1,67 @@
+{% comment %}
+Колокольчик чата. Ожидает контекст: conversations, new_messages, current_room_id.
+{% endcomment %}
+
+{% if user.is_authenticated and user.role != 'manager' %}
+{# === КОЛОКОЛЬЧИК (в шапке) === #}
+<div class="header-bell-wrap" id="chat-bell-container">
+    {% with total_unread=conversations|length %}
+        {% if total_unread == 0 %}
+            {% if accessible_rooms %}
+                {% with last_room=accessible_rooms|first %}
+                    <a href="{% url 'rooms:room_comms' last_room.project.id %}" class="header-bell" title="Чат комнаты">
+                        🔔
+                    </a>
+                {% endwith %}
+            {% else %}
+                <span class="header-bell" title="Чат недоступен">🔔</span>
+            {% endif %}
+
+        {% elif total_unread == 1 %}
+            {% with conv=conversations|first %}
+                <a href="{% url 'rooms:room_comms' conv.room.project.id %}{% if conv.channel == 'director_teamlead' %}#comms-dt-chat{% endif %}"
+                   class="header-bell has-unread" title="Новое сообщение">
+                    🔔
+                    <span class="bell-badge">{{ total_unread }}</span>
+                </a>
+            {% endwith %}
+
+        {% else %}
+            <details class="header-bell-dropdown">
+                <summary class="header-bell has-unread" title="Несколько новых сообщений">
+                    🔔
+                    <span class="bell-badge">{{ total_unread }}</span>
+                </summary>
+                <div class="bell-dropdown-menu">
+                    {% for conv in conversations %}
+                        <a href="{% url 'rooms:room_comms' conv.room.project.id %}{% if conv.channel == 'director_teamlead' %}#comms-dt-chat{% endif %}"
+                           class="bell-dropdown-item">
+                            <strong>{{ conv.room.project.name }}</strong>
+                            <span class="muted">{% if conv.channel == 'director_teamlead' %}С тимлидом{% else %}Команда{% endif %}</span>
+                            <span class="bell-badge-sm">{{ conv.count }}</span>
+                        </a>
+                    {% endfor %}
+                </div>
+            </details>
+        {% endif %}
+    {% endwith %}
+</div>
+
+{# === ТОСТЫ === #}
+{% for item in new_messages %}
+    <div id="toast-{{ item.message.id }}" class="chat-toast">
+        <div class="chat-toast-header">
+            <strong>{{ item.message.author.full_name|default:"Участник" }}</strong>
+            <span class="muted">{{ item.project_name }}</span>
+            <button class="chat-toast-close" type="button">×</button>
+        </div>
+        <div class="chat-toast-body">
+            {{ item.message.text|truncatechars:80 }}
+        </div>
+        <a href="{% url 'rooms:room_comms' item.room.project.id %}{% if item.channel == 'director_teamlead' %}#comms-dt-chat{% endif %}"
+           class="chat-toast-link">
+            Перейти к чату →
+        </a>
+    </div>
+{% endfor %}
+{% endif %}

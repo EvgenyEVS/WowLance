@@ -71,6 +71,11 @@ class User(AbstractUser):
         """Django is_active синхронизируется со статусом аккаунта."""
         self.is_active = self.status == self.Status.ACTIVE
 
+    def get_last_accessible_room(self):
+        """Возвращает последнюю доступную комнату пользователя."""
+        from apps.rooms.chat_notifications import get_last_accessible_room
+        return get_last_accessible_room(self)
+
     class Meta:
         verbose_name = _('Пользователь')
         verbose_name_plural = _('Пользователи')
