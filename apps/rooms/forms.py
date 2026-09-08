@@ -352,3 +352,42 @@ class TerminationNoticeForm(forms.Form):
             ) % {'limit': TERMINATION_REASON_MIN_LENGTH},
         },
     )
+
+
+class TerminationAppealForm(forms.Form):
+    """Текст протеста фрилансера против расторжения.
+
+    Кнопка «Опротестовать решение» перестала быть пустым POST: поддержке и
+    тимлиду нужно знать, с чем человек не согласен, — иначе разбирать
+    нечего. Вложений у протеста нет: письмо поддержке plain text, и
+    хранить файлы кейса некуда.
+
+    Нижняя граница длины та же, что у причины тимлида, и берётся из
+    `apps.rooms.termination`, а не пишется здесь числом: тот же предел
+    проверяет доменный сервис, и разойтись эти два значения не должны.
+    `strip=True` вместе с `min_length` отсекает протест из одних пробелов —
+    после strip он просто не набирает длину.
+
+    Обычная форма, а не ModelForm по `FreelancerTermination`: из полей
+    кейса фрилансер задаёт ровно один текст, а статус, время и письмо
+    поддержке проставляет `appeal_termination`.
+    """
+
+    appeal_reason = forms.CharField(
+        label=_('С чем вы не согласны'),
+        required=True,
+        strip=True,
+        min_length=TERMINATION_REASON_MIN_LENGTH,
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 4,
+            'placeholder': _('Опишите, с чем вы не согласны…'),
+            'aria-label': _('С чем вы не согласны'),
+        }),
+        error_messages={
+            'required': _('Текст протеста обязателен.'),
+            'min_length': _(
+                'Текст протеста — минимум %(limit)d символов.'
+            ) % {'limit': TERMINATION_REASON_MIN_LENGTH},
+        },
+    )

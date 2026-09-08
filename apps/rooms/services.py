@@ -9,6 +9,7 @@ from django.utils import timezone
 from apps.users.models import User
 from . import presets
 from .models import (
+    FreelancerTermination,
     Project,
     Room,
     RoomActivity,
@@ -18,10 +19,12 @@ from .models import (
 )
 from .termination import (  # noqa: F401  (публичный фасад модуля ROOM)
     CHAT_MESSAGE_MAX_LENGTH,
+    TERMINATION_BADGE_LABELS,
     finalize_expired_termination_for,
     has_open_freelancer_termination,
     open_termination_for,
     open_terminations_by_freelancer,
+    open_terminations_by_project,
     recent_termination_messages,
 )
 from .unit_economics import (  # noqa: F401  (публичный фасад модуля ROOM)
@@ -828,6 +831,20 @@ def user_can_access_director_teamlead_comms(user, project: Project) -> bool:
     return project.teamlead_id == user.id
 
 
+def _termination_appeal_form(case):
+    """Пустая форма протеста для модалки — только при `notice_sent`.
+
+    У `appeal_pending` формы нет: протест уже отправлен, второй раз его не
+    подают, и модалка в этом статусе не показывает ни кнопок, ни поля.
+    """
+    if case is None or case.status != FreelancerTermination.Status.NOTICE_SENT:
+        return None
+
+    from .forms import TerminationAppealForm
+
+    return TerminationAppealForm()
+
+
 def room_nav_context(user, project: Project) -> dict:
     """Ролевая часть context для `rooms/_room_header.html`.
 
@@ -885,6 +902,14 @@ def room_nav_context(user, project: Project) -> dict:
         # кейсом: после `completed` и `revoked` модалки нет.
         'termination_case': termination_case,
         'show_termination_modal': termination_case is not None,
+        # Форма протеста живёт в модалке, поэтому пустая форма приходит
+        # отсюда же, вместе с остальным её контекстом. Невалидный POST
+        # подменяет её связанной формой с ошибками — она добавляется в
+        # контекст **после** этого словаря и перекрывает пустую.
+        #
+        # Импорт локальный: `forms` импортирует `services`, и обратная
+        # связь на уровне модулей замкнула бы граф.
+        'termination_appeal_form': _termination_appeal_form(termination_case),
         'is_archived_member': is_archived_member_flag,
         # Отдельное имя, чтобы не перебить `termination_messages` страницы
         # тимлида, которая подмешивает этот же контекст.

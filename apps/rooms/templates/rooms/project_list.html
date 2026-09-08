@@ -9,6 +9,14 @@
 queryset, и секция не рендерится). Строка архива ведёт на «Обзор» комнаты
 и ничего больше не предлагает: операционных действий у вышедшего из
 проекта нет, и ссылки на «Задачи»/«Команду» вели бы в 403.
+
+`termination_badge` проставляет view и только фрилансеру: открытый кейс
+оставляет комнату в рабочем списке (членство ещё активно), но строка
+помечается красным акцентом, а бейдж ведёт в «Обзор» — там снова
+показывается модалка расторжения. Тимлид и директор этой пометки не
+получают: это сигнал исполнителю. Текст бейджа приходит готовым из
+`termination.TERMINATION_BADGE_LABELS`, чтобы точные формулировки не
+ветвились по шаблону.
 {% endcomment %}
 
 {% block title %}{% if user.role == 'freelancer' %}Комнаты{% else %}Проекты{% endif %}{% endblock %}
@@ -35,8 +43,14 @@ queryset, и секция не рендерится). Строка архива 
     </thead>
     <tbody>
         {% for project in projects %}
-        <tr>
-            <td>{{ project.name }}</td>
+        <tr{% if project.termination_badge %} class="project-row--termination"{% endif %}>
+            <td>
+                {{ project.name }}
+                {% if project.termination_badge %}
+                <a class="project-termination-badge"
+                   href="{% url 'rooms:room_overview' project.id %}">{{ project.termination_badge }}</a>
+                {% endif %}
+            </td>
             <td>{{ project.get_project_type_display }}</td>
             <td>{{ project.get_seller_level_display }}</td>
             <td>{{ project.get_status_display }}</td>
