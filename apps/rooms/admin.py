@@ -238,6 +238,12 @@ class FreelancerTerminationAdmin(admin.ModelAdmin):
     `queryset.update()` в действиях не используется принципиально: он
     поменял бы статус мимо автомата, мимо блокировки строки и мимо
     архивации `RoomMember`.
+
+    Текст протеста (`appeal_reason`) виден здесь только чтением, вместе с
+    остальными отметками кейса: он ушёл в поддержку в том виде, в каком его
+    написал фрилансер, и админка не должна становиться вторым местом, где
+    протест правят. Решение по нему принимается действиями списка, а не
+    редактированием формулировки.
     """
 
     list_display = [
@@ -248,8 +254,8 @@ class FreelancerTerminationAdmin(admin.ModelAdmin):
     search_fields = ['freelancer__email', 'room__project__name']
     raw_id_fields = ['room', 'freelancer', 'member', 'initiated_by']
     readonly_fields = [
-        'initiated_at', 'deadline_at', 'appealed_at', 'completed_at',
-        'revoked_at',
+        'initiated_at', 'deadline_at', 'appeal_reason', 'appealed_at',
+        'completed_at', 'revoked_at',
     ]
     actions = ['uphold_termination', 'reject_termination']
 

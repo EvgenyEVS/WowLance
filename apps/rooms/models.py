@@ -847,6 +847,16 @@ class FreelancerTermination(models.Model):
         verbose_name=_('Ответ до'),
         help_text=_('Момент, после которого молчание считается уходом.'),
     )
+    appeal_reason = models.TextField(
+        blank=True,
+        default='',
+        verbose_name=_('С чем не согласен фрилансер'),
+        help_text=_(
+            'Текст протеста. Пишется один раз, вместе с переходом в '
+            '«Оспаривается», и после этого не редактируется: письмо '
+            'поддержке уже ушло с этой формулировкой.'
+        ),
+    )
     appealed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -904,7 +914,14 @@ class TerminationMessage(models.Model):
     ни в командный чат, ни в приватный контур директор↔тимлид.
 
     Автор — `SET_NULL`, как и у чата комнаты: переписка переживает уход
-    участника и показывается как «Удалённый участник».
+    участника.
+
+    Пустой `author` в этом треде означает **системную запись** о событии
+    кейса («покинул проект», «опротестовал расторжение»), а не удалённого
+    человека: писать в тред могут только двое, и оба остаются в БД, пока
+    существует кейс (`freelancer` — `CASCADE`, `initiated_by` — `SET_NULL`
+    у уже закрытого расторжения). Поэтому лента подписывает такие строки
+    «Система», а не именем участника.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -930,5 +947,5 @@ class TerminationMessage(models.Model):
         ordering = ['created_at']
 
     def __str__(self):
-        author = self.author.full_name if self.author else 'Удалённый участник'
+        author = self.author.full_name if self.author else 'Система'
         return f'{author}: {self.text[:40]}'

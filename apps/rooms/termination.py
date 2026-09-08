@@ -26,7 +26,10 @@
 
 Чат расторжения живёт здесь же, на `TerminationMessage`, и с чатом комнаты не
 пересекается: ни `RoomChatMessage`, ни его каналы (`team`,
-`director_teamlead`) не задействованы. Из `chat.py` берутся только числовые
+`director_teamlead`) не задействованы. События самого кейса («покинул
+проект», «опротестовал расторжение») пишутся в тот же тред системными
+записями с `author=None` — до закрытия кейса, потому что закрытый тред
+новых сообщений не принимает. Из `chat.py` берутся только числовые
 лимиты — общий предел длины сообщения не делает контуры одним чатом, а второе
 значение «2000» в коде рано или поздно разошлось бы с первым.
 """
@@ -50,6 +53,9 @@ from .models import (
 
 __all__ = [
     'ALLOWED_TRANSITIONS',
+    'SYSTEM_APPEAL_FILED_TEXT',
+    'SYSTEM_FREELANCER_LEFT_TEXT',
+    'TERMINATION_BADGE_LABELS',
     'TERMINATION_NOTICE_DAYS',
     'TERMINATION_REASON_MIN_LENGTH',
     'InvalidTerminationTransition',
@@ -63,6 +69,7 @@ __all__ = [
     'initiate_termination',
     'open_termination_for',
     'open_terminations_by_freelancer',
+    'open_terminations_by_project',
     'post_termination_message',
     'recent_termination_messages',
     'revoke_termination',
@@ -77,7 +84,22 @@ TERMINATION_NOTICE_DAYS = 3
 #: внятной причины — ровно то, ради чего этот процесс заводился.
 TERMINATION_REASON_MIN_LENGTH = 20
 
+#: Тексты системных строк треда. Держатся здесь, а не в шаблоне и не во
+#: view: их читает и приёмка, и тест, а событие кейса — часть домена, а не
+#: оформления. Формулировки точные и не склеиваются из кусков.
+SYSTEM_FREELANCER_LEFT_TEXT = 'Фрилансер покинул проект'
+SYSTEM_APPEAL_FILED_TEXT = 'Фрилансер опротестовал расторжение'
+
 _Status = FreelancerTermination.Status
+
+#: Подпись открытого кейса в списке комнат фрилансера. Словарь, а не ветка
+#: в шаблоне: тексты продуктовые и точные, а место им — рядом со статусами,
+#: которые они описывают. Закрытых статусов здесь нет намеренно: у них не
+#: бывает бейджа, и `.get()` по ним обязан вернуть `None`.
+TERMINATION_BADGE_LABELS = {
+    _Status.NOTICE_SENT: 'Идёт расторжение — нужен ответ',
+    _Status.APPEAL_PENDING: 'Заблокировано, рассматривается увольнение',
+}
 
 #: Разрешённые переходы автомата. `completed` и `revoked` терминальны и в
 #: таблице присутствуют с пустым набором — отсутствие ключа означало бы
@@ -172,6 +194,32 @@ def open_terminations_by_freelancer(room) -> dict:
     }
 
 
+def open_terminations_by_project(freelancer, projects=None) -> dict:
+    """`{project_id: кейс}` открытых расторжений одного фрилансера, один запрос.
+
+    Нужен списку «Комнаты»: строка рабочего проекта показывает бейдж
+    открытого кейса, и спрашивать про каждый проект отдельно значило бы
+    завести N+1 на первом же экране после входа.
+
+    Ключ — `project_id`, а не `room_id`: список показывает проекты, и
+    сопоставлять их с комнатами шаблону не из чего. `select_related('room')`
+    здесь ровно за этим — `project_id` берётся из уже загруженной комнаты,
+    а не отдельным запросом на кейс.
+
+    `projects` сужает выборку до уже показанных строк (у фрилансера это
+    рабочий список); `None` означает «все открытые кейсы этого человека».
+    Прав доступа функция не проверяет — это селектор, а не гейт.
+    """
+    cases = (
+        FreelancerTermination.objects
+        .filter(freelancer=freelancer, status__in=OPEN_TERMINATION_STATUSES)
+        .select_related('room')
+    )
+    if projects is not None:
+        cases = cases.filter(room__project__in=projects)
+    return {case.room.project_id: case for case in cases}
+
+
 def has_open_freelancer_termination(room, freelancer) -> bool:
     """Идёт ли по этому человеку расторжение в этой комнате.
 
@@ -258,7 +306,9 @@ def initiate_termination(*, room, member, initiated_by, reason):
 
 
 @transaction.atomic
-def complete_termination(case, *, completed_at=None, actor=None):
+def complete_termination(
+    case, *, completed_at=None, actor=None, system_message=None,
+):
     """Завершает расторжение: членство уходит в архив, слот освобождается.
 
     `RoomMember.delete()` не вызывается ни при каких условиях. Строка членства
@@ -271,9 +321,19 @@ def complete_termination(case, *, completed_at=None, actor=None):
     сценария повторного найма, а не этой операции.
 
     Статус проекта не меняется.
+
+    `system_message` — строка события для треда кейса, и пишется она **до**
+    перевода в `completed`: после завершения тред закрыт и новых записей не
+    принимает, а тимлид не увидел бы ни ухода, ни его причины. Параметр, а
+    не безусловная строка внутри: уход фрилансера (кнопка и молчание до
+    дедлайна) и решение поддержки «оставить расторжение в силе» — разные
+    события, и подписывать второе первым текстом было бы неправдой.
     """
     timestamp = completed_at or timezone.now()
     locked = _lock_for_transition(case, _Status.COMPLETED)
+
+    if system_message:
+        _post_system_message(locked, system_message)
 
     member = _member_for(locked)
     if member is not None:
@@ -298,18 +358,27 @@ def complete_termination(case, *, completed_at=None, actor=None):
 
 
 @transaction.atomic
-def appeal_termination(case, *, admin_url, appealed_at=None):
+def appeal_termination(case, *, admin_url, appeal_reason, appealed_at=None):
     """Фрилансер оспаривает расторжение: письмо в поддержку и стоп таймера.
 
-    Порядок шагов принципиален: блокировка и проверка автомата → отправка
-    письма → сохранение статуса. Письмо уходит **до** записи и с
-    `fail_silently=False`, поэтому упавшая отправка откатывает всю операцию:
-    кейс остаётся `notice_sent`, `appealed_at` пустым, а фрилансер видит
-    ошибку и может повторить. Обратный порядок оставил бы человека в статусе
-    «ждём решения поддержки», о котором поддержка никогда не узнает.
+    Порядок шагов принципиален: блокировка и проверка автомата → системные
+    строки в тред → отправка письма → сохранение статуса. Письмо уходит
+    **до** записи и с `fail_silently=False`, поэтому упавшая отправка
+    откатывает всю операцию: кейс остаётся `notice_sent`, `appealed_at` и
+    `appeal_reason` пустыми, ложных сообщений в треде не остаётся, а
+    фрилансер видит ошибку и может повторить. Обратный порядок оставил бы
+    человека в статусе «ждём решения поддержки», о котором поддержка
+    никогда не узнает.
 
     `transaction.on_commit()` здесь неприменим ровно поэтому: он выполнил бы
     отправку после фиксации, и сбой SMTP уже не смог бы отменить статус.
+
+    `appeal_reason` обязателен и проверяется здесь, а не только формой: тот
+    же текст уходит в письмо поддержке, и сервис нельзя вызвать в обход
+    валидации. Нижняя граница длины — общая с причиной тимлида: протест
+    «не согласен» не помогает разобраться ровно так же, как расторжение
+    «не подошёл». Записывается один раз, вместе с единственным переходом
+    `notice_sent → appeal_pending`, — редактировать его потом неоткуда.
 
     `deadline_at` не меняется: таймер останавливает сам статус —
     `finalize_expired_terminations` отбирает только `notice_sent`. Членство и
@@ -321,14 +390,29 @@ def appeal_termination(case, *, admin_url, appealed_at=None):
             'Для протеста нужна ссылка на кейс: поддержке иначе некуда идти.'
         )
 
+    text = (appeal_reason or '').strip()
+    if len(text) < TERMINATION_REASON_MIN_LENGTH:
+        raise TerminationError(
+            'Текст протеста — минимум '
+            f'{TERMINATION_REASON_MIN_LENGTH} символов.'
+        )
+
     timestamp = appealed_at or timezone.now()
     locked = _lock_for_transition(case, _Status.APPEAL_PENDING)
 
+    # Обе строки — пока кейс ещё `notice_sent`, то есть открыт: тред
+    # принимает записи только у открытого кейса. Текст протеста идёт
+    # отдельным сообщением, а не приклеивается к первому: в ленте это
+    # реплика фрилансера, а не часть системной формулировки.
+    _post_system_message(locked, SYSTEM_APPEAL_FILED_TEXT)
+    _post_system_message(locked, text)
+
+    locked.appeal_reason = text
     _send_appeal_email(locked, admin_url=url)
 
     locked.status = _Status.APPEAL_PENDING
     locked.appealed_at = timestamp
-    locked.save(update_fields=['status', 'appealed_at'])
+    locked.save(update_fields=['status', 'appealed_at', 'appeal_reason'])
     return locked
 
 
@@ -364,6 +448,10 @@ def finalize_expired_termination_for(room, freelancer, *, now=None):
     Берётся только `notice_sent`: у оспоренного кейса таймер остановлен, и
     автоматический уход по дедлайну для него не наступает никогда. Возвращает
     завершённый кейс или `None`, если завершать нечего.
+
+    Молчание до дедлайна — тот же уход, что и кнопка «Покинуть проект»,
+    поэтому в тред пишется та же системная строка и тем же порядком: до
+    перевода кейса в `completed`.
     """
     moment = now or timezone.now()
     case = (
@@ -378,7 +466,9 @@ def finalize_expired_termination_for(room, freelancer, *, now=None):
     )
     if case is None:
         return None
-    return complete_termination(case, completed_at=moment)
+    return complete_termination(
+        case, completed_at=moment, system_message=SYSTEM_FREELANCER_LEFT_TEXT,
+    )
 
 
 def finalize_expired_terminations(*, now=None):
@@ -391,7 +481,8 @@ def finalize_expired_terminations(*, now=None):
     успел опротестовать, тимлид успел отозвать. Поэтому каждый кейс проходит
     через тот же `complete_termination` с перепроверкой под блокировкой, а
     отказ автомата здесь не ошибка, а нормальный исход гонки: такой кейс
-    просто не считается завершённым.
+    просто не считается завершённым. Системную строку ухода пишет он же —
+    команде cron и ленивому закрытию срока незачем расходиться.
     """
     moment = now or timezone.now()
     expired = (
@@ -403,7 +494,11 @@ def finalize_expired_terminations(*, now=None):
     finalized = 0
     for case in expired:
         try:
-            complete_termination(case, completed_at=moment)
+            complete_termination(
+                case,
+                completed_at=moment,
+                system_message=SYSTEM_FREELANCER_LEFT_TEXT,
+            )
         except InvalidTerminationTransition:
             continue
         finalized += 1
@@ -449,6 +544,39 @@ def post_termination_message(case, *, author, text):
         author=author,
         text=body,
     )
+
+
+def _post_system_message(case, text):
+    """Системная запись в тред кейса: `author=None`, без участника и без RBAC.
+
+    Отдельный внутренний хелпер, а не `post_termination_message` с
+    `author=None`: у публичной отправки есть проверка участия
+    (`_assert_thread_participant`), и ослабить её ради системных событий
+    значило бы открыть тред анониму. Здесь автора нет по смыслу — строку
+    пишет не человек, а сам процесс.
+
+    Кейс обязан быть открыт: после `completed`/`revoked` тред закрыт, и
+    запись в него была бы сообщением, которого никто уже не прочитает.
+    Поэтому вызывающие пишут событие **до** перехода, а не после.
+
+    Кейс здесь не перечитывается под блокировкой: единственные вызывающие —
+    операции этого модуля, которые уже держат строку из
+    `_lock_for_transition`. Второй `select_for_update()` внутри той же
+    транзакции ничего не добавил бы, кроме лишнего запроса.
+
+    Текст сохраняется обычной строкой: ни `mark_safe`, ни какой-либо
+    подготовки разметки — экранирует шаблон, как и у обычных сообщений.
+    """
+    if case.status not in OPEN_TERMINATION_STATUSES:
+        raise TerminationError(
+            'Кейс расторжения закрыт: переписка в нём больше не ведётся.'
+        )
+
+    body = (text or '').strip()
+    if not body:
+        raise TerminationError('Системное сообщение не может быть пустым.')
+
+    return TerminationMessage.objects.create(case=case, author=None, text=body)
 
 
 def recent_termination_messages(case, *, limit=CHAT_HISTORY_LIMIT):
@@ -581,6 +709,8 @@ def _send_appeal_email(case, *, admin_url):
         f'Уведомление отправлено: {case.initiated_at:%d.%m.%Y %H:%M}\n\n'
         'Причина, указанная тимлидом:\n'
         f'{case.reason}\n\n'
+        'С чем не согласен фрилансер:\n'
+        f'{case.appeal_reason}\n\n'
         'Кейс в админке (оставить в силе / отклонить расторжение):\n'
         f'{admin_url}\n'
     )

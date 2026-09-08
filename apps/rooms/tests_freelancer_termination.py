@@ -67,6 +67,8 @@ from apps.rooms.staffing.services import (
 )
 from apps.rooms.views import _members_with_termination
 from apps.rooms.termination import (
+    SYSTEM_APPEAL_FILED_TEXT,
+    SYSTEM_FREELANCER_LEFT_TEXT,
     TERMINATION_NOTICE_DAYS,
     InvalidTerminationTransition,
     TerminationAlreadyOpen,
@@ -91,6 +93,13 @@ from apps.users.models import User
 #: Причина длиннее `TERMINATION_REASON_MIN_LENGTH`: короткая отсекается
 #: валидацией, а эти тесты проверяют не её, а переходы автомата.
 REASON = 'Систематически срывает сроки и не выходит на связь по задачам.'
+
+#: Текст протеста длиннее того же минимума: пустая кнопка «Опротестовать»
+#: больше не работает, и каждому валидному протесту нужен текст.
+APPEAL_REASON = 'Задачи сдавал в срок, претензии по срокам не обсуждались со мной.'
+
+#: Слишком короткий протест: проверяет отказ формы и сервиса.
+SHORT_APPEAL_REASON = 'Не согласен'
 
 #: Ссылка на кейс в админке, которую протест кладёт в письмо поддержке.
 #: Собирает её вызывающий код (у домена нет `request`), поэтому в тестах
@@ -309,7 +318,9 @@ class ExpiredTerminationTests(TerminationDomainTestCase):
     def test_appeal_pending_never_expires(self):
         """Оспоренный кейс ждёт решения поддержки, а не таймер."""
         case = self.initiate()
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
         # Срок ответа давно прошёл — для `notice_sent` это был бы авто-уход.
         FreelancerTermination.objects.filter(pk=case.pk).update(
             deadline_at=timezone.now() - timedelta(hours=1),
@@ -331,7 +342,9 @@ class AppealTerminationTests(TerminationDomainTestCase):
     def test_valid_appeal_notifies_support_and_keeps_the_member_in_place(self):
         case = self.initiate()
 
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
 
         case.refresh_from_db()
         self.assertEqual(
@@ -363,10 +376,14 @@ class AppealTerminationTests(TerminationDomainTestCase):
 
     def test_second_appeal_is_rejected_and_sends_nothing(self):
         case = self.initiate()
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
 
         with self.assertRaises(InvalidTerminationTransition):
-            appeal_termination(case, admin_url=ADMIN_URL)
+            appeal_termination(
+                case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+            )
 
         self.assertEqual(len(mail.outbox), 1)
 
@@ -375,7 +392,9 @@ class AppealTerminationTests(TerminationDomainTestCase):
         complete_termination(case)
 
         with self.assertRaises(InvalidTerminationTransition):
-            appeal_termination(case, admin_url=ADMIN_URL)
+            appeal_termination(
+                case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+            )
 
         self.assertEqual(mail.outbox, [])
 
@@ -387,11 +406,17 @@ class AppealTerminationTests(TerminationDomainTestCase):
             EmailMultiAlternatives, 'send', side_effect=RuntimeError('smtp down'),
         ):
             with self.assertRaises(RuntimeError):
-                appeal_termination(case, admin_url=ADMIN_URL)
+                appeal_termination(
+                    case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+                )
 
         case.refresh_from_db()
         self.assertEqual(case.status, FreelancerTermination.Status.NOTICE_SENT)
         self.assertIsNone(case.appealed_at)
+        self.assertEqual(case.appeal_reason, '')
+        # Системные строки протеста пишутся до письма, поэтому откат обязан
+        # снять и их: иначе в треде остался бы протест, которого нет.
+        self.assertEqual(TerminationMessage.objects.filter(case=case).count(), 0)
 
         self.member.refresh_from_db()
         self.assertTrue(self.member.is_active)
@@ -462,13 +487,19 @@ class TerminationChatTests(TerminationDomainTestCase):
 
     def test_appeal_pending_thread_still_accepts_messages(self):
         """Пока ждём поддержку, переписка не замирает."""
-        appeal_termination(self.case, admin_url=ADMIN_URL)
+        appeal_termination(
+            self.case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
 
         post_termination_message(
             self.case, author=self.freelancer, text='Жду решения поддержки.',
         )
 
-        self.assertEqual(TerminationMessage.objects.count(), 1)
+        # Считаются только реплики людей: сам протест уже оставил в треде
+        # две системные строки, и они здесь ни при чём.
+        self.assertEqual(
+            TerminationMessage.objects.exclude(author=None).count(), 1,
+        )
 
     def test_completed_case_rejects_new_messages(self):
         complete_termination(self.case)
@@ -655,7 +686,9 @@ class WorkBlockingTests(WorkBlockingTestCase):
 
     def test_appeal_pending_keeps_the_block(self):
         case = self.initiate()
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
         self.client.force_login(self.freelancer)
 
         self.assertEqual(self.post_task_start().status_code, 403)
@@ -919,7 +952,9 @@ class TerminationModalTests(WorkBlockingTestCase):
 
     def test_appeal_modal_says_support_is_deciding(self):
         case = self.initiate()
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
 
         response = self.get_as_freelancer('rooms:room_overview')
 
@@ -1026,7 +1061,8 @@ class LazyTerminationExpiryTests(WorkBlockingTestCase):
         case.refresh_from_db()
         self.assertEqual(case.status, FreelancerTermination.Status.COMPLETED)
 
-    def test_chat_poll_finalizes_and_closes_the_thread(self):
+    def test_chat_poll_finalizes_and_shows_the_departure(self):
+        """Опрос закрывает срок и тем же ответом отдаёт финал переписки."""
         case = self.initiate()
         self.expire(case)
         self.client.force_login(self.freelancer)
@@ -1035,13 +1071,16 @@ class LazyTerminationExpiryTests(WorkBlockingTestCase):
             self.url('rooms:room_termination_messages', case_id=case.id)
         )
 
-        self.assertIn(response.status_code, (403, 404))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, SYSTEM_FREELANCER_LEFT_TEXT)
         case.refresh_from_db()
         self.assertEqual(case.status, FreelancerTermination.Status.COMPLETED)
 
     def test_appeal_pending_survives_a_past_deadline(self):
         case = self.initiate()
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
         self.expire(case)
         self.client.force_login(self.freelancer)
 
@@ -1143,7 +1182,9 @@ class TerminationChatHttpTests(WorkBlockingTestCase):
     # --- статусы кейса ----------------------------------------------------
 
     def test_appeal_pending_thread_stays_open(self):
-        appeal_termination(self.case, admin_url=ADMIN_URL)
+        appeal_termination(
+            self.case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
         self.client.force_login(self.freelancer)
 
         self.assertEqual(self.client.get(self.messages_url).status_code, 200)
@@ -1155,10 +1196,45 @@ class TerminationChatHttpTests(WorkBlockingTestCase):
         self.assertIn(self.send().status_code, (403, 404))
         self.assertEqual(TerminationMessage.objects.count(), 0)
 
-    def test_completed_case_thread_is_unavailable(self):
-        complete_termination(self.case)
+    def test_completed_case_thread_is_read_only(self):
+        """Финал переписки виден участникам, но дописать в него нельзя.
 
-        self.assertThreadIsClosed()
+        Системная строка ухода пишется до закрытия кейса ровно затем, чтобы
+        её увидел тимлид: спрятав завершённый тред за 404, интерфейс сделал
+        бы эту запись бессмысленной. Запись при этом закрыта — завершение
+        обратно не открывается.
+        """
+        complete_termination(
+            self.case, system_message=SYSTEM_FREELANCER_LEFT_TEXT,
+        )
+        before = TerminationMessage.objects.count()
+
+        for label, user in (
+            ('freelancer', self.freelancer),
+            ('initiating teamlead', self.teamlead),
+        ):
+            with self.subTest(user=label):
+                self.client.force_login(user)
+
+                response = self.client.get(self.messages_url)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, SYSTEM_FREELANCER_LEFT_TEXT)
+                # Писать в закрытый тред по-прежнему нельзя.
+                self.assertIn(self.send().status_code, (400, 403, 404))
+
+        # Круг участников завершение кейса не расширяет.
+        for label, user in (
+            ('director', self.director),
+            ('outsider', make_freelancer(email='out@closed.test')),
+        ):
+            with self.subTest(user=label):
+                self.client.force_login(user)
+                self.assertIn(
+                    self.client.get(self.messages_url).status_code, (403, 404),
+                )
+
+        self.assertEqual(TerminationMessage.objects.count(), before)
 
     def test_revoked_case_thread_is_unavailable(self):
         revoke_termination(self.case)
@@ -1257,7 +1333,9 @@ class TaskCloseBlockingTests(WorkBlockingTestCase):
 
     def test_appeal_pending_blocks_task_close(self):
         case = self.initiate()
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
         self.client.force_login(self.freelancer)
 
         self.assertEqual(self.post_task_close().status_code, 403)
@@ -1373,7 +1451,9 @@ class ArchivedReadOnlyAccessTests(WorkBlockingTestCase):
 
     def test_appeal_pending_still_opens_operational_pages(self):
         case = self.initiate()
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
         self.client.force_login(self.freelancer)
 
         response = self.client.get(self.url('rooms:room_documents'))
@@ -1405,7 +1485,9 @@ class WorkPredicateTests(WorkBlockingTestCase):
         case = self.initiate()
         self.assertFalse(user_can_work_in_room(self.freelancer, self.project))
 
-        appeal_termination(case, admin_url=ADMIN_URL)
+        appeal_termination(
+            case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
         self.assertFalse(user_can_work_in_room(self.freelancer, self.project))
 
         revoke_termination(case)
@@ -1457,9 +1539,18 @@ class TerminationActionTestCase(WorkBlockingTestCase):
     def action_url(self, name, case=None):
         return self.url(name, case_id=(case or self.case).id)
 
-    def post_action(self, name, user, case=None):
+    def post_action(self, name, user, case=None, data=None):
         self.client.force_login(user)
-        return self.client.post(self.action_url(name, case=case))
+        return self.client.post(self.action_url(name, case=case), data or {})
+
+    def post_appeal(self, user=None, *, reason=APPEAL_REASON, case=None):
+        """POST протеста с текстом: без него действие больше не проходит."""
+        return self.post_action(
+            'rooms:room_termination_appeal',
+            user or self.freelancer,
+            case=case,
+            data={'appeal_reason': reason},
+        )
 
     def assertCaseStatus(self, status):
         self.case.refresh_from_db()
@@ -1531,7 +1622,9 @@ class TerminationLeaveHttpTests(TerminationActionTestCase):
 
     def test_leave_is_blocked_while_the_appeal_is_pending(self):
         """Протест уже у поддержки: закрыть кейс в обход неё нельзя."""
-        appeal_termination(self.case, admin_url=ADMIN_URL)
+        appeal_termination(
+            self.case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
 
         response = self.post_action('rooms:room_termination_leave', self.freelancer)
 
@@ -1593,7 +1686,7 @@ class TerminationAppealHttpTests(TerminationActionTestCase):
         )
 
     def test_freelancer_appeal_notifies_support(self):
-        response = self.post_action('rooms:room_termination_appeal', self.freelancer)
+        response = self.post_appeal()
 
         self.assertRedirects(response, self.url('rooms:room_overview'))
         self.assertCaseStatus(FreelancerTermination.Status.APPEAL_PENDING)
@@ -1630,9 +1723,9 @@ class TerminationAppealHttpTests(TerminationActionTestCase):
         self.assertMemberStillOnTheTeam()
 
     def test_second_appeal_sends_nothing(self):
-        self.post_action('rooms:room_termination_appeal', self.freelancer)
+        self.post_appeal()
 
-        response = self.post_action('rooms:room_termination_appeal', self.freelancer)
+        response = self.post_appeal()
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(len(mail.outbox), 1)
@@ -1641,7 +1734,7 @@ class TerminationAppealHttpTests(TerminationActionTestCase):
     def test_completed_case_cannot_be_appealed(self):
         complete_termination(self.case)
 
-        response = self.post_action('rooms:room_termination_appeal', self.freelancer)
+        response = self.post_appeal()
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(mail.outbox, [])
@@ -1657,12 +1750,19 @@ class TerminationAppealHttpTests(TerminationActionTestCase):
         ):
             with self.assertRaises(RuntimeError):
                 self.client.post(
-                    self.action_url('rooms:room_termination_appeal')
+                    self.action_url('rooms:room_termination_appeal'),
+                    {'appeal_reason': APPEAL_REASON},
                 )
 
         self.assertCaseStatus(FreelancerTermination.Status.NOTICE_SENT)
         self.case.refresh_from_db()
         self.assertIsNone(self.case.appealed_at)
+        self.assertEqual(self.case.appeal_reason, '')
+        # Ни одной системной строки протеста: они пишутся до письма и
+        # откатываются вместе с ним.
+        self.assertEqual(
+            TerminationMessage.objects.filter(case=self.case).count(), 0,
+        )
         self.assertMemberStillOnTheTeam()
 
     def test_action_is_post_only(self):
@@ -1690,7 +1790,9 @@ class TerminationRevokeHttpTests(TerminationActionTestCase):
         self.assertNotContains(overview, TerminationModalTests.MARKER)
 
     def test_current_teamlead_revokes_an_appealed_case(self):
-        appeal_termination(self.case, admin_url=ADMIN_URL)
+        appeal_termination(
+            self.case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
 
         response = self.post_action('rooms:room_termination_revoke', self.teamlead)
 
@@ -1811,7 +1913,7 @@ class TerminationModalActionsTests(TerminationActionTestCase):
         )
 
     def test_appeal_modal_drops_both_actions(self):
-        self.post_action('rooms:room_termination_appeal', self.freelancer)
+        self.post_appeal()
 
         response = self.overview_as_freelancer()
 
@@ -1863,7 +1965,9 @@ class TerminationRevokeButtonTests(TerminationActionTestCase):
         self.assertIn(self.LABEL, match.group(1))
 
     def test_revoke_button_stays_while_the_case_is_appealed(self):
-        appeal_termination(self.case, admin_url=ADMIN_URL)
+        appeal_termination(
+            self.case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
 
         response = self.get_form_page()
 
@@ -2462,7 +2566,9 @@ class ActiveRestaffingTerminationTests(TestCase):
         self.assertStillOnTheSlot()
 
     def test_replace_is_blocked_while_the_appeal_is_pending(self):
-        appeal_termination(self.initiate(), admin_url=ADMIN_URL)
+        appeal_termination(
+            self.initiate(), admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+        )
 
         with self.assertRaises(StaffingError):
             replace_slot_member(self.slot, self.teamlead)
@@ -2696,7 +2802,9 @@ class SupportDecisionTestCase(TestCase):
             reason=REASON,
         )
         if status == FreelancerTermination.Status.APPEAL_PENDING:
-            appeal_termination(case, admin_url=ADMIN_URL)
+            appeal_termination(
+                case, admin_url=ADMIN_URL, appeal_reason=APPEAL_REASON,
+            )
         elif status == FreelancerTermination.Status.COMPLETED:
             complete_termination(case)
         elif status == FreelancerTermination.Status.REVOKED:
@@ -3150,3 +3258,267 @@ class AcceptanceLeavePreservesHistoryTests(TerminationActionTestCase):
         overview = self.client.get(self.url('rooms:room_overview'))
         self.assertEqual(overview.status_code, 200)
         self.assertNotContains(overview, TerminationModalTests.MARKER)
+
+
+class TerminationThreadSystemMessagesTests(TerminationActionTestCase):
+    """Системные строки в треде кейса: уход, авто-уход и протест с текстом.
+
+    Один метод на четыре события: у них общая фикстура комнаты и общий
+    инвариант «строка пишется до закрытия кейса», а разбивать это на четыре
+    почти одинаковых класса значило бы четыре раза поднимать один проект.
+
+    Проверяется тред расторжения и только он: ни командный чат, ни канал
+    директор↔тимлид системных строк не получают — за этим следят
+    `tests_room_chat` и соседние тесты этого файла.
+    """
+
+    def open_case_for(self, email):
+        """Ещё один фрилансер этой же комнаты с открытым кейсом."""
+        freelancer = make_freelancer(email=email)
+        member = add_freelancer_to_room(self.room, freelancer)
+        return initiate_termination(
+            room=self.room,
+            member=member,
+            initiated_by=self.teamlead,
+            reason=REASON,
+        )
+
+    def system_texts(self, case):
+        """Тексты системных записей треда по порядку, реплики людей — мимо."""
+        return [
+            message.text
+            for message in recent_termination_messages(case)
+            if message.author_id is None
+        ]
+
+    def test_thread_records_leaving_and_appealing(self):
+        with self.subTest(event='ручной уход'):
+            response = self.post_action(
+                'rooms:room_termination_leave', self.freelancer,
+            )
+
+            self.assertRedirects(response, reverse('rooms:project_list'))
+            self.assertCaseStatus(FreelancerTermination.Status.COMPLETED)
+            # Строка есть в закрытом кейсе — значит, была записана до
+            # перехода: после `completed` тред записей не принимает.
+            self.assertEqual(
+                self.system_texts(self.case), [SYSTEM_FREELANCER_LEFT_TEXT],
+            )
+
+            # И тимлид действительно её получает: у него открыта форма
+            # расторжения, и финал приносит очередной HTMX-опрос ленты.
+            self.client.force_login(self.teamlead)
+            poll = self.client.get(
+                self.url(
+                    'rooms:room_termination_messages', case_id=self.case.id,
+                )
+            )
+            self.assertEqual(poll.status_code, 200)
+            self.assertContains(poll, SYSTEM_FREELANCER_LEFT_TEXT)
+
+        with self.subTest(event='уход по дедлайну'):
+            expired = self.open_case_for('silent@block.test')
+            FreelancerTermination.objects.filter(pk=expired.pk).update(
+                deadline_at=timezone.now() - timedelta(minutes=1),
+            )
+
+            self.assertEqual(finalize_expired_terminations(), 1)
+
+            expired.refresh_from_db()
+            self.assertEqual(
+                expired.status, FreelancerTermination.Status.COMPLETED,
+            )
+            self.assertEqual(
+                self.system_texts(expired), [SYSTEM_FREELANCER_LEFT_TEXT],
+            )
+
+        case = self.open_case_for('appeal@block.test')
+
+        with self.subTest(event='короткий протест'):
+            with self.assertRaises(TerminationError):
+                appeal_termination(
+                    case,
+                    admin_url=ADMIN_URL,
+                    appeal_reason=SHORT_APPEAL_REASON,
+                )
+
+            case.refresh_from_db()
+            self.assertEqual(
+                case.status, FreelancerTermination.Status.NOTICE_SENT,
+            )
+            self.assertEqual(case.appeal_reason, '')
+            self.assertIsNone(case.appealed_at)
+            self.assertEqual(mail.outbox, [])
+            # Ни одной ложной строки: неудавшийся протест треда не касается.
+            self.assertEqual(
+                TerminationMessage.objects.filter(case=case).count(), 0,
+            )
+
+        with self.subTest(event='протест с текстом'):
+            appeal_termination(
+                case,
+                admin_url=ADMIN_URL,
+                appeal_reason=f'  {APPEAL_REASON}  ',
+            )
+
+            case.refresh_from_db()
+            self.assertEqual(
+                case.status, FreelancerTermination.Status.APPEAL_PENDING,
+            )
+            self.assertIsNotNone(case.appealed_at)
+            # Текст сохраняется обрезанным по краям и ровно один раз.
+            self.assertEqual(case.appeal_reason, APPEAL_REASON)
+            self.assertEqual(
+                self.system_texts(case),
+                [SYSTEM_APPEAL_FILED_TEXT, APPEAL_REASON],
+            )
+
+            self.assertEqual(len(mail.outbox), 1)
+            message = mail.outbox[0]
+            self.assertEqual(message.to, [settings.SUPPORT_EMAIL])
+            self.assertIn('С чем не согласен фрилансер', message.body)
+            self.assertIn(APPEAL_REASON, message.body)
+            # Прежнее содержание письма на месте.
+            self.assertIn(REASON, message.body)
+
+
+class TerminationModalEscapeTests(TerminationActionTestCase):
+    """Выход из оверлея и шапка сайта поверх него.
+
+    Разметка проверяется на «Обзоре»: модалку рисует шапка комнаты, и на
+    остальных её поверхностях она та же самая (`TerminationModalTests`).
+    """
+
+    #: Подпись проверяется приёмкой дословно, поэтому она константа.
+    ESCAPE_LABEL = 'К списку комнат'
+
+    #: Признак глобальной навигации `base.html` — она не должна пропадать
+    #: из разметки, когда оверлей на экране.
+    GLOBAL_NAV_MARKER = 'nav-menu'
+
+    def overview(self):
+        self.client.force_login(self.freelancer)
+        return self.client.get(self.url('rooms:room_overview'))
+
+    def assertEscapeAndHeader(self, response, status_code=200):
+        html = response.content.decode()
+        rooms_url = reverse('rooms:project_list')
+
+        self.assertContains(
+            response, TerminationModalTests.MARKER, status_code=status_code,
+        )
+        self.assertContains(
+            response, self.ESCAPE_LABEL, status_code=status_code,
+        )
+        self.assertRegex(
+            html,
+            r'<a href="%s"[^>]*>\s*%s'
+            % (re.escape(rooms_url), re.escape(self.ESCAPE_LABEL)),
+        )
+
+        # Глобальная шапка осталась в разметке целиком: оверлей — про
+        # контент комнаты, а не про выход из аккаунта.
+        self.assertContains(
+            response, self.GLOBAL_NAV_MARKER, status_code=status_code,
+        )
+        nav = html[html.index(self.GLOBAL_NAV_MARKER):html.index('</nav>')]
+        for item in ('Дашборд', 'Комнаты', 'Профиль', 'Выйти'):
+            with self.subTest(nav=item):
+                self.assertIn(item, nav)
+        self.assertIn(reverse('core:home'), nav)
+        self.assertIn(rooms_url, nav)
+
+    def test_modal_offers_the_way_out_in_both_open_statuses(self):
+        with self.subTest(status='notice_sent'):
+            response = self.overview()
+
+            self.assertEscapeAndHeader(response)
+            # Протест — поле с текстом, а не пустая кнопка.
+            self.assertContains(response, 'name="appeal_reason"')
+
+        with self.subTest(status='короткий протест'):
+            response = self.post_appeal(reason=SHORT_APPEAL_REASON)
+
+            # 400 с той же модалкой, а не редирект: иначе ошибка поля
+            # потерялась бы по дороге.
+            self.assertEqual(response.status_code, 400)
+            self.assertCaseStatus(FreelancerTermination.Status.NOTICE_SENT)
+            self.case.refresh_from_db()
+            self.assertEqual(self.case.appeal_reason, '')
+            self.assertIsNone(self.case.appealed_at)
+            self.assertEqual(mail.outbox, [])
+            self.assertContains(
+                response, 'Текст протеста', status_code=400,
+            )
+            # Введённое не пропадает: форма связанная, а не новая.
+            self.assertContains(
+                response, SHORT_APPEAL_REASON, status_code=400,
+            )
+            self.assertEscapeAndHeader(response, status_code=400)
+
+        with self.subTest(status='appeal_pending'):
+            self.assertRedirects(
+                self.post_appeal(), self.url('rooms:room_overview'),
+            )
+            self.assertCaseStatus(FreelancerTermination.Status.APPEAL_PENDING)
+
+            self.assertEscapeAndHeader(self.overview())
+
+
+class ProjectListTerminationStateTests(TerminationActionTestCase):
+    """Открытый кейс в списке «Комнаты»: бейдж-вход и рабочий список."""
+
+    #: Тексты бейджа читает приёмка, поэтому они дословные константы.
+    NOTICE_BADGE = 'Идёт расторжение — нужен ответ'
+    APPEAL_BADGE = 'Заблокировано, рассматривается увольнение'
+
+    ARCHIVE_HEADING = 'Архивные комнаты'
+
+    def project_list_as(self, user):
+        self.client.force_login(user)
+        return self.client.get(reverse('rooms:project_list'))
+
+    def assertBadgeLeadsToTheRoom(self, response, label):
+        """Бейдж на месте, он же вход в комнату, и это рабочий список."""
+        html = response.content.decode()
+
+        self.assertContains(response, label)
+        self.assertRegex(
+            html,
+            r'<a class="project-termination-badge"[^>]*href="%s"[^>]*>\s*%s'
+            % (re.escape(self.url('rooms:room_overview')), re.escape(label)),
+        )
+        # Комната осталась рабочей: членство активно, архив не при чём.
+        self.assertIn(self.project, list(response.context['projects']))
+        self.assertEqual(list(response.context['archived_projects']), [])
+        self.assertNotContains(response, self.ARCHIVE_HEADING)
+        # Обычная «Открыть» ведёт туда же, где снова показывается модалка.
+        self.assertContains(response, 'Открыть')
+
+    def test_open_case_marks_the_working_row_for_the_freelancer_only(self):
+        with self.subTest(status='notice_sent'):
+            self.assertBadgeLeadsToTheRoom(
+                self.project_list_as(self.freelancer), self.NOTICE_BADGE,
+            )
+
+        with self.subTest(status='appeal_pending'):
+            self.post_appeal()
+            self.assertCaseStatus(FreelancerTermination.Status.APPEAL_PENDING)
+
+            response = self.project_list_as(self.freelancer)
+
+            self.assertBadgeLeadsToTheRoom(response, self.APPEAL_BADGE)
+            self.assertNotContains(response, self.NOTICE_BADGE)
+
+        for label, user in (
+            ('teamlead', self.teamlead),
+            ('director', self.director),
+        ):
+            with self.subTest(role=label):
+                response = self.project_list_as(user)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, self.project.name)
+                self.assertNotContains(response, self.NOTICE_BADGE)
+                self.assertNotContains(response, self.APPEAL_BADGE)
+                self.assertNotContains(response, 'project-termination-badge')

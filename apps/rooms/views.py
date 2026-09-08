@@ -27,6 +27,7 @@ from .forms import (
     RoomChatMessageForm,
     RoomDocumentForm,
     TeamleadInviteRegisterForm,
+    TerminationAppealForm,
     TerminationNoticeForm,
 )
 from .models import (
@@ -47,6 +48,7 @@ from .presets import (
     get_architecture_preset,
 )
 from .services import (
+    TERMINATION_BADGE_LABELS,
     TEST_LAUNCH_PAYMENT_AMOUNT_LABEL,
     accept_teamlead_invite,
     add_freelancer_to_room,
@@ -62,6 +64,7 @@ from .services import (
     finalize_expired_termination_for_user,
     open_termination_for,
     open_terminations_by_freelancer,
+    open_terminations_by_project,
     require_can_work_in_room,
     require_non_archived_room_member,
     room_nav_context,
@@ -81,6 +84,7 @@ from .services import (
 from .staffing import matching, selectors
 from .termination import (
     CHAT_MESSAGE_MAX_LENGTH,
+    SYSTEM_FREELANCER_LEFT_TEXT,
     TerminationAlreadyOpen,
     TerminationError,
     appeal_termination,
@@ -357,6 +361,32 @@ def _freelancer_room_projects(user, *, is_active):
     ).distinct()
 
 
+def _with_termination_badges(projects, freelancer):
+    """Рабочие комнаты фрилансера с подписью открытого кейса на строке.
+
+    Список, а не queryset: на проекты проставляется `termination_badge`, и
+    ленивый queryset выполнился бы заново уже без этого атрибута.
+
+    Кейсы берутся одним запросом на весь список (`open_terminations_by_project`),
+    а не по кейсу на строку: N+1 на первом же экране после входа — ровно то,
+    ради чего этот хелпер и заведён.
+
+    Открытый кейс не убирает комнату из рабочего списка: членство ещё
+    активно, работать в проекте нельзя, но ответить на уведомление нужно
+    именно отсюда. В архив она уходит только после `completed` — этим
+    занимается `_freelancer_room_projects`, и здесь эта логика не
+    дублируется.
+    """
+    rows = list(projects)
+    open_cases = open_terminations_by_project(freelancer, projects=rows)
+    for project in rows:
+        case = open_cases.get(project.id)
+        project.termination_badge = (
+            TERMINATION_BADGE_LABELS.get(case.status) if case else None
+        )
+    return rows
+
+
 @login_required
 def project_list(request):
     """Список проектов, доступных пользователю.
@@ -365,6 +395,11 @@ def project_list(request):
     те, откуда он вышел по расторжению. Архив не удаляется и не прячется
     совсем: своя история, свои цифры и начисления остаются доступны через
     «Обзор» архивной комнаты.
+
+    Ему же — и только ему — на строке рабочей комнаты проставляется
+    подпись открытого расторжения: это сигнал исполнителю, что от него
+    ждут ответа. Тимлид, директор, менеджер и платформенный admin такой
+    пометки не получают, и лишнего запроса за кейсами им тоже не стоит.
 
     Для директора, тимлида, менеджера и платформенного admin запрос и
     семантика списка не меняются: архив — состояние членства фрилансера,
@@ -389,6 +424,8 @@ def project_list(request):
         projects = Project.objects.none()
 
     projects = projects.select_related('owner', 'teamlead').order_by('-created_at')
+    if user.role == User.Roles.FREELANCER:
+        projects = _with_termination_badges(projects, user)
     return render(request, 'rooms/project_list.html', {
         'projects': projects,
         'archived_projects': archived_projects,
@@ -1367,7 +1404,9 @@ def catalog_add_to_room(request, user_id):
     return redirect('rooms:room_team', project_id=project.id)
 
 
-def _get_termination_thread(request, project_id, case_id):
+def _get_termination_thread(
+    request, project_id, case_id, *, allow_completed=False,
+):
     """Кейс расторжения для обоих endpoint'ов его чата.
 
     Правило доступа — **участие в кейсе**, а не роль в комнате: тред читают
@@ -1383,8 +1422,20 @@ def _get_termination_thread(request, project_id, case_id):
     чата комнаты, а переписка о расторжении обязательна и выключаться ею не
     может.
 
-    Закрытый кейс — `Http404`: треда как пользовательской сущности больше
-    нет, хотя сообщения остаются в БД. Посторонний — `PermissionDenied`.
+    Чтение и запись расходятся ровно в одном месте — `allow_completed`.
+    Завершённый кейс новых сообщений не принимает (`post_termination_message`
+    и без того откажет), но последняя системная строка треда — «Фрилансер
+    покинул проект» — пишется **до** перехода в `completed` именно для того,
+    чтобы её увидел тимлид. Отдав на опрос 404, интерфейс спрятал бы её
+    навсегда: у тимлида открыта форма расторжения, и следующий HTMX-опрос
+    обязан принести финал, а не «страницы нет». Поэтому GET ленты пускает и
+    `completed`, а POST отправки — нет.
+
+    `revoked` остаётся закрытым для обоих: там уведомление снято, человек
+    работает дальше, и читать в этом треде нечего.
+
+    Посторонний — `PermissionDenied` в любом статусе: круг участников
+    завершение кейса не расширяет.
     """
     case = get_object_or_404(
         FreelancerTermination.objects.select_related(
@@ -1399,8 +1450,12 @@ def _get_termination_thread(request, project_id, case_id):
     # и `appeal_pending` не задевает.
     if finalize_expired_termination_for(case.room, case.freelancer):
         case.refresh_from_db()
-    if not case.is_open:
-        raise Http404('Расторжение завершено: переписка по нему закрыта.')
+    is_readable = case.is_open or (
+        allow_completed
+        and case.status == FreelancerTermination.Status.COMPLETED
+    )
+    if not is_readable:
+        raise Http404('Расторжение закрыто: переписка по нему недоступна.')
 
     participants = {case.freelancer_id}
     if case.initiated_by_id:
@@ -1432,9 +1487,15 @@ def room_termination_messages(request, project_id, case_id):
     """Лента чата расторжения для HTMX-опроса.
 
     `require_safe` — не украшение: адрес опрашивается каждые несколько
-    секунд и обязан оставаться строго read-only.
+    секунд и обязан оставаться строго read-only. Ровно поэтому здесь и
+    можно пустить `completed` (`allow_completed=True`): опрос ничего не
+    меняет, а участникам нужен финал переписки — системная строка ухода,
+    записанная перед закрытием кейса. Отправка сообщений остаётся закрытой:
+    у неё этого флага нет.
     """
-    case = _get_termination_thread(request, project_id, case_id)
+    case = _get_termination_thread(
+        request, project_id, case_id, allow_completed=True,
+    )
     return _termination_messages_partial(request, case)
 
 
@@ -1448,6 +1509,10 @@ def room_termination_send(request, project_id, case_id):
     (пустой текст, перебор длины, закрытый кейс) — это 400 с той же лентой и
     текстом ошибки; `PermissionDenied` намеренно не перехватывается и
     остаётся 403.
+
+    `allow_completed` здесь не передаётся сознательно: читать финал
+    завершённого кейса можно, дописывать в него — нет, и завершение обратно
+    не открывается.
     """
     case = _get_termination_thread(request, project_id, case_id)
     try:
@@ -1541,7 +1606,9 @@ def room_termination_leave(request, project_id, case_id):
     в силе), поэтому статус проверяется до вызова, а не вместо него.
 
     Членство архивируется, а не удаляется — этим занимается
-    `complete_termination`, и здесь его работа не дублируется.
+    `complete_termination`, и здесь его работа не дублируется. Ему же
+    передаётся системная строка ухода: тред закрывается вместе с кейсом,
+    поэтому запись обязана появиться до перехода, а не после него.
 
     Редирект в список проектов: комната для ушедшего осталась read-only
     «Обзором», и возвращать его туда сразу после выхода незачем.
@@ -1557,7 +1624,11 @@ def room_termination_leave(request, project_id, case_id):
         )
 
     try:
-        complete_termination(case, actor=request.user)
+        complete_termination(
+            case,
+            actor=request.user,
+            system_message=SYSTEM_FREELANCER_LEFT_TEXT,
+        )
     except TerminationError as exc:
         return _termination_action_conflict(str(exc))
 
@@ -1569,20 +1640,52 @@ def room_termination_leave(request, project_id, case_id):
     return redirect('rooms:project_list')
 
 
+def _termination_modal_response(request, case, *, appeal_form, status=400):
+    """Страница комнаты, свёрнутая до блокирующей модалки, с ошибками формы.
+
+    Невалидный протест не может быть редиректом: 302 потерял бы ошибки
+    поля, и фрилансер увидел бы ту же пустую форму без объяснения. Поэтому
+    ответ — обычный render той же модалки с той же связанной формой, только
+    со статусом 400.
+
+    Отдельный тонкий шаблон, а не «Обзор» комнаты: за оверлеем всё равно не
+    работает ни одна вкладка, а собирать ради ошибки поля метрики, канбан и
+    состав команды не за чем. Шапка комнаты и глобальная навигация
+    `base.html` при этом на месте — уйти из комнаты можно.
+    """
+    project = case.room.project
+    return render(request, 'rooms/room_termination_notice.html', {
+        'project': project,
+        'room': case.room,
+        'active_tab': 'overview',
+        **room_nav_context(request.user, project),
+        # После словаря навигации: он кладёт пустую форму, а здесь нужна
+        # связанная — с введённым текстом и ошибкой.
+        'termination_appeal_form': appeal_form,
+    }, status=status)
+
+
 @login_required
 @require_POST
 def room_termination_appeal(request, project_id, case_id):
     """«Опротестовать решение»: письмо в поддержку и остановка срока.
+
+    Протест — не пустая кнопка: без текста разбирать поддержке нечего,
+    поэтому POST проходит через `TerminationAppealForm`. Невалидная форма —
+    400 с той же модалкой и ошибкой поля (`_termination_modal_response`);
+    кейс при этом остаётся `notice_sent`, письма нет, и в треде не
+    появляется ни одной ложной строки.
 
     Ссылка на кейс в админке собирается здесь, а не в домене: у домена нет
     `request`, а поддержке нужен абсолютный адрес. `absolute_uri` — тот же
     хелпер, что у приглашения тимлида и активации: на демо и проде хост
     берётся из `PUBLIC_HOST`, а не из заголовка запроса.
 
-    Текст письма, порядок «письмо → статус» и откат при сбое отправки живут
-    в `appeal_termination` и здесь не повторяются. Исключение отправки
-    намеренно не проглатывается: тихий `except` превратил бы неушедшее
-    письмо в статус «ждём ответа поддержки», о котором поддержка не узнает.
+    Текст письма, системные строки треда, порядок «сообщения → письмо →
+    статус» и откат при сбое отправки живут в `appeal_termination` и здесь
+    не повторяются. Исключение отправки намеренно не проглатывается: тихий
+    `except` превратил бы неушедшее письмо в статус «ждём ответа
+    поддержки», о котором поддержка не узнает.
 
     Редирект на «Обзор» комнаты: там же, где фрилансер нажал кнопку, он
     сразу видит модалку с новым статусом. Внешний `next` не принимается —
@@ -1598,12 +1701,20 @@ def room_termination_appeal(request, project_id, case_id):
             'о расторжении.'
         )
 
+    form = TerminationAppealForm(request.POST)
+    if not form.is_valid():
+        return _termination_modal_response(request, case, appeal_form=form)
+
     admin_url = absolute_uri(
         request,
         reverse('admin:rooms_freelancertermination_change', args=[case.pk]),
     )
     try:
-        appeal_termination(case, admin_url=admin_url)
+        appeal_termination(
+            case,
+            admin_url=admin_url,
+            appeal_reason=form.cleaned_data['appeal_reason'],
+        )
     except TerminationError as exc:
         return _termination_action_conflict(str(exc))
 
