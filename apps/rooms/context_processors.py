@@ -13,9 +13,9 @@ from apps.users.models import User
 from .forms import AddToRoomForm
 from .onboarding import staffing_projects_for_user
 
-#: Роли, которые в принципе могут добавлять фрилансеров в комнату.
+#: Кто видит «В комнату» в каталоге. Совпадает с ``user_can_manage_team``:
+#: операционка слотов — у тимлида (и admin), не у директора-заказчика.
 STAFFING_ROLES = frozenset({
-    User.Roles.DIRECTOR,
     User.Roles.TEAMLEAD,
     User.Roles.ADMIN,
 })

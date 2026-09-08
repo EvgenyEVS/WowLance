@@ -204,7 +204,12 @@ def manager_metrics(user) -> dict:
 
 
 def staffing_projects_for_user(user):
-    """Проекты, куда директор/тимлид может добавить фрилансера."""
+    """Проекты владельца/тимлида для формы «В комнату».
+
+    Список для директора ещё нужен на случай прямого POST: view валидирует
+    форму, затем режет через ``user_can_manage_team`` (403). Кнопку в UI
+    директору не показывают (`context_processors.STAFFING_ROLES`).
+    """
     if user.role == User.Roles.DIRECTOR:
         qs = Project.objects.filter(owner=user)
     elif user.role == User.Roles.TEAMLEAD:

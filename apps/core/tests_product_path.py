@@ -199,6 +199,33 @@ class CatalogAddToRoomTests(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.status, Project.Status.STAFFING)
 
+    def test_director_does_not_see_add_to_room_on_catalog(self):
+        """B1 QA: кнопка не должна врать — директор не staff'ит вручную."""
+        self.client.force_login(self.director)
+        response = self.client.get(reverse('profiles:catalog'))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['can_add_to_room'])
+        self.assertFalse(response.context['add_to_room_form'])
+        self.assertNotContains(response, 'В комнату')
+
+    def test_director_post_add_to_room_is_forbidden(self):
+        self.client.force_login(self.director)
+        response = self.client.post(
+            reverse(
+                'rooms:catalog_add_to_room',
+                kwargs={'user_id': self.freelancer.id},
+            ),
+            {'project': str(self.project.id)},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(
+            RoomMember.objects.filter(
+                room=self.project.room,
+                user=self.freelancer,
+                role_in_room=RoomMember.RoleInRoom.FREELANCER,
+            ).exists()
+        )
+
 
 class TeamleadInviteTests(TestCase):
     """Приглашение тимлида: новый регистрируется, существующий принимает."""
