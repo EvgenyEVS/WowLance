@@ -311,6 +311,34 @@ class TaskPermissionTests(PipelineProjectMixin, TestCase):
             },
         )
 
+    def test_assignee_select_lists_active_freelancers_only(self):
+        """В селекте исполнителей нет директора и тимлида (QA H2)."""
+        self.client.force_login(self.teamlead)
+        response = self.client.get(self.tasks_url())
+        self.assertEqual(response.status_code, 200)
+        form = response.context['create_form']
+        assignee_ids = set(form.fields['assignee'].queryset.values_list('id', flat=True))
+        self.assertIn(self.freelancer.id, assignee_ids)
+        self.assertNotIn(self.director.id, assignee_ids)
+        self.assertNotIn(self.teamlead.id, assignee_ids)
+        self.assertNotContains(response, self.director.email)
+
+    def test_cannot_post_director_as_task_assignee(self):
+        self.client.force_login(self.teamlead)
+        response = self.client.post(
+            self.create_url(),
+            {
+                'title': 'Задача на директора',
+                'description': 'Нельзя',
+                'assignee': str(self.director.id),
+                'deadline': '',
+                'checklist_text': '',
+                'report_required': 'on',
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Task.objects.filter(title='Задача на директора').exists())
+
     def test_task_creation_is_teamlead_only_in_service_and_over_http(self):
         """Право сузилось до тимлида проекта — владелец задачи не ставит.
 
