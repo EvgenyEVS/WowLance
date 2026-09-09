@@ -1,7 +1,7 @@
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
-from apps.rooms.models import Project
+from apps.rooms.models import Project, RoomMember
 from apps.users.models import User
 from .models import Lead, Report, Task
 from .services import parse_checklist_text
@@ -136,7 +136,13 @@ class TaskCreateForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.project = project
         if project is not None:
-            member_ids = project.room.members.values_list('user_id', flat=True)
+            # Ручные WORK-задачи — активным фрилансерам комнаты.
+            # Директор и тимлид тоже RoomMember, но в селект не входят
+            # (QA H2: директор в исполнители не ставится).
+            member_ids = project.room.members.filter(
+                role_in_room=RoomMember.RoleInRoom.FREELANCER,
+                is_active=True,
+            ).values_list('user_id', flat=True)
             self.fields['assignee'].queryset = User.objects.filter(
                 id__in=member_ids,
                 status=User.Status.ACTIVE,
